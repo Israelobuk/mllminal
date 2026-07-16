@@ -1,4 +1,4 @@
-﻿"""Authenticated REST and replayable WebSocket API."""
+"""Authenticated REST and replayable WebSocket API."""
 
 import asyncio
 import secrets
@@ -194,4 +194,3 @@ def _pending_payload(pending: PendingTask) -> dict[str, Any]:
         "plan": pending.plan.model_dump(mode="json"),
         "approval": pending.approval.model_dump(mode="json"),
     }
-

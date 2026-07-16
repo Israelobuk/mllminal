@@ -1,4 +1,4 @@
-﻿"""Stateful Mil orchestration with durable approvals and verification."""
+"""Stateful Mil orchestration with durable approvals and verification."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,4 +150,3 @@ class MilRuntime:
                 task.id, TaskState.FAILED, blocker="verification_failed"
             )
         return self.store.transition_task(task.id, TaskState.COMPLETED)
-
