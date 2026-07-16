@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from mllminal.agent.runtime import MilRuntime
 from mllminal.contracts import ApprovalStatus, TaskState
 from mllminal.runtime_store import RuntimeStore
@@ -15,9 +17,10 @@ def make_runtime(tmp_path: Path) -> tuple[MilRuntime, RuntimeStore, str]:
     return MilRuntime(store), store, session.id
 
 
-def test_approved_plan_executes_verifies_and_completes(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_approved_plan_executes_verifies_and_completes(tmp_path: Path) -> None:
     runtime, store, session_id = make_runtime(tmp_path)
-    pending = runtime.submit(session_id, "inspect this project", "request-1")
+    pending = await runtime.submit(session_id, "inspect this project", "request-1")
     completed = runtime.decide(pending.approval.id, ApprovalStatus.APPROVED, "approved-1")
 
     assert pending.task.state is TaskState.WAITING_FOR_APPROVAL
@@ -26,9 +29,10 @@ def test_approved_plan_executes_verifies_and_completes(tmp_path: Path) -> None:
     assert store.list_verifications(completed.id)[0].succeeded is True
 
 
-def test_rejected_plan_executes_nothing_and_blocks(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_rejected_plan_executes_nothing_and_blocks(tmp_path: Path) -> None:
     runtime, store, session_id = make_runtime(tmp_path)
-    pending = runtime.submit(session_id, "inspect this project", "request-1")
+    pending = await runtime.submit(session_id, "inspect this project", "request-1")
     blocked = runtime.decide(pending.approval.id, ApprovalStatus.REJECTED, "rejected-1")
 
     assert blocked.state is TaskState.BLOCKED
@@ -36,10 +40,11 @@ def test_rejected_plan_executes_nothing_and_blocks(tmp_path: Path) -> None:
     assert store.list_executions(blocked.id) == []
 
 
-def test_duplicate_submission_returns_original_task(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_duplicate_submission_returns_original_task(tmp_path: Path) -> None:
     runtime, store, session_id = make_runtime(tmp_path)
-    first = runtime.submit(session_id, "inspect this project", "same-key")
-    second = runtime.submit(session_id, "inspect this project", "same-key")
+    first = await runtime.submit(session_id, "inspect this project", "same-key")
+    second = await runtime.submit(session_id, "inspect this project", "same-key")
 
     assert second.task.id == first.task.id
     assert len(store.list_tasks()) == 1

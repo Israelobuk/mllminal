@@ -1,4 +1,4 @@
-"""Authenticated REST and replayable WebSocket API."""
+﻿"""Authenticated REST and replayable WebSocket API."""
 
 import asyncio
 import secrets
@@ -122,7 +122,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     ) -> dict[str, Any]:
         previous = store.list_events(session_id)
         after = previous[-1].sequence if previous else 0
-        pending = runtime.submit(session_id, body.content, idempotency_key)
+        pending = await runtime.submit(session_id, body.content, idempotency_key)
         await hub.publish(store.list_events(session_id, after))
         return _pending_payload(pending)
 
@@ -194,3 +194,4 @@ def _pending_payload(pending: PendingTask) -> dict[str, Any]:
         "plan": pending.plan.model_dump(mode="json"),
         "approval": pending.approval.model_dump(mode="json"),
     }
+

@@ -1,13 +1,14 @@
-"""Stateful Mil orchestration with durable approvals and verification."""
+﻿"""Stateful Mil orchestration with durable approvals and verification."""
 
 from dataclasses import dataclass
 from pathlib import Path
 
-from mllminal.agent.provider import DeterministicMilProvider, MilProvider
+from mllminal.agent.provider import DeterministicMilProvider, MilProvider, MilRequest
 from mllminal.contracts import (
     Approval,
     ApprovalStatus,
     MessageRole,
+    PermissionGrant,
     Plan,
     Task,
     TaskState,
@@ -36,7 +37,7 @@ class MilRuntime:
         self.provider = provider or DeterministicMilProvider()
         self.tools = tools or ToolRegistry()
 
-    def submit(self, session_id: str, request: str, idempotency_key: str) -> PendingTask:
+    async def submit(self, session_id: str, request: str, idempotency_key: str) -> PendingTask:
         existing = self.store.find_task_by_idempotency(session_id, idempotency_key)
         if existing is not None:
             return PendingTask(
@@ -53,19 +54,46 @@ class MilRuntime:
             idempotency_key,
         )
         task = self.store.transition_task(task.id, TaskState.PLANNING)
-        response = self.provider.plan(task.id, request, Path(session.workspace_root))
-        self.store.save_plan(response.plan)
+        provider_request = MilRequest(
+            session_id=session_id,
+            task_id=task.id,
+            user_message=request,
+            workspace_root=session.workspace_root,
+            conversation=self.store.list_messages(session_id)[-20:],
+            available_tools=list(self.tools.definitions.values()),
+            permissions=[
+                PermissionGrant(permission="filesystem.read", workspace_root=session.workspace_root)
+            ],
+        )
+        response_text = ""
+        plan: Plan | None = None
+        async for event in self.provider.stream_response(provider_request):
+            if event.event_type == "response.delta" and event.text is not None:
+                response_text += event.text
+            if event.event_type == "plan.proposed":
+                plan = event.plan
+            if event.event_type == "provider.failed":
+                return PendingTask(
+                    task=self.store.transition_task(
+                        task.id, TaskState.FAILED, blocker="provider_failed"
+                    ),
+                    plan=Plan(task_id=task.id, steps=[]),
+                    approval=Approval(task_id=task.id, proposal_id="provider_failed"),
+                )
+        if plan is None:
+            raise ValueError("Provider completed without a validated plan")
+        self.store.save_plan(plan)
         self.store.add_message(
             session_id,
             MessageRole.MIL,
-            "".join(response.chunks),
+            response_text,
             idempotency_key=f"mil:{task.id}",
         )
         approval = self.store.create_approval(
-            Approval(task_id=task.id, proposal_id=response.plan.steps[0].proposal.id)
+            Approval(task_id=task.id, proposal_id=plan.steps[0].proposal.id)
         )
         task = self.store.transition_task(task.id, TaskState.WAITING_FOR_APPROVAL)
-        return PendingTask(task=task, plan=response.plan, approval=approval)
+        return PendingTask(task=task, plan=plan, approval=approval)
 
     def decide(self, approval_id: str, status: ApprovalStatus, idempotency_key: str) -> Task:
         approval, changed = self.store.decide_approval(approval_id, status, idempotency_key)
@@ -122,3 +150,4 @@ class MilRuntime:
                 task.id, TaskState.FAILED, blocker="verification_failed"
             )
         return self.store.transition_task(task.id, TaskState.COMPLETED)
+
