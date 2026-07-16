@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mllminal.agent.ollama import OllamaProviderError
+from mllminal.agent.prompts import repair_message, system_message
 from mllminal.contracts import Message, PermissionGrant, Plan, PlanStep, ToolProposal
 from mllminal.tools import ToolDefinition, ToolRegistry
 
@@ -207,10 +208,7 @@ class QwenMilProvider:
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "You are Mil. You may propose registered tools but cannot execute them. "
-                    "Return only the required JSON response envelope."
-                ),
+                "content": system_message(),
             }
         ]
         messages.extend(
@@ -235,11 +233,7 @@ class QwenMilProvider:
                     messages.append(
                         {
                             "role": "user",
-                            "content": (
-                                "Repair the previous response. Return only a valid JSON envelope "
-                                "using supplied tools and permissions. Validation error: "
-                                f"{error}"
-                            ),
+                            "content": repair_message(str(error)),
                         }
                     )
                     continue

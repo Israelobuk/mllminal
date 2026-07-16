@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from mllminal.agent.prompts import system_message
 from mllminal.agent.provider import MilRequest, QwenMilProvider
 from mllminal.contracts import PermissionGrant
 from mllminal.tools import ToolRegistry
@@ -55,6 +56,7 @@ async def test_qwen_provider_validates_ollama_envelope_before_proposing_plan(
     assert events[-1].plan is not None
     assert events[-1].plan.steps[0].proposal.tool_name == "project.inspect_metadata"
     assert events[-1].detail == {"input_tokens": 5, "output_tokens": 7}
+    assert client.requests[0][0] == {"role": "system", "content": system_message()}
     assert client.requests[0][-1] == {"role": "user", "content": "inspect this project"}
 
 
