@@ -1,15 +1,16 @@
 """Versioned contracts for safe, local policy learning."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from math import isclose
-from typing import Self
+from typing import Literal, Self
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from uuid6 import uuid7
 
-FEATURE_VERSION = "features_v1"
-ACTION_SPACE_VERSION = "actions_v1"
+FEATURE_VERSION: Literal["features_v1"] = "features_v1"
+ACTION_SPACE_VERSION: Literal["actions_v1"] = "actions_v1"
 FEATURE_DIM = 15
 ACTION_DIM = 9
 DEFAULT_CONFIDENCE = 0.65
@@ -25,7 +26,25 @@ def new_id() -> str:
 
 class LearningContract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    schema_version: str = "v1"
+    schema_version: Literal["v1"] = "v1"
+
+    @model_validator(mode="after")
+    def validate_identity_and_time(self) -> Self:
+        entity_id = getattr(self, "id", None)
+        if entity_id is not None:
+            try:
+                parsed_id = UUID(entity_id)
+            except (ValueError, AttributeError) as error:
+                raise ValueError("entity id must be UUIDv7") from error
+            if parsed_id.version != 7:
+                raise ValueError("entity id must be UUIDv7")
+        for field_name in self.__class__.model_fields:
+            value = getattr(self, field_name)
+            if isinstance(value, datetime) and (
+                value.tzinfo is None or value.utcoffset() != timedelta(0)
+            ):
+                raise ValueError(f"{field_name} must be timezone-aware UTC")
+        return self
 
 
 class PolicyAction(StrEnum):
@@ -77,8 +96,8 @@ class PromotionOutcome(StrEnum):
 class PolicyState(LearningContract):
     id: str = Field(default_factory=new_id)
     task_id: str
-    feature_version: str = FEATURE_VERSION
-    action_space_version: str = ACTION_SPACE_VERSION
+    feature_version: Literal["features_v1"] = FEATURE_VERSION
+    action_space_version: Literal["actions_v1"] = ACTION_SPACE_VERSION
     features: tuple[float, ...] = Field(min_length=FEATURE_DIM, max_length=FEATURE_DIM)
     action_mask: tuple[bool, ...] = Field(min_length=ACTION_DIM, max_length=ACTION_DIM)
     created_at: datetime = Field(default_factory=utc_now)
@@ -200,12 +219,13 @@ class EvaluationReport(LearningContract):
 
 class PolicyVersion(LearningContract):
     id: str = Field(default_factory=new_id)
-    version: int = Field(ge=1)
+    version: int = Field(ge=0)
+    name: str | None = None
     lifecycle: PolicyLifecycle = PolicyLifecycle.CANDIDATE
-    feature_version: str = FEATURE_VERSION
-    action_space_version: str = ACTION_SPACE_VERSION
-    checkpoint_sha256: str
-    training_run_id: str
+    feature_version: Literal["features_v1"] = FEATURE_VERSION
+    action_space_version: Literal["actions_v1"] = ACTION_SPACE_VERSION
+    checkpoint_sha256: str | None = None
+    training_run_id: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -235,5 +255,6 @@ class LearningStatus(LearningContract):
     eligible_experience_count: int = Field(default=0, ge=0)
     minimum_experience_count: int = Field(default=100, ge=1)
     replay_capacity: int = Field(default=10_000, ge=1)
+    seed: int = 42
     confidence_threshold: float = Field(default=DEFAULT_CONFIDENCE, ge=0.0, le=1.0)
     updated_at: datetime = Field(default_factory=utc_now)

@@ -10,6 +10,8 @@ from mllminal.learning.contracts import (
 )
 
 _TOOL_RELATED_ACTIONS = {
+    PolicyAction.INSPECT_WORKSPACE,
+    PolicyAction.READ_PROJECT_FILE,
     PolicyAction.EXECUTE_APPROVED_TOOL,
     PolicyAction.VERIFY_RESULT,
     PolicyAction.RETRY,
@@ -26,6 +28,16 @@ def eligibility_exclusions(
     reasons: list[str] = []
     if not experience.outcome.terminal:
         reasons.append("nonterminal")
+    if experience.outcome.terminal and not any(
+        (
+            experience.outcome.task_completed,
+            experience.outcome.task_failed,
+            experience.outcome.verification_passed,
+            experience.outcome.verification_failed,
+            experience.outcome.correct_safe_stop,
+        )
+    ):
+        reasons.append("missing_terminal_result")
     if experience.selected_action is None:
         reasons.append("missing_selected_action")
     if experience.reward is None:
@@ -58,7 +70,9 @@ def calculate_reward(outcome: ExperienceOutcome) -> RewardBreakdown:
     """Apply fixed weights and retain every component for auditability."""
 
     components = {
-        "verified_completion": 5.0 if outcome.task_completed else 0.0,
+        "verified_completion": (
+            5.0 if outcome.task_completed and outcome.verification_passed else 0.0
+        ),
         "verification_passed": 2.0 if outcome.verification_passed else 0.0,
         "tool_succeeded": 1.5 if outcome.tool_succeeded else 0.0,
         "user_accepted": 1.0 if outcome.user_accepted else 0.0,
