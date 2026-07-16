@@ -1,14 +1,24 @@
 """Stateful Mil orchestration with durable approvals and verification."""
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from mllminal.agent.provider import DeterministicMilProvider, MilProvider
+from mllminal.agent.prompts import PROMPT_VERSION
+from mllminal.agent.provider import (
+    DeterministicMilProvider,
+    MilProvider,
+    MilRequest,
+    build_bounded_context,
+)
 from mllminal.contracts import (
     Approval,
     ApprovalStatus,
     MessageRole,
+    PermissionGrant,
     Plan,
+    ProviderResponseMetadata,
     Task,
     TaskState,
     ToolExecution,
@@ -25,6 +35,15 @@ class PendingTask:
     approval: Approval
 
 
+class ProviderFailure(RuntimeError):
+    """A provider failed without producing an executable plan."""
+
+    def __init__(self, task: Task, category: str, message: str) -> None:
+        super().__init__(message)
+        self.task = task
+        self.category = category
+
+
 class MilRuntime:
     def __init__(
         self,
@@ -36,7 +55,7 @@ class MilRuntime:
         self.provider = provider or DeterministicMilProvider()
         self.tools = tools or ToolRegistry()
 
-    def submit(self, session_id: str, request: str, idempotency_key: str) -> PendingTask:
+    async def submit(self, session_id: str, request: str, idempotency_key: str) -> PendingTask:
         existing = self.store.find_task_by_idempotency(session_id, idempotency_key)
         if existing is not None:
             return PendingTask(
@@ -53,19 +72,87 @@ class MilRuntime:
             idempotency_key,
         )
         task = self.store.transition_task(task.id, TaskState.PLANNING)
-        response = self.provider.plan(task.id, request, Path(session.workspace_root))
-        self.store.save_plan(response.plan)
+        conversation, was_trimmed = build_bounded_context(self.store.list_messages(session_id), 20)
+        if was_trimmed:
+            self.store.append_event(
+                session_id, "context.trimmed", {"kept_messages": len(conversation)}
+            )
+        provider_request = MilRequest(
+            session_id=session_id,
+            task_id=task.id,
+            user_message=request,
+            workspace_root=session.workspace_root,
+            conversation=conversation,
+            available_tools=list(self.tools.definitions.values()),
+            permissions=[
+                PermissionGrant(permission="filesystem.read", workspace_root=session.workspace_root)
+            ],
+        )
+        response_text = ""
+        plan: Plan | None = None
+        detail: dict[str, Any] = {}
+        async for event in self.provider.stream_response(provider_request):
+            self.store.append_event(session_id, event.event_type, event.model_dump(mode="json"))
+            if event.event_type == "response.delta" and event.text is not None:
+                response_text += event.text
+            if event.event_type == "plan.proposed":
+                plan = event.plan
+                detail = event.detail
+            if event.event_type == "provider.failed":
+                category = str(event.detail.get("category", "provider_failed"))
+                failed = self.store.transition_task(task.id, TaskState.FAILED, blocker=category)
+                self._save_metadata(failed, "failed", False, event.detail, category)
+                raise ProviderFailure(failed, category, event.text or "Mil provider failed")
+        if plan is None:
+            failed = self.store.transition_task(task.id, TaskState.FAILED, blocker="missing_plan")
+            self._save_metadata(failed, "failed", False, detail, "missing_plan")
+            raise ProviderFailure(
+                failed, "missing_plan", "Provider completed without a validated plan"
+            )
+        self._save_metadata(task, "completed", True, detail, None)
+        self.store.save_plan(plan)
         self.store.add_message(
             session_id,
             MessageRole.MIL,
-            "".join(response.chunks),
+            response_text,
             idempotency_key=f"mil:{task.id}",
         )
         approval = self.store.create_approval(
-            Approval(task_id=task.id, proposal_id=response.plan.steps[0].proposal.id)
+            Approval(task_id=task.id, proposal_id=plan.steps[0].proposal.id)
         )
         task = self.store.transition_task(task.id, TaskState.WAITING_FOR_APPROVAL)
-        return PendingTask(task=task, plan=response.plan, approval=approval)
+        return PendingTask(task=task, plan=plan, approval=approval)
+
+    def _save_metadata(
+        self,
+        task: Task,
+        completion_status: str,
+        validation_succeeded: bool,
+        detail: dict[str, Any],
+        failure_category: str | None,
+    ) -> None:
+        provider = (
+            "deterministic" if isinstance(self.provider, DeterministicMilProvider) else "qwen"
+        )
+        model = (
+            "fixture"
+            if provider == "deterministic"
+            else str(getattr(getattr(self.provider, "_client", None), "model", "unknown"))
+        )
+        self.store.save_provider_metadata(
+            ProviderResponseMetadata(
+                task_id=task.id,
+                provider=provider,
+                model=model,
+                prompt_version=PROMPT_VERSION,
+                completion_status=completion_status,
+                validation_succeeded=validation_succeeded,
+                retry_count=int(detail.get("retry_count", 0)),
+                failure_category=failure_category,
+                input_tokens=detail.get("input_tokens"),
+                output_tokens=detail.get("output_tokens"),
+            )
+        )
 
     def decide(self, approval_id: str, status: ApprovalStatus, idempotency_key: str) -> Task:
         approval, changed = self.store.decide_approval(approval_id, status, idempotency_key)
@@ -116,6 +203,12 @@ class MilRuntime:
                 succeeded=checked.succeeded,
                 detail=checked.detail,
             )
+        )
+        self.store.add_message(
+            task.session_id,
+            MessageRole.MIL,
+            "Verified tool result: " + json.dumps(execution.output, sort_keys=True),
+            idempotency_key=f"verified:{execution.id}",
         )
         if not verification.succeeded:
             return self.store.transition_task(

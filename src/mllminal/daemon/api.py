@@ -12,24 +12,28 @@ from fastapi import Depends, FastAPI, Header, Request, WebSocket, WebSocketDisco
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from mllminal.agent.runtime import MilRuntime, PendingTask
-from mllminal.config import Settings
+from mllminal.agent.factory import create_provider
+from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
+from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.runtime_store import RuntimeStore
 
 
 class SessionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     workspace_root: str
 
 
 class MessageCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     content: str
 
 
 class ApprovalDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     status: ApprovalStatus
 
 
@@ -55,15 +59,31 @@ class EventHub:
 
 
 def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
-    runtime = MilRuntime(store)
+    """Build the daemon API around one configured provider and replayable event store."""
+    provider_config = ProviderConfigStore(settings).load()
+    runtime = MilRuntime(store, provider=create_provider(provider_config))
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
     app.state.shutdown_callback = None
+    app.state.runtime = runtime
+    app.state.provider_config = provider_config
 
-    def error(code: str, message: str, status_code: int) -> JSONResponse:
+    def error(
+        code: str,
+        message: str,
+        status_code: int,
+        *,
+        retryable: bool = False,
+        detail: dict[str, Any] | None = None,
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=status_code,
-            content=ErrorEnvelope(code=code, message=message).model_dump(mode="json"),
+            content=ErrorEnvelope(
+                code=code,
+                message=message,
+                retryable=retryable,
+                detail=detail or {},
+            ).model_dump(mode="json"),
         )
 
     async def authorize(authorization: Annotated[str | None, Header()] = None) -> None:
@@ -79,6 +99,18 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def key_handler(_request: Request, exception: KeyError) -> JSONResponse:
         return error("not_found", f"Resource not found: {exception.args[0]}", 404)
 
+    @app.exception_handler(ProviderFailure)
+    async def provider_failure_handler(
+        _request: Request, exception: ProviderFailure
+    ) -> JSONResponse:
+        return error(
+            "provider_failed",
+            str(exception),
+            503,
+            retryable=exception.category in {"timeout", "unavailable", "http_error"},
+            detail={"category": exception.category},
+        )
+
     protected = [Depends(authorize)]
 
     @app.get("/v1/health")
@@ -91,7 +123,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             "product": "MLLminal",
             "daemon": "Online",
             "mil": "Online",
-            "provider": "deterministic",
+            "provider": provider_config.provider,
+            "model": provider_config.model,
+            "endpoint": provider_config.base_url,
+            "streaming": True,
             "execution_mode": "Approval required",
             "learning": "Deferred",
             "task_count": len(store.list_tasks()),
@@ -122,7 +157,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     ) -> dict[str, Any]:
         previous = store.list_events(session_id)
         after = previous[-1].sequence if previous else 0
-        pending = runtime.submit(session_id, body.content, idempotency_key)
+        pending = await runtime.submit(session_id, body.content, idempotency_key)
         await hub.publish(store.list_events(session_id, after))
         return _pending_payload(pending)
 
