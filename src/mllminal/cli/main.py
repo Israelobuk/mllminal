@@ -11,6 +11,10 @@ from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 ModelProbe = Callable[[ProviderConfig], Awaitable[bool]]
 
 
+async def _await_probe(probe: ModelProbe, config: ProviderConfig) -> bool:
+    return await probe(config)
+
+
 async def _probe_model(config: ProviderConfig) -> bool:
     async with OllamaClient(
         config.base_url,
@@ -51,7 +55,7 @@ def create_app(
         if config.provider == "deterministic":
             return True, "Available"
         try:
-            return asyncio.run(probe(config)), "Available"
+            return asyncio.run(_await_probe(probe, config)), "Available"
         except OllamaProviderError as error:
             return False, f"Unavailable ({error.category})"
 
