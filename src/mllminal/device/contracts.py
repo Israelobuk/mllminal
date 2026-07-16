@@ -48,6 +48,12 @@ class ApplicationIdentity(BaseModel):
     publisher: str | None = None
 
 
+class WindowIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    title_classification: str = "unknown"
+    title_redacted: bool = True
+
+
 class RawDeviceSignal(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     event_type: str
@@ -75,6 +81,7 @@ class NormalizedDeviceEvent(BaseModel):
     source: str
     monotonic_sequence: int = Field(default=0, ge=0)
     application: ApplicationIdentity | None = None
+    window: WindowIdentity | None = None
 
 
 def normalize_signal(signal: RawDeviceSignal) -> NormalizedDeviceEvent:
@@ -87,9 +94,11 @@ def normalize_signal(signal: RawDeviceSignal) -> NormalizedDeviceEvent:
             process_name=str(payload["process_name"]),
             publisher=str(payload["publisher"]) if payload.get("publisher") else None,
         )
+    window = WindowIdentity(title_classification="document") if "title" in payload else None
     return NormalizedDeviceEvent(
         event_type=signal.event_type,
         timestamp=signal.timestamp,
         source=signal.source,
         application=application,
+        window=window,
     )
