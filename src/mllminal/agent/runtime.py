@@ -1,5 +1,6 @@
 """Stateful Mil orchestration with durable approvals and verification."""
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -202,6 +203,12 @@ class MilRuntime:
                 succeeded=checked.succeeded,
                 detail=checked.detail,
             )
+        )
+        self.store.add_message(
+            task.session_id,
+            MessageRole.MIL,
+            "Verified tool result: " + json.dumps(execution.output, sort_keys=True),
+            idempotency_key=f"verified:{execution.id}",
         )
         if not verification.succeeded:
             return self.store.transition_task(

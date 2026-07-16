@@ -4,7 +4,7 @@ import pytest
 
 from mllminal.agent.provider import MilProviderEvent, MilRequest
 from mllminal.agent.runtime import MilRuntime, ProviderFailure
-from mllminal.contracts import ApprovalStatus, TaskState
+from mllminal.contracts import ApprovalStatus, MessageRole, TaskState
 from mllminal.runtime_store import RuntimeStore
 
 
@@ -100,3 +100,16 @@ async def test_runtime_persists_provider_metadata_for_completed_response(tmp_pat
     assert metadata.completion_status == "completed"
     assert metadata.validation_succeeded is True
     assert metadata.retry_count == 0
+
+
+@pytest.mark.asyncio
+async def test_post_execution_summary_uses_verified_tool_output_only(tmp_path: Path) -> None:
+    runtime, store, session_id = make_runtime(tmp_path)
+    pending = await runtime.submit(session_id, "inspect this project", "summary-request")
+
+    runtime.decide(pending.approval.id, ApprovalStatus.APPROVED, "summary-approval")
+
+    messages = store.list_messages(session_id)
+    assert messages[-1].role is MessageRole.MIL
+    assert "Verified tool result" in messages[-1].content
+    assert "project_type" in messages[-1].content
