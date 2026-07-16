@@ -54,7 +54,7 @@ class DeviceObserver:
         self.data_dir = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.adapters = adapters
-        self.queue = deque(maxlen=queue_capacity)
+        self.queue: deque[NormalizedDeviceEvent] = deque(maxlen=queue_capacity)
         self.capacity = queue_capacity
         self._subscribers: list[Callable[[NormalizedDeviceEvent], None]] = []
         self._fingerprints: set[str] = set()
