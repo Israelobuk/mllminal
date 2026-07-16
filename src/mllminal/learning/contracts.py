@@ -218,6 +218,14 @@ class EvaluationReport(LearningContract):
     mean_reward: float
     safe_action_rate: float = Field(ge=0.0, le=1.0)
     passed: bool
+    action_accuracy: float = 0.0
+    reward_weighted_accuracy: float = 0.0
+    average_predicted_reward: float = 0.0
+    invalid_action_rate: float = 0.0
+    safe_fallback_rate: float = 0.0
+    regression_pass_rate: float = 0.0
+    baseline_reward_weighted_accuracy: float = 0.0
+    rejection_reasons: tuple[str, ...] = ()
     created_at: datetime = Field(default_factory=utc_now)
 
 
