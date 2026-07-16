@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from mllminal.config import Settings
+from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.daemon.api import create_app
 from mllminal.runtime_store import RuntimeStore
 
@@ -12,6 +12,7 @@ def make_client(tmp_path: Path) -> tuple[TestClient, dict[str, str], Path]:
     workspace.mkdir()
     (workspace / "pyproject.toml").write_text("[project]\nname='demo'", encoding="utf-8")
     settings = Settings(data_dir=tmp_path / "data", workspace_root=workspace)
+    ProviderConfigStore(settings).save(ProviderConfig(provider="deterministic", model="fixture"))
     store = RuntimeStore(settings.database_path)
     store.initialize()
     app = create_app(settings=settings, store=store, token="test-token")
@@ -74,3 +75,21 @@ def test_unknown_routes_return_typed_error(tmp_path: Path) -> None:
 
     assert response.status_code == 404
     assert response.json()["code"] == "not_found"
+
+
+def test_status_reports_persisted_provider_configuration(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=workspace)
+    ProviderConfigStore(settings).save(ProviderConfig(provider="deterministic", model="fixture"))
+    ProviderConfigStore(settings).save(ProviderConfig(provider="deterministic", model="fixture"))
+    store = RuntimeStore(settings.database_path)
+    store.initialize()
+    app = create_app(settings=settings, store=store, token="test-token")
+
+    with TestClient(app) as client:
+        status = client.get("/v1/status", headers={"Authorization": "Bearer test-token"}).json()
+
+    assert status["provider"] == "deterministic"
+    assert status["model"] == "fixture"
+    assert status["streaming"] is True

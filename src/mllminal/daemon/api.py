@@ -12,8 +12,9 @@ from fastapi import Depends, FastAPI, Header, Request, WebSocket, WebSocketDisco
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
+from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask
-from mllminal.config import Settings
+from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.runtime_store import RuntimeStore
 
@@ -55,7 +56,9 @@ class EventHub:
 
 
 def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
-    runtime = MilRuntime(store)
+    provider_config = ProviderConfigStore(settings).load()
+    runtime = MilRuntime(store, provider=create_provider(provider_config))
+    provider_config = ProviderConfigStore(settings).load()
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
     app.state.shutdown_callback = None
@@ -91,7 +94,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             "product": "MLLminal",
             "daemon": "Online",
             "mil": "Online",
-            "provider": "deterministic",
+            "provider": provider_config.provider,
+            "model": provider_config.model,
+            "endpoint": provider_config.base_url,
+            "streaming": True,
             "execution_mode": "Approval required",
             "learning": "Deferred",
             "task_count": len(store.list_tasks()),
