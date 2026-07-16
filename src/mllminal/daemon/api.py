@@ -357,6 +357,31 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             callback()
         return {"status": "shutting_down"}
 
+    @app.websocket("/v1/device/events/stream")
+    async def device_event_stream(socket: WebSocket) -> None:
+        await socket.accept()
+        try:
+            authentication = await asyncio.wait_for(socket.receive_json(), timeout=5)
+            supplied = authentication.get("token") if isinstance(authentication, dict) else None
+            if authentication.get("type") != "authenticate" or not isinstance(supplied, str):
+                await socket.close(code=4401, reason="Authentication required")
+                return
+            if not secrets.compare_digest(supplied, token):
+                await socket.close(code=4401, reason="Authentication failed")
+                return
+            after = int(socket.query_params.get("after_sequence", "0"))
+            await socket.send_json({"type": "authenticated"})
+            while True:
+                events = [
+                    event for event in device_observer.events() if event.monotonic_sequence > after
+                ]
+                for event in events:
+                    await socket.send_json(event.model_dump(mode="json"))
+                    after = event.monotonic_sequence
+                await asyncio.sleep(0.1)
+        except (WebSocketDisconnect, TimeoutError, ValueError):
+            return
+
     @app.websocket("/v1/learning/events")
     async def learning_events(socket: WebSocket) -> None:
         await socket.accept()

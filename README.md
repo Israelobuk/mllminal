@@ -1,5 +1,12 @@
 ﻿# MLLminal
 
+## Windows device observer
+
+The optional Windows-first observer records structured local metadata only: application/process lifecycle, foreground/window transitions, redacted window-title changes, filesystem operation types, and idle/active state. Start or control it with `mllminal device start`, `stop`, `pause`, `resume`, `status`, and `events`.
+
+MLLminal never captures keystrokes, typed text, passwords, clipboard contents, screen pixels, browser-page content, microphone audio, or camera input. Window titles are redacted before persistence. Optional Windows dependencies (such as `psutil`) degrade to unavailable capabilities without stopping the daemon. Observer events are stored locally under the configured data directory in `device/device-events.jsonl` and replayed through `/v1/device/events/stream` after WebSocket authentication.
+
+
 MLLminal is a local-first, terminal-first AI execution environment powered by Mil.
 
 This repository is currently implementing the Windows-first foundation slice: a shared local daemon, synchronized terminal clients, durable tasks and sessions, typed approvals, and verified read-only project inspection.
