@@ -1,4 +1,4 @@
-from datetime import UTC
+from datetime import UTC, datetime
 from importlib import import_module
 from uuid import UUID
 
@@ -90,3 +90,43 @@ def test_policy_state_requires_exact_feature_and_mask_dimensions() -> None:
         contracts.PolicyState(task_id="task-1", features=(0.0,) * 14, action_mask=(True,) * 9)
     with pytest.raises(ValidationError):
         contracts.PolicyState(task_id="task-1", features=(0.0,) * 15, action_mask=(True,) * 8)
+
+
+def test_contracts_reject_unknown_schema_and_vector_versions() -> None:
+    with pytest.raises(ValidationError):
+        contracts.PolicyDecision(
+            schema_version="v2",
+            task_id="task-1",
+            selected_action=contracts.PolicyAction.STOP_SAFELY,
+        )
+    with pytest.raises(ValidationError):
+        contracts.PolicyState(
+            task_id="task-1",
+            feature_version="features_v2",
+            features=(0.0,) * 15,
+            action_mask=(True,) * 9,
+        )
+    with pytest.raises(ValidationError):
+        contracts.PolicyState(
+            task_id="task-1",
+            action_space_version="actions_v2",
+            features=(0.0,) * 15,
+            action_mask=(True,) * 9,
+        )
+
+
+def test_contracts_validate_uuid7_ids_and_utc_timestamps_on_deserialization() -> None:
+    valid = contracts.PolicyDecision(
+        task_id="task-1", selected_action=contracts.PolicyAction.STOP_SAFELY
+    ).model_dump(mode="json")
+
+    with pytest.raises(ValidationError, match="UUIDv7"):
+        contracts.PolicyDecision.model_validate({**valid, "id": "not-a-uuid"})
+    with pytest.raises(ValidationError, match="UTC"):
+        contracts.PolicyDecision.model_validate(
+            {**valid, "created_at": datetime(2026, 7, 16).isoformat()}
+        )
+    with pytest.raises(ValidationError, match="UTC"):
+        contracts.PolicyDecision.model_validate(
+            {**valid, "created_at": "2026-07-16T10:00:00+02:00"}
+        )

@@ -9,4 +9,5 @@ def test_learning_package_modules_exist() -> None:
         "contracts.py",
         "features.py",
         "rewards.py",
+        "replay.py",
     }

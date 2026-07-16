@@ -115,3 +115,27 @@ def test_reward_total_is_the_transparent_sum_of_components() -> None:
 
     components = breakdown.model_dump(exclude={"schema_version", "total"}).values()
     assert breakdown.total == pytest.approx(sum(components)) == 0.5
+
+
+def test_verified_completion_requires_completion_and_verification() -> None:
+    completed_only = rewards.calculate_reward(
+        contracts.ExperienceOutcome(terminal=True, task_completed=True)
+    )
+
+    assert completed_only.verified_completion == 0.0
+
+
+def test_eligibility_rejects_terminal_outcomes_without_a_terminal_signal() -> None:
+    record = _record(outcome=contracts.ExperienceOutcome(terminal=True))
+
+    assert "missing_terminal_result" in rewards.eligibility_exclusions(record)
+
+
+@pytest.mark.parametrize(
+    "action",
+    [contracts.PolicyAction.INSPECT_WORKSPACE, contracts.PolicyAction.READ_PROJECT_FILE],
+)
+def test_workspace_actions_require_verification(action: object) -> None:
+    record = _record(selected_action=action)
+
+    assert "unverified_tool_action" in rewards.eligibility_exclusions(record)
