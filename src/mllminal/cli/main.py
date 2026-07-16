@@ -7,6 +7,8 @@ import typer
 
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
+from mllminal.learning.replay import LearningRepository
+from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
 
 ModelProbe = Callable[[ProviderConfig], Awaitable[bool]]
 
@@ -37,6 +39,7 @@ def create_app(
     models = typer.Typer(
         help="Inspect and select Mil model providers.", invoke_without_command=True
     )
+    learning = typer.Typer(help="Inspect and train local candidate policies.")
 
     def current() -> ProviderConfig:
         return store.load()
@@ -104,7 +107,37 @@ def create_app(
         typer.echo(f"Connection: {connection}")
         raise typer.Exit(code=1)
 
+    @learning.command("status")
+    def learning_status() -> None:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        status = repository.get_settings()
+        typer.echo(f"Learning: {'Enabled' if status.enabled else 'Disabled'}")
+        typer.echo(
+            "Automatic promotion: "
+            f"{'Enabled' if status.automatic_promotion_enabled else 'Disabled'}"
+        )
+        typer.echo(f"Eligible experiences: {status.eligible_experience_count}")
+        typer.echo(f"Minimum experiences: {status.minimum_experience_count}")
+        typer.echo(f"Active policy: {status.active_policy_version_id or 'policy_v0'}")
+
+    @learning.command("train")
+    def train_learning() -> None:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        try:
+            result = CandidateTrainingService(
+                repository, resolved_settings.data_dir / "learning"
+            ).train()
+        except MinimumExperienceError:
+            typer.echo("Cannot train: minimum eligible experience threshold is not met.")
+            raise typer.Exit(code=1) from None
+        typer.echo(f"Candidate policy: {result.candidate.name}")
+        typer.echo(f"Training run: {result.training_run.id}")
+        typer.echo(f"Checkpoint: {result.checkpoint}")
+
     app.add_typer(models, name="models")
+    app.add_typer(learning, name="learning")
     return app
 
 

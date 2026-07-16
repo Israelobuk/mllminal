@@ -16,6 +16,8 @@ from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
+from mllminal.learning.replay import LearningRepository
+from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
 from mllminal.runtime_store import RuntimeStore
 
 
@@ -62,13 +64,16 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     """Build the daemon API around one configured provider and replayable event store."""
     provider_config = ProviderConfigStore(settings).load()
     runtime = MilRuntime(store, provider=create_provider(provider_config))
+    learning_repository = LearningRepository(settings.database_path)
+    learning_repository.initialize()
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
     app.state.shutdown_callback = None
     app.state.runtime = runtime
     app.state.provider_config = provider_config
+    app.state.learning_repository = learning_repository
 
-    def error(
+    def error_response(
         code: str,
         message: str,
         status_code: int,
@@ -93,17 +98,17 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
 
     @app.exception_handler(PermissionError)
     async def permission_handler(_request: Request, exception: PermissionError) -> JSONResponse:
-        return error("unauthorized", str(exception), 401)
+        return error_response("unauthorized", str(exception), 401)
 
     @app.exception_handler(KeyError)
     async def key_handler(_request: Request, exception: KeyError) -> JSONResponse:
-        return error("not_found", f"Resource not found: {exception.args[0]}", 404)
+        return error_response("not_found", f"Resource not found: {exception.args[0]}", 404)
 
     @app.exception_handler(ProviderFailure)
     async def provider_failure_handler(
         _request: Request, exception: ProviderFailure
     ) -> JSONResponse:
-        return error(
+        return error_response(
             "provider_failed",
             str(exception),
             503,
@@ -136,7 +141,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def create_session(body: SessionCreate) -> Any:
         workspace = Path(body.workspace_root).resolve()
         if not workspace.is_dir():
-            return error(
+            return error_response(
                 "invalid_workspace", "Attached workspace must be an existing directory", 422
             )
         return store.create_session(str(workspace)).model_dump(mode="json")
@@ -190,12 +195,66 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         )
         return [grant.model_dump(mode="json")]
 
+    @app.get("/v1/learning/status", dependencies=protected)
+    async def learning_status() -> dict[str, Any]:
+        return learning_repository.get_settings().model_dump(mode="json")
+
+    @app.get("/v1/learning/runs", dependencies=protected)
+    async def learning_runs() -> list[dict[str, Any]]:
+        return [run.model_dump(mode="json") for run in learning_repository.list_training_runs()]
+
+    @app.get("/v1/learning/policies", dependencies=protected)
+    async def learning_policies() -> list[dict[str, Any]]:
+        return [
+            policy.model_dump(mode="json") for policy in learning_repository.list_policy_versions()
+        ]
+
+    @app.post("/v1/learning/train", dependencies=protected)
+    async def train_learning_candidate() -> Any:
+        try:
+            result = CandidateTrainingService(
+                learning_repository, settings.data_dir / "learning"
+            ).train()
+        except MinimumExperienceError as error:
+            return error_response("minimum_experience_not_met", str(error), 409, retryable=True)
+        return {
+            "training_run": result.training_run.model_dump(mode="json"),
+            "candidate": result.candidate.model_dump(mode="json"),
+            "checkpoint": str(result.checkpoint),
+        }
+
     @app.post("/v1/daemon/shutdown", dependencies=protected)
     async def shutdown() -> dict[str, str]:
         callback = app.state.shutdown_callback
         if callback is not None:
             callback()
         return {"status": "shutting_down"}
+
+    @app.websocket("/v1/learning/events")
+    async def learning_events(socket: WebSocket) -> None:
+        await socket.accept()
+        try:
+            authentication = await asyncio.wait_for(socket.receive_json(), timeout=5)
+            supplied = authentication.get("token") if isinstance(authentication, dict) else None
+            if authentication.get("type") != "authenticate" or not isinstance(supplied, str):
+                await socket.close(code=4401, reason="Authentication required")
+                return
+            if not secrets.compare_digest(supplied, token):
+                await socket.close(code=4401, reason="Authentication failed")
+                return
+            after = int(socket.query_params.get("after_sequence", "0"))
+            await socket.send_json({"type": "authenticated"})
+            for event in learning_repository.list_events(after):
+                await socket.send_json(
+                    {
+                        "sequence": event.sequence,
+                        "event_type": event.event_type,
+                        "payload": event.payload,
+                        "created_at": event.created_at.isoformat(),
+                    }
+                )
+        except (WebSocketDisconnect, TimeoutError, ValueError):
+            return
 
     @app.websocket("/v1/events")
     async def events(socket: WebSocket) -> None:

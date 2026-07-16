@@ -166,6 +166,7 @@ class LearningEvent:
 
 @dataclass(frozen=True)
 class ReplayEntry:
+    id: int
     experience_id: str
     features: tuple[float, ...]
     action: PolicyAction
@@ -514,6 +515,7 @@ class LearningRepository(Store):
             chosen.extend(remaining[: max(0, min(size, len(rows)) - len(chosen))])
         return [
             ReplaySample(
+                replay_entry_id=row.id,
                 experience_id=row.experience_id,
                 features=tuple(json.loads(row.features_json)),
                 action=PolicyAction(row.action),
@@ -549,13 +551,16 @@ class LearningRepository(Store):
             )
             return [self._event(row) for row in rows]
 
-    def create_policy_version(self, *, checkpoint_sha256: str) -> PolicyVersion:
+    def create_policy_version(
+        self, *, checkpoint_sha256: str | None, training_run_id: str | None = None
+    ) -> PolicyVersion:
         with self.transaction() as database:
             version = int(database.scalar(select(func.max(PolicyVersionRow.version))) or 0) + 1
             policy = PolicyVersion(
                 version=version,
                 name=f"policy_v{version}",
                 checkpoint_sha256=checkpoint_sha256,
+                training_run_id=training_run_id,
             )
             database.add(
                 PolicyVersionRow(
@@ -571,6 +576,20 @@ class LearningRepository(Store):
             self._append_learning_event(
                 database, "learning.policy.created", {"policy_version_id": policy.id}
             )
+            return policy
+
+    def update_policy_checkpoint(
+        self, policy_version_id: str, checkpoint_sha256: str
+    ) -> PolicyVersion:
+        with self.transaction() as database:
+            row = database.get(PolicyVersionRow, policy_version_id)
+            if row is None:
+                raise KeyError(policy_version_id)
+            policy = PolicyVersion.model_validate_json(row.payload_json).model_copy(
+                update={"checkpoint_sha256": checkpoint_sha256}
+            )
+            row.checkpoint_sha256 = checkpoint_sha256
+            row.payload_json = policy.model_dump_json()
             return policy
 
     def list_policy_versions(self) -> list[PolicyVersion]:
@@ -645,14 +664,28 @@ class LearningRepository(Store):
             return policy, True
 
     def save_training_run(self, run: TrainingRun) -> TrainingRun:
-        self._save_contract(
-            TrainingRunRow(
-                id=run.id,
-                status=run.status.value,
-                payload_json=run.model_dump_json(),
-                created_at=run.created_at,
-            )
-        )
+        return self._write_training_run(run)
+
+    def update_training_run(self, run: TrainingRun) -> TrainingRun:
+        return self._write_training_run(run)
+
+    def _write_training_run(self, run: TrainingRun) -> TrainingRun:
+        payload = run.model_dump_json()
+        _ensure_safe_payload(json.loads(payload))
+        with self.transaction() as database:
+            row = database.get(TrainingRunRow, run.id)
+            if row is None:
+                database.add(
+                    TrainingRunRow(
+                        id=run.id,
+                        status=run.status.value,
+                        payload_json=payload,
+                        created_at=run.created_at,
+                    )
+                )
+            else:
+                row.status = run.status.value
+                row.payload_json = payload
         return run
 
     def list_training_runs(self) -> list[TrainingRun]:
@@ -837,6 +870,7 @@ class LearningRepository(Store):
     @staticmethod
     def _replay_entry(row: ReplayEntryRow) -> ReplayEntry:
         return ReplayEntry(
+            id=row.id,
             experience_id=row.experience_id,
             features=tuple(json.loads(row.features_json)),
             action=PolicyAction(row.action),
