@@ -20,6 +20,7 @@ from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
 from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
+from mllminal.learning.runtime_advisory import LearningRuntimeAdvisor
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
 from mllminal.runtime_store import RuntimeStore
 
@@ -72,9 +73,15 @@ class EventHub:
 def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     """Build the daemon API around one configured provider and replayable event store."""
     provider_config = ProviderConfigStore(settings).load()
-    runtime = MilRuntime(store, provider=create_provider(provider_config))
     learning_repository = LearningRepository(settings.database_path)
     learning_repository.initialize()
+    runtime = MilRuntime(
+        store,
+        provider=create_provider(provider_config),
+        advisor=LearningRuntimeAdvisor(
+            learning_repository, settings.data_dir / "learning" / "checkpoints"
+        ),
+    )
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
     app.state.shutdown_callback = None
