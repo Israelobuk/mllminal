@@ -741,6 +741,25 @@ class LearningRepository(Store):
     def count_rollback_records(self) -> int:
         return self._count_rows(RollbackRecordRow)
 
+    def reject_policy(self, policy_version_id: str, *, reason: str) -> PolicyVersion:
+        with self.transaction() as database:
+            row = database.get(PolicyVersionRow, policy_version_id)
+            if row is None:
+                raise KeyError(policy_version_id)
+            if row.promoted:
+                raise ValueError("promoted policy cannot be rejected")
+            policy = PolicyVersion.model_validate_json(row.payload_json).model_copy(
+                update={"lifecycle": PolicyLifecycle.REJECTED}
+            )
+            row.lifecycle = PolicyLifecycle.REJECTED.value
+            row.payload_json = policy.model_dump_json()
+            self._append_learning_event(
+                database,
+                "learning.policy.rejected",
+                {"policy_version_id": row.id, "reason": reason},
+            )
+            return policy
+
     def rollback_policy(
         self, policy_version_id: str, *, reason: str, idempotency_key: str
     ) -> tuple[RollbackRecord, bool]:
