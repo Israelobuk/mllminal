@@ -125,3 +125,36 @@ def test_unavailable_qwen_returns_typed_error_without_breaking_daemon(tmp_path: 
     assert response.status_code == 503
     assert response.json()["code"] == "provider_failed"
     assert client.get("/v1/health").status_code == 200
+
+
+def test_two_clients_replay_identical_provider_events(tmp_path: Path) -> None:
+    client, headers, workspace = make_client(tmp_path)
+    session = client.post(
+        "/v1/sessions", headers=headers, json={"workspace_root": str(workspace)}
+    ).json()
+    client.post(
+        f"/v1/sessions/{session['id']}/messages",
+        headers={**headers, "Idempotency-Key": "replay-request"},
+        json={"content": "inspect this project"},
+    )
+    store = client.app.state.runtime.store
+    expected_count = len(store.list_events(session["id"]))
+
+    with (
+        client.websocket_connect(
+            f"/v1/events?session_id={session['id']}&after_sequence=0"
+        ) as first,
+        client.websocket_connect(
+            f"/v1/events?session_id={session['id']}&after_sequence=0"
+        ) as second,
+    ):
+        first.send_json({"type": "authenticate", "token": "test-token"})
+        second.send_json({"type": "authenticate", "token": "test-token"})
+        assert first.receive_json() == {"type": "authenticated"}
+        assert second.receive_json() == {"type": "authenticated"}
+        first_events = [first.receive_json() for _ in range(expected_count)]
+        second_events = [second.receive_json() for _ in range(expected_count)]
+
+    assert first_events == second_events
+    assert "response.delta" in [event["event_type"] for event in first_events]
+    assert "plan.proposed" in [event["event_type"] for event in first_events]

@@ -1,8 +1,11 @@
+import json
 from pathlib import Path
 
+import httpx
 import pytest
 
-from mllminal.agent.provider import MilProviderEvent, MilRequest
+from mllminal.agent.ollama import OllamaClient
+from mllminal.agent.provider import MilProviderEvent, MilRequest, QwenMilProvider
 from mllminal.agent.runtime import MilRuntime, ProviderFailure
 from mllminal.contracts import ApprovalStatus, MessageRole, TaskState
 from mllminal.runtime_store import RuntimeStore
@@ -113,3 +116,49 @@ async def test_post_execution_summary_uses_verified_tool_output_only(tmp_path: P
     assert messages[-1].role is MessageRole.MIL
     assert "Verified tool result" in messages[-1].content
     assert "project_type" in messages[-1].content
+
+
+@pytest.mark.asyncio
+async def test_fake_ollama_stream_creates_validated_qwen_plan_and_metadata(tmp_path: Path) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/chat"
+        envelope = {
+            "response": "I can inspect after approval.",
+            "plan": {
+                "title": "Inspect",
+                "steps": [
+                    {
+                        "step_id": "one",
+                        "description": "Inspect metadata",
+                        "tool": {"name": "project.inspect_metadata", "arguments": {}},
+                    }
+                ],
+            },
+        }
+        body = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "message": {"content": json.dumps(envelope)},
+                        "done": True,
+                        "prompt_eval_count": 4,
+                        "eval_count": 3,
+                    }
+                ),
+                "",
+            ]
+        )
+        return httpx.Response(200, content=body.encode())
+
+    _default_runtime, store, session_id = make_runtime(tmp_path)
+    provider = QwenMilProvider(
+        OllamaClient("http://ollama.test", "qwen:test", transport=httpx.MockTransport(handler))
+    )
+    runtime = MilRuntime(store, provider=provider)
+    pending = await runtime.submit(session_id, "inspect this project", "fake-ollama-request")
+
+    metadata = store.get_provider_metadata(pending.task.id)
+    assert pending.plan.steps[0].proposal.tool_name == "project.inspect_metadata"
+    assert metadata.provider == "qwen"
+    assert metadata.input_tokens == 4
+    assert metadata.output_tokens == 3
