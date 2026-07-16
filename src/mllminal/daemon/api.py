@@ -21,16 +21,19 @@ from mllminal.runtime_store import RuntimeStore
 
 class SessionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     workspace_root: str
 
 
 class MessageCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     content: str
 
 
 class ApprovalDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     status: ApprovalStatus
 
 
@@ -56,17 +59,31 @@ class EventHub:
 
 
 def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
+    """Build the daemon API around one configured provider and replayable event store."""
     provider_config = ProviderConfigStore(settings).load()
     runtime = MilRuntime(store, provider=create_provider(provider_config))
-    provider_config = ProviderConfigStore(settings).load()
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
     app.state.shutdown_callback = None
+    app.state.runtime = runtime
+    app.state.provider_config = provider_config
 
-    def error(code: str, message: str, status_code: int) -> JSONResponse:
+    def error(
+        code: str,
+        message: str,
+        status_code: int,
+        *,
+        retryable: bool = False,
+        detail: dict[str, Any] | None = None,
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=status_code,
-            content=ErrorEnvelope(code=code, message=message).model_dump(mode="json"),
+            content=ErrorEnvelope(
+                code=code,
+                message=message,
+                retryable=retryable,
+                detail=detail or {},
+            ).model_dump(mode="json"),
         )
 
     async def authorize(authorization: Annotated[str | None, Header()] = None) -> None:
@@ -86,15 +103,12 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def provider_failure_handler(
         _request: Request, exception: ProviderFailure
     ) -> JSONResponse:
-        retryable = exception.category in {"timeout", "unavailable", "http_error"}
-        return JSONResponse(
-            status_code=503,
-            content=ErrorEnvelope(
-                code="provider_failed",
-                message=str(exception),
-                retryable=retryable,
-                detail={"category": exception.category},
-            ).model_dump(mode="json"),
+        return error(
+            "provider_failed",
+            str(exception),
+            503,
+            retryable=exception.category in {"timeout", "unavailable", "http_error"},
+            detail={"category": exception.category},
         )
 
     protected = [Depends(authorize)]
