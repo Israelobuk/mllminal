@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from mllminal.agent.runtime import MilRuntime
+from mllminal.agent.provider import MilProviderEvent, MilRequest
+from mllminal.agent.runtime import MilRuntime, ProviderFailure
 from mllminal.contracts import ApprovalStatus, TaskState
 from mllminal.runtime_store import RuntimeStore
 
@@ -48,3 +49,40 @@ async def test_duplicate_submission_returns_original_task(tmp_path: Path) -> Non
 
     assert second.task.id == first.task.id
     assert len(store.list_tasks()) == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_stream_events_are_persisted_before_submit_returns(tmp_path: Path) -> None:
+    runtime, store, session_id = make_runtime(tmp_path)
+
+    await runtime.submit(session_id, "inspect this project", "streamed-request")
+
+    event_types = [event.event_type for event in store.list_events(session_id)]
+    assert event_types.index("response.started") < event_types.index("plan.created")
+    assert "response.delta" in event_types
+    assert "response.completed" in event_types
+    assert "plan.proposed" in event_types
+
+
+class UnavailableProvider:
+    async def stream_response(self, _request: MilRequest):
+        yield MilProviderEvent(
+            event_type="provider.failed",
+            text="Local model server is unavailable.",
+            detail={"category": "unavailable"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_creates_no_fabricated_plan_or_approval(tmp_path: Path) -> None:
+    _default_runtime, store, session_id = make_runtime(tmp_path)
+    runtime = MilRuntime(store, provider=UnavailableProvider())
+
+    with pytest.raises(ProviderFailure) as failure:
+        await runtime.submit(session_id, "inspect this project", "unavailable-request")
+
+    task = failure.value.task
+    assert task.state is TaskState.FAILED
+    assert task.blocker == "unavailable"
+    assert store.list_approvals(task.id) == []
+    assert "provider.failed" in [event.event_type for event in store.list_events(session_id)]

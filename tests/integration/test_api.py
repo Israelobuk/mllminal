@@ -93,3 +93,35 @@ def test_status_reports_persisted_provider_configuration(tmp_path: Path) -> None
     assert status["provider"] == "deterministic"
     assert status["model"] == "fixture"
     assert status["streaming"] is True
+
+
+def test_unavailable_qwen_returns_typed_error_without_breaking_daemon(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=workspace)
+    ProviderConfigStore(settings).save(
+        ProviderConfig(
+            provider="qwen",
+            base_url="http://127.0.0.1:1",
+            model="missing",
+            request_timeout_seconds=0.1,
+        )
+    )
+    store = RuntimeStore(settings.database_path)
+    store.initialize()
+    app = create_app(settings=settings, store=store, token="test-token")
+    headers = {"Authorization": "Bearer test-token"}
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        session = client.post(
+            "/v1/sessions", headers=headers, json={"workspace_root": str(workspace)}
+        ).json()
+        response = client.post(
+            f"/v1/sessions/{session['id']}/messages",
+            headers={**headers, "Idempotency-Key": "unavailable-request"},
+            json={"content": "inspect this project"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "provider_failed"
+    assert client.get("/v1/health").status_code == 200

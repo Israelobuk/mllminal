@@ -26,6 +26,15 @@ class PendingTask:
     approval: Approval
 
 
+class ProviderFailure(RuntimeError):
+    """A provider failed without producing an executable plan."""
+
+    def __init__(self, task: Task, category: str, message: str) -> None:
+        super().__init__(message)
+        self.task = task
+        self.category = category
+
+
 class MilRuntime:
     def __init__(
         self,
@@ -68,18 +77,15 @@ class MilRuntime:
         response_text = ""
         plan: Plan | None = None
         async for event in self.provider.stream_response(provider_request):
+            self.store.append_event(session_id, event.event_type, event.model_dump(mode="json"))
             if event.event_type == "response.delta" and event.text is not None:
                 response_text += event.text
             if event.event_type == "plan.proposed":
                 plan = event.plan
             if event.event_type == "provider.failed":
-                return PendingTask(
-                    task=self.store.transition_task(
-                        task.id, TaskState.FAILED, blocker="provider_failed"
-                    ),
-                    plan=Plan(task_id=task.id, steps=[]),
-                    approval=Approval(task_id=task.id, proposal_id="provider_failed"),
-                )
+                category = str(event.detail.get("category", "provider_failed"))
+                failed = self.store.transition_task(task.id, TaskState.FAILED, blocker=category)
+                raise ProviderFailure(failed, category, event.text or "Mil provider failed")
         if plan is None:
             raise ValueError("Provider completed without a validated plan")
         self.store.save_plan(plan)

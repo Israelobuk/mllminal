@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from mllminal.agent.factory import create_provider
-from mllminal.agent.runtime import MilRuntime, PendingTask
+from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.runtime_store import RuntimeStore
@@ -81,6 +81,21 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.exception_handler(KeyError)
     async def key_handler(_request: Request, exception: KeyError) -> JSONResponse:
         return error("not_found", f"Resource not found: {exception.args[0]}", 404)
+
+    @app.exception_handler(ProviderFailure)
+    async def provider_failure_handler(
+        _request: Request, exception: ProviderFailure
+    ) -> JSONResponse:
+        retryable = exception.category in {"timeout", "unavailable", "http_error"}
+        return JSONResponse(
+            status_code=503,
+            content=ErrorEnvelope(
+                code="provider_failed",
+                message=str(exception),
+                retryable=retryable,
+                detail={"category": exception.category},
+            ).model_dump(mode="json"),
+        )
 
     protected = [Depends(authorize)]
 

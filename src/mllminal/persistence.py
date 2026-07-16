@@ -191,6 +191,13 @@ class Store:
             )
             return task
 
+    def append_event(
+        self, session_id: str, event_type: str, payload: dict[str, Any]
+    ) -> EventEnvelope:
+        """Persist a replayable event before any client publication."""
+        with self.transaction() as database:
+            return self._append_event(database, session_id, event_type, payload)
+
     def list_events(self, session_id: str, after_sequence: int = 0) -> list[EventEnvelope]:
         with DbSession(self.engine) as database:
             rows = database.scalars(
