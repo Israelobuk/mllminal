@@ -1,5 +1,6 @@
 """Provider-neutral Mil contracts and deterministic fixture provider."""
 
+import json
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mllminal.agent.ollama import OllamaProviderError
 from mllminal.contracts import Message, PermissionGrant, Plan, PlanStep, ToolProposal
 from mllminal.tools import ToolDefinition, ToolRegistry
 
@@ -188,3 +190,81 @@ class DeterministicMilProvider:
         yield MilProviderEvent(event_type="response.delta", text=validated.response)
         yield MilProviderEvent(event_type="response.completed", text=validated.response)
         yield MilProviderEvent(event_type="plan.proposed", plan=validated.plan)
+
+
+class QwenMilProvider:
+    """Ollama-backed provider that emits only validated typed proposals."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    async def stream_response(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]:
+        if request.task_id is None:
+            yield MilProviderEvent(
+                event_type="provider.failed", text="A task is required for planning."
+            )
+            return
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are Mil. You may propose registered tools but cannot execute them. "
+                    "Return only the required JSON response envelope."
+                ),
+            }
+        ]
+        messages.extend(
+            {"role": message.role.value, "content": message.content}
+            for message in request.conversation
+        )
+        messages.append({"role": "user", "content": request.user_message})
+        for attempt in range(2):
+            try:
+                chunks, usage = await self._client.complete(messages)
+            except OllamaProviderError as error:
+                yield MilProviderEvent(
+                    event_type="provider.failed",
+                    text=str(error),
+                    detail={"category": error.category, "retry_count": attempt},
+                )
+                return
+            try:
+                validated = self._validate_response(request, "".join(chunks))
+            except (ValueError, json.JSONDecodeError) as error:
+                if attempt == 0:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Repair the previous response. Return only a valid JSON envelope "
+                                "using supplied tools and permissions. Validation error: "
+                                f"{error}"
+                            ),
+                        }
+                    )
+                    continue
+                yield MilProviderEvent(
+                    event_type="provider.failed",
+                    text="Model output could not be validated after one repair attempt.",
+                    detail={"category": "validation_failed", "retry_count": attempt},
+                )
+                return
+            yield MilProviderEvent(event_type="response.started")
+            yield MilProviderEvent(event_type="response.delta", text=validated.response)
+            yield MilProviderEvent(event_type="response.completed", text=validated.response)
+            yield MilProviderEvent(event_type="plan.proposed", plan=validated.plan, detail=usage)
+            return
+
+    @staticmethod
+    def _validate_response(request: MilRequest, raw_response: str) -> ValidatedResponse:
+        validated = validate_plan_envelope(
+            json.loads(raw_response),
+            request.task_id or "",
+            Path(request.workspace_root or "."),
+            ToolRegistry(),
+            {grant.permission for grant in request.permissions if grant.allowed},
+        )
+        available = {tool.name for tool in request.available_tools}
+        if any(step.proposal.tool_name not in available for step in validated.plan.steps):
+            raise ValueError("response proposes a tool outside the supplied registry")
+        return validated
