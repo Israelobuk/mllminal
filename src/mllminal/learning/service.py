@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mllminal.learning.contracts import RunStatus, TrainingRun, utc_now
+from mllminal.learning.contracts import PolicyVersion, RunStatus, TrainingRun, utc_now
 from mllminal.learning.policy import (
     ActionPolicy,
     PolicyCheckpointError,
@@ -23,7 +23,7 @@ class MinimumExperienceError(ValueError):
 @dataclass(frozen=True)
 class CandidateTrainingServiceResult:
     training_run: TrainingRun
-    candidate: object
+    candidate: PolicyVersion
     checkpoint: Path
     replay_entry_ids: tuple[int, ...]
 

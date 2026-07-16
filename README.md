@@ -28,3 +28,17 @@ Use `mllminal models` to view the configured provider, `mllminal models provider
 - **Timeout or insufficient memory:** choose a smaller locally installed Qwen model, increase `request_timeout_seconds`, or switch temporarily with `mllminal models use deterministic`.
 - **Malformed provider response:** Mil records a typed failure after one constrained repair attempt; the daemon and saved sessions remain available.
 - **Provider logs:** daemon logs contain provider/model/status diagnostics but do not include full prompts, bearer tokens, or hidden reasoning.
+
+
+## Local learning candidates
+
+Learning uses only durable, privacy-preserving replay entries. It trains CPU-only candidate action policies offline; raw prompts, provider messages, tool arguments, and tool outputs are never used as training data.
+
+```powershell
+mllminal learning status
+mllminal learning train
+```
+
+Training requires the configured minimum number of eligible experiences (100 by default). Each run snapshots its replay-entry IDs, writes a SHA-256 verified checkpoint under the local learning data directory, and registers a `CANDIDATE` policy. Candidates are never promoted automatically: evaluation and an explicit operator promotion remain required.
+
+Authenticated daemon clients can inspect `/v1/learning/status`, `/v1/learning/runs`, and `/v1/learning/policies`; `/v1/learning/events` replays durable learning events after WebSocket authentication.
