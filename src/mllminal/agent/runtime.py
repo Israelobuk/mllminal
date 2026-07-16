@@ -24,6 +24,7 @@ from mllminal.contracts import (
     ToolExecution,
     VerificationResult,
 )
+from mllminal.learning.runtime_advisory import LearningRuntimeAdvisor
 from mllminal.runtime_store import RuntimeStore
 from mllminal.tools import ToolRegistry
 
@@ -50,10 +51,12 @@ class MilRuntime:
         store: RuntimeStore,
         provider: MilProvider | None = None,
         tools: ToolRegistry | None = None,
+        advisor: LearningRuntimeAdvisor | None = None,
     ) -> None:
         self.store = store
         self.provider = provider or DeterministicMilProvider()
         self.tools = tools or ToolRegistry()
+        self.advisor = advisor
 
     async def submit(self, session_id: str, request: str, idempotency_key: str) -> PendingTask:
         existing = self.store.find_task_by_idempotency(session_id, idempotency_key)
@@ -117,6 +120,8 @@ class MilRuntime:
             response_text,
             idempotency_key=f"mil:{task.id}",
         )
+        if self.advisor is not None:
+            self.advisor.recommend(task.id)
         approval = self.store.create_approval(
             Approval(task_id=task.id, proposal_id=plan.steps[0].proposal.id)
         )
@@ -160,9 +165,12 @@ class MilRuntime:
         if not changed:
             return task
         if status is ApprovalStatus.REJECTED:
-            return self.store.transition_task(
+            blocked = self.store.transition_task(
                 task.id, TaskState.BLOCKED, blocker="approval_rejected"
             )
+            if self.advisor is not None:
+                self.advisor.finalize(task.id, verified=False, completed=False, corrected=True)
+            return blocked
         task = self.store.transition_task(task.id, TaskState.EXECUTING)
         plan = self.store.get_plan_for_task(task.id)
         proposal = next(
@@ -211,7 +219,13 @@ class MilRuntime:
             idempotency_key=f"verified:{execution.id}",
         )
         if not verification.succeeded:
-            return self.store.transition_task(
+            failed = self.store.transition_task(
                 task.id, TaskState.FAILED, blocker="verification_failed"
             )
-        return self.store.transition_task(task.id, TaskState.COMPLETED)
+            if self.advisor is not None:
+                self.advisor.finalize(task.id, verified=False, completed=True)
+            return failed
+        completed = self.store.transition_task(task.id, TaskState.COMPLETED)
+        if self.advisor is not None:
+            self.advisor.finalize(task.id, verified=True, completed=True)
+        return completed

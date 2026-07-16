@@ -42,3 +42,10 @@ mllminal learning train
 Training requires the configured minimum number of eligible experiences (100 by default). Each run snapshots its replay-entry IDs, writes a SHA-256 verified checkpoint under the local learning data directory, and registers a `CANDIDATE` policy. Candidates are never promoted automatically: evaluation and an explicit operator promotion remain required.
 
 Authenticated daemon clients can inspect `/v1/learning/status`, `/v1/learning/runs`, and `/v1/learning/policies`; `/v1/learning/events` replays durable learning events after WebSocket authentication.
+
+
+### Runtime advisory behavior
+
+When learning is enabled, the daemon loads the currently promoted checkpoint at startup and may record a masked policy recommendation at an approved planning checkpoint. Recommendations are advisory only: Mil continues to require the existing permissions, approval, tool schema, workspace confinement, task-state, and verification gates. The final runtime action remains the deterministic approval path.
+
+MLLminal safely falls back to its deterministic policy behavior when learning is disabled, no trained policy is promoted, a checkpoint is missing or fails its digest/compatibility validation, confidence is too low, or all learned actions are masked. Only verified terminal outcomes are eligible for replay; incomplete and unverified work is excluded.
