@@ -86,6 +86,7 @@ class PolicyLifecycle(StrEnum):
     ACTIVE = "ACTIVE"
     RETIRED = "RETIRED"
     ROLLED_BACK = "ROLLED_BACK"
+    REJECTED = "REJECTED"
 
 
 class PromotionOutcome(StrEnum):
