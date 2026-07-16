@@ -47,6 +47,29 @@ class OllamaClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    async def model_available(self) -> bool:
+        """Return whether the configured model appears in the local model registry."""
+        try:
+            response = await self._client.get("/api/tags")
+        except httpx.TimeoutException as error:
+            raise OllamaProviderError("timeout", "Local model request timed out", True) from error
+        except httpx.HTTPError as error:
+            raise OllamaProviderError(
+                "unavailable", "Local model server is unavailable", True
+            ) from error
+        self._raise_for_status(response)
+        try:
+            payload: object = response.json()
+        except json.JSONDecodeError as error:
+            raise OllamaProviderError(
+                "malformed_response", "Model server returned invalid JSON"
+            ) from error
+        if not isinstance(payload, dict) or not isinstance(payload.get("models"), list):
+            raise OllamaProviderError("malformed_response", "Model registry response is invalid")
+        return any(
+            isinstance(item, dict) and item.get("name") == self.model for item in payload["models"]
+        )
+
     async def stream_chat(self, messages: list[dict[str, str]]) -> AsyncIterator[OllamaStreamEvent]:
         try:
             async with self._client.stream(

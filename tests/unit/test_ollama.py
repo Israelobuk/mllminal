@@ -52,3 +52,16 @@ async def test_ollama_client_exposes_incremental_stream_events() -> None:
     assert [event.text for event in events] == ["first", " second"]
     assert events[-1].done is True
     assert events[-1].usage == {"output_tokens": 2}
+
+
+@pytest.mark.asyncio
+async def test_ollama_client_reports_installed_model_from_tags_endpoint() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/tags"
+        return httpx.Response(200, json={"models": [{"name": "qwen:test"}]})
+
+    client = OllamaClient("http://ollama.test", "qwen:test", transport=httpx.MockTransport(handler))
+    async with client:
+        available = await client.model_available()
+
+    assert available is True
