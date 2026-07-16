@@ -635,6 +635,10 @@ class LearningRepository(Store):
             if current is not None:
                 current.promoted = False
                 current.lifecycle = PolicyLifecycle.RETIRED.value
+                current_policy = PolicyVersion.model_validate_json(current.payload_json).model_copy(
+                    update={"lifecycle": PolicyLifecycle.RETIRED}
+                )
+                current.payload_json = current_policy.model_dump_json()
             row.promoted = True
             row.lifecycle = PolicyLifecycle.ACTIVE.value
             policy = PolicyVersion.model_validate_json(row.payload_json).model_copy(
@@ -764,6 +768,15 @@ class LearningRepository(Store):
 
     def count_promotion_records(self) -> int:
         return self._count_rows(PromotionRecordRow)
+
+    def find_rollback_by_key(self, idempotency_key: str) -> RollbackRecord | None:
+        with DbSession(self.engine) as database:
+            row = database.scalar(
+                select(RollbackRecordRow).where(
+                    RollbackRecordRow.idempotency_key == idempotency_key
+                )
+            )
+            return RollbackRecord.model_validate_json(row.payload_json) if row else None
 
     def get_rollback_record(self, record_id: str) -> RollbackRecord:
         return cast(

@@ -7,6 +7,10 @@ import typer
 
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
+from mllminal.learning.contracts import PolicyVersion
+from mllminal.learning.evaluation import EvaluationCase
+from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
+from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
 
@@ -120,6 +124,88 @@ def create_app(
         typer.echo(f"Eligible experiences: {status.eligible_experience_count}")
         typer.echo(f"Minimum experiences: {status.minimum_experience_count}")
         typer.echo(f"Active policy: {status.active_policy_version_id or 'policy_v0'}")
+
+    def governance() -> CandidateGovernanceService:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        return CandidateGovernanceService(
+            repository,
+            PolicyRegistry(repository, resolved_settings.data_dir / "learning" / "checkpoints"),
+        )
+
+    def named_policy(name: str) -> PolicyVersion:
+        matches = [
+            policy
+            for policy in governance().repository.list_policy_versions()
+            if policy.name == name
+        ]
+        if len(matches) != 1:
+            typer.echo(f"Unknown policy: {name}")
+            raise typer.Exit(code=1)
+        return matches[0]
+
+    @learning.command("evaluate")
+    def evaluate_learning(policy_name: str) -> None:
+        policy = named_policy(policy_name)
+        if policy.training_run_id is None:
+            typer.echo("Policy has no training run to evaluate.")
+            raise typer.Exit(code=1)
+        service = governance()
+        samples = service.repository.sample_replay(
+            service.repository.count_replay_entries(), seed=service.repository.get_settings().seed
+        )
+        if not samples:
+            typer.echo("No held-out replay samples are available.")
+            raise typer.Exit(code=1)
+        result = service.evaluate(
+            policy.id,
+            policy.training_run_id,
+            [EvaluationCase(sample=sample, action_mask=(True,) * 9) for sample in samples],
+        )
+        typer.echo(f"Evaluation: {'passed' if result.report.passed else 'rejected'}")
+        typer.echo(f"Report: {result.report.id}")
+
+    @learning.command("compare")
+    def compare_learning(candidate_name: str, current_name: str) -> None:
+        candidate = named_policy(candidate_name)
+        current = named_policy(current_name)
+        typer.echo(f"Candidate: {candidate.name}")
+        typer.echo(f"Current: {current.name}")
+        typer.echo("Use 'learning evaluate' to produce the durable comparison metrics.")
+
+    @learning.command("promote")
+    def promote_learning(candidate_name: str) -> None:
+        candidate = named_policy(candidate_name)
+        reports = [
+            report
+            for report in governance().repository.list_evaluation_reports()
+            if report.candidate_policy_id == candidate.id
+        ]
+        if not reports:
+            typer.echo("Candidate has no evaluation report.")
+            raise typer.Exit(code=1)
+        try:
+            promoted = governance().promote(
+                candidate.id,
+                reports[-1].id,
+                explicitly_approved=True,
+                idempotency_key=f"cli-promote-{candidate.id}",
+            )
+        except PromotionApprovalError as error:
+            typer.echo(str(error))
+            raise typer.Exit(code=1) from None
+        typer.echo(f"Promoted: {promoted.name}")
+
+    @learning.command("rollback")
+    def rollback_learning() -> None:
+        try:
+            record = governance().rollback(
+                reason="CLI operator rollback", idempotency_key="cli-rollback"
+            )
+        except KeyError:
+            typer.echo("No previous promoted policy is available for rollback.")
+            raise typer.Exit(code=1) from None
+        typer.echo(f"Rolled back to: {record.to_policy_version_id}")
 
     @learning.command("train")
     def train_learning() -> None:

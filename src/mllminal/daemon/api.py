@@ -16,6 +16,9 @@ from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
+from mllminal.learning.evaluation import EvaluationCase
+from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
+from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
 from mllminal.runtime_store import RuntimeStore
@@ -37,6 +40,12 @@ class ApprovalDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: ApprovalStatus
+
+
+class PromotionApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    explicitly_approved: bool
 
 
 class EventHub:
@@ -222,6 +231,78 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             "candidate": result.candidate.model_dump(mode="json"),
             "checkpoint": str(result.checkpoint),
         }
+
+    def governance() -> CandidateGovernanceService:
+        return CandidateGovernanceService(
+            learning_repository,
+            PolicyRegistry(learning_repository, settings.data_dir / "learning" / "checkpoints"),
+        )
+
+    @app.post("/v1/learning/evaluate/{policy_name}", dependencies=protected)
+    async def evaluate_learning(policy_name: str) -> Any:
+        matches = [
+            policy
+            for policy in learning_repository.list_policy_versions()
+            if policy.name == policy_name
+        ]
+        if len(matches) != 1 or matches[0].training_run_id is None:
+            return error_response("invalid_policy", "Candidate policy cannot be evaluated", 422)
+        samples = learning_repository.sample_replay(
+            learning_repository.count_replay_entries(), seed=learning_repository.get_settings().seed
+        )
+        if not samples:
+            return error_response("no_replay_samples", "No held-out replay samples available", 409)
+        result = governance().evaluate(
+            matches[0].id,
+            matches[0].training_run_id,
+            [EvaluationCase(sample=sample, action_mask=(True,) * 9) for sample in samples],
+        )
+        return result.report.model_dump(mode="json")
+
+    @app.post("/v1/learning/promote/{policy_name}", dependencies=protected)
+    async def promote_learning(
+        policy_name: str,
+        body: PromotionApproval,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> Any:
+        matches = [
+            policy
+            for policy in learning_repository.list_policy_versions()
+            if policy.name == policy_name
+        ]
+        reports = [
+            report
+            for report in learning_repository.list_evaluation_reports()
+            if matches and report.candidate_policy_id == matches[0].id
+        ]
+        if len(matches) != 1 or not reports:
+            return error_response("missing_evaluation", "Candidate has no evaluation report", 409)
+        try:
+            policy = governance().promote(
+                matches[0].id,
+                reports[-1].id,
+                explicitly_approved=body.explicitly_approved,
+                idempotency_key=idempotency_key,
+            )
+        except PromotionApprovalError as error:
+            return error_response("promotion_rejected", str(error), 409)
+        return policy.model_dump(mode="json")
+
+    @app.post("/v1/learning/rollback", dependencies=protected)
+    async def rollback_learning(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> Any:
+        try:
+            record = governance().rollback(
+                reason="API operator rollback", idempotency_key=idempotency_key
+            )
+        except KeyError:
+            return error_response("rollback_unavailable", "No previous promoted policy", 409)
+        return record.model_dump(mode="json")
+
+    @app.get("/v1/learning/compare/{candidate_name}/{current_name}", dependencies=protected)
+    async def compare_learning(candidate_name: str, current_name: str) -> dict[str, str]:
+        return {"candidate": candidate_name, "current": current_name}
 
     @app.post("/v1/daemon/shutdown", dependencies=protected)
     async def shutdown() -> dict[str, str]:
