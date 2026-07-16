@@ -16,6 +16,7 @@ from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
+from mllminal.device.observer import DeviceObserver
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
 from mllminal.learning.registry import PolicyRegistry
@@ -82,12 +83,14 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             learning_repository, settings.data_dir / "learning" / "checkpoints"
         ),
     )
+    device_observer = DeviceObserver(settings.data_dir / "device", [])
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
     app.state.shutdown_callback = None
     app.state.runtime = runtime
     app.state.provider_config = provider_config
     app.state.learning_repository = learning_repository
+    app.state.device_observer = device_observer
 
     def error_response(
         code: str,
@@ -137,6 +140,42 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "daemon": "mllminald"}
+
+    @app.get("/v1/device/status", dependencies=protected)
+    async def device_status() -> dict[str, Any]:
+        return {
+            "state": device_observer.status.state,
+            "dropped_events": device_observer.status.dropped_events,
+            "duplicate_events": device_observer.status.duplicate_events,
+        }
+
+    @app.get("/v1/device/capabilities", dependencies=protected)
+    async def device_capabilities() -> list[dict[str, Any]]:
+        return [capability.__dict__ for capability in device_observer.capabilities()]
+
+    @app.get("/v1/device/events", dependencies=protected)
+    async def device_events() -> list[dict[str, Any]]:
+        return [event.model_dump(mode="json") for event in device_observer.events()]
+
+    @app.post("/v1/device/start", dependencies=protected)
+    async def device_start() -> dict[str, str]:
+        device_observer.start()
+        return {"state": device_observer.status.state}
+
+    @app.post("/v1/device/stop", dependencies=protected)
+    async def device_stop() -> dict[str, str]:
+        device_observer.stop()
+        return {"state": device_observer.status.state}
+
+    @app.post("/v1/device/pause", dependencies=protected)
+    async def device_pause() -> dict[str, str]:
+        device_observer.pause()
+        return {"state": device_observer.status.state}
+
+    @app.post("/v1/device/resume", dependencies=protected)
+    async def device_resume() -> dict[str, str]:
+        device_observer.resume()
+        return {"state": device_observer.status.state}
 
     @app.get("/v1/status", dependencies=protected)
     async def status() -> dict[str, Any]:

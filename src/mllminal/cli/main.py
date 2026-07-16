@@ -7,6 +7,7 @@ import typer
 
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
+from mllminal.device.observer import DeviceObserver
 from mllminal.learning.contracts import PolicyVersion
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
@@ -44,6 +45,10 @@ def create_app(
         help="Inspect and select Mil model providers.", invoke_without_command=True
     )
     learning = typer.Typer(help="Inspect and train local candidate policies.")
+    device = typer.Typer(help="Control metadata-only local device observation.")
+
+    def observer() -> DeviceObserver:
+        return DeviceObserver(resolved_settings.data_dir / "device", [])
 
     def current() -> ProviderConfig:
         return store.load()
@@ -222,7 +227,46 @@ def create_app(
         typer.echo(f"Training run: {result.training_run.id}")
         typer.echo(f"Checkpoint: {result.checkpoint}")
 
+    @device.command("status")
+    def device_status() -> None:
+        typer.echo(observer().status.state)
+
+    @device.command("start")
+    def device_start() -> None:
+        value = observer()
+        value.start()
+        typer.echo(value.status.state)
+
+    @device.command("stop")
+    def device_stop() -> None:
+        value = observer()
+        value.stop()
+        typer.echo(value.status.state)
+
+    @device.command("pause")
+    def device_pause() -> None:
+        value = observer()
+        value.pause()
+        typer.echo(value.status.state)
+
+    @device.command("resume")
+    def device_resume() -> None:
+        value = observer()
+        value.resume()
+        typer.echo(value.status.state)
+
+    @device.command("capabilities")
+    def device_capabilities() -> None:
+        for capability in observer().capabilities():
+            typer.echo(capability.name)
+
+    @device.command("events")
+    def device_events() -> None:
+        for event in observer().events():
+            typer.echo(event.model_dump_json())
+
     app.add_typer(models, name="models")
+    app.add_typer(device, name="device")
     app.add_typer(learning, name="learning")
     return app
 
