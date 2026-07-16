@@ -86,3 +86,17 @@ async def test_provider_failure_creates_no_fabricated_plan_or_approval(tmp_path:
     assert task.blocker == "unavailable"
     assert store.list_approvals(task.id) == []
     assert "provider.failed" in [event.event_type for event in store.list_events(session_id)]
+
+
+@pytest.mark.asyncio
+async def test_runtime_persists_provider_metadata_for_completed_response(tmp_path: Path) -> None:
+    runtime, store, session_id = make_runtime(tmp_path)
+
+    pending = await runtime.submit(session_id, "inspect this project", "metadata-request")
+
+    metadata = store.get_provider_metadata(pending.task.id)
+    assert metadata.provider == "deterministic"
+    assert metadata.prompt_version == "v1"
+    assert metadata.completion_status == "completed"
+    assert metadata.validation_succeeded is True
+    assert metadata.retry_count == 0

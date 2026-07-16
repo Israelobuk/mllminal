@@ -11,6 +11,7 @@ from mllminal.contracts import (
     Approval,
     ApprovalStatus,
     Plan,
+    ProviderResponseMetadata,
     Task,
     ToolExecution,
     VerificationResult,
@@ -67,6 +68,13 @@ class VerificationRow(Base):
     succeeded: Mapped[bool]
     detail: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime]
+
+
+class ProviderResponseRow(Base):
+    __tablename__ = "provider_responses"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"), unique=True)
+    metadata_json: Mapped[str] = mapped_column(Text)
 
 
 class RuntimeStore(Store):
@@ -219,6 +227,35 @@ class RuntimeStore(Store):
                 .order_by(VerificationRow.created_at)
             )
             return [self._verification(row) for row in rows]
+
+    def save_provider_metadata(
+        self, metadata: ProviderResponseMetadata
+    ) -> ProviderResponseMetadata:
+        with self.transaction() as database:
+            database.add(
+                ProviderResponseRow(
+                    id=metadata.id,
+                    task_id=metadata.task_id,
+                    metadata_json=metadata.model_dump_json(),
+                )
+            )
+            task = self._required_task_row(database, metadata.task_id)
+            self._append_event(
+                database,
+                task.session_id,
+                "provider.metadata",
+                metadata.model_dump(mode="json"),
+            )
+        return metadata
+
+    def get_provider_metadata(self, task_id: str) -> ProviderResponseMetadata:
+        with DbSession(self.engine) as database:
+            row = database.scalar(
+                select(ProviderResponseRow).where(ProviderResponseRow.task_id == task_id)
+            )
+            if row is None:
+                raise KeyError(task_id)
+            return ProviderResponseMetadata.model_validate_json(row.metadata_json)
 
     @staticmethod
     def _required_task_row(database: DbSession, task_id: str) -> TaskRow:

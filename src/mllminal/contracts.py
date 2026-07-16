@@ -151,3 +151,22 @@ class ErrorEnvelope(Contract):
     message: str
     retryable: bool = False
     detail: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProviderResponseMetadata(Contract):
+    """Auditable provider metadata without prompts, reasoning, or response text."""
+
+    id: str = Field(default_factory=new_id)
+    task_id: str
+    provider: str
+    model: str
+    prompt_version: str
+    response_id: str = Field(default_factory=new_id)
+    started_at: datetime = Field(default_factory=utc_now)
+    finished_at: datetime = Field(default_factory=utc_now)
+    completion_status: str
+    validation_succeeded: bool
+    retry_count: int = Field(ge=0)
+    failure_category: str | None = None
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
