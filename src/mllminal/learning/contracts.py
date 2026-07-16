@@ -189,6 +189,7 @@ class ExperienceRecord(LearningContract):
 
 class ReplaySample(LearningContract):
     id: str = Field(default_factory=new_id)
+    replay_entry_id: int = Field(default=0, ge=0)
     experience_id: str
     features: tuple[float, ...] = Field(min_length=FEATURE_DIM, max_length=FEATURE_DIM)
     action: PolicyAction
@@ -204,6 +205,8 @@ class TrainingRun(LearningContract):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     failure_reason: str | None = None
+    replay_entry_ids: tuple[int, ...] = ()
+    lifecycle_stage: Literal["COLLECTING", "TRAINING", "EVALUATING"] = "COLLECTING"
     created_at: datetime = Field(default_factory=utc_now)
 
 
