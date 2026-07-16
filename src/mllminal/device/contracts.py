@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from uuid6 import uuid7
@@ -56,7 +56,7 @@ class RawDeviceSignal(BaseModel):
     payload: dict[str, Any]
 
     @model_validator(mode="after")
-    def validate_safe_payload(self):
+    def validate_safe_payload(self) -> Self:
         if self.timestamp.tzinfo is None or self.timestamp.utcoffset() != UTC.utcoffset(
             self.timestamp
         ):

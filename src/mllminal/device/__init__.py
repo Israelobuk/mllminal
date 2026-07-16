@@ -1,1 +1,1 @@
-﻿"""Bounded Windows device observation foundation."""
+"""Bounded Windows device observation foundation."""
