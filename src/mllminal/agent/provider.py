@@ -1,9 +1,9 @@
-﻿"""Provider-neutral Mil contracts and deterministic fixture provider."""
+"""Provider-neutral Mil contracts and deterministic fixture provider."""
 
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -152,12 +152,16 @@ class DeterministicMilProvider:
 
     async def stream_response(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]:
         if request.task_id is None:
-            yield MilProviderEvent(event_type="provider.failed", text="A task is required for planning.")
+            yield MilProviderEvent(
+                event_type="provider.failed", text="A task is required for planning."
+            )
             return
         registry = ToolRegistry()
         available = {tool.name for tool in request.available_tools}
         if "project.inspect_metadata" not in available:
-            yield MilProviderEvent(event_type="provider.failed", text="Inspection tool is unavailable.")
+            yield MilProviderEvent(
+                event_type="provider.failed", text="Inspection tool is unavailable."
+            )
             return
         envelope = {
             "response": "I can inspect the attached project metadata after your approval.",
