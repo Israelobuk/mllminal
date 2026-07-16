@@ -32,3 +32,23 @@ async def test_ollama_client_classifies_missing_model() -> None:
     async with client:
         with pytest.raises(OllamaProviderError, match="model_not_installed"):
             await client.complete([{"role": "user", "content": "hi"}])
+
+
+@pytest.mark.asyncio
+async def test_ollama_client_exposes_incremental_stream_events() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=(
+                b'{"message":{"content":"first"}}\n'
+                b'{"message":{"content":" second"},"done":true,"eval_count":2}\n'
+            ),
+        )
+
+    client = OllamaClient("http://ollama.test", "qwen:test", transport=httpx.MockTransport(handler))
+    async with client:
+        events = [event async for event in client.stream_chat([{"role": "user", "content": "hi"}])]
+
+    assert [event.text for event in events] == ["first", " second"]
+    assert events[-1].done is True
+    assert events[-1].usage == {"output_tokens": 2}
