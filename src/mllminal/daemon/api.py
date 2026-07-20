@@ -17,6 +17,8 @@ from mllminal.activity.contracts import ActivityRefreshRequest
 from mllminal.activity.service import ActivityService
 from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
+from mllminal.apps.contracts import CapabilityRequest, CapabilityResult
+from mllminal.apps.service import ApplicationBridgeService
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.demonstration.contracts import (
@@ -113,6 +115,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     interaction = InteractionService(settings.database_path, privacy)
     activity = ActivityService(settings.database_path, interaction, device_observer)
     workflow = WorkflowService(settings.database_path)
+    applications = ApplicationBridgeService(settings.database_path)
     demonstration = DemonstrationService(settings.database_path, interaction)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
@@ -125,6 +128,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.interaction = interaction
     app.state.activity = activity
     app.state.workflow = workflow
+    app.state.applications = applications
     app.state.demonstration = demonstration
 
     def error_response(
@@ -505,6 +509,47 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.get("/v1/workflow-runs/{run_id}/events", dependencies=protected)
     async def workflow_events(run_id: str) -> list[dict[str, Any]]:
         return [item.model_dump(mode="json") for item in workflow.events(run_id)]
+
+    @app.get("/v1/apps", dependencies=protected)
+    async def application_discovery() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in await applications.discover()]
+
+    @app.get("/v1/apps/grants", dependencies=protected)
+    async def application_grants() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in applications.grants()]
+
+    @app.get("/v1/apps/{application}/capabilities", dependencies=protected)
+    async def application_capabilities(application: str) -> list[dict[str, Any]]:
+        return [
+            item.model_dump(mode="json") for item in await applications.capabilities(application)
+        ]
+
+    @app.post("/v1/apps/{application}/grant", dependencies=protected)
+    async def application_grant(
+        application: str,
+        scope: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return applications.grant(application, scope, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.post("/v1/apps/{application}/execute", dependencies=protected)
+    async def application_execute(
+        application: str,
+        body: CapabilityRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return (
+            await applications.execute(application, body, idempotency_key=idempotency_key)
+        ).model_dump(mode="json")
+
+    @app.post("/v1/apps/{application}/verify", dependencies=protected)
+    async def application_verify(
+        application: str,
+        body: CapabilityResult,
+    ) -> dict[str, Any]:
+        return (await applications.verify(application, body)).model_dump(mode="json")
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
