@@ -1,6 +1,7 @@
 """Authenticated REST and replayable WebSocket API."""
 
 import asyncio
+import json
 import secrets
 from collections import defaultdict
 from collections.abc import AsyncIterator
@@ -23,6 +24,14 @@ from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.runtime_advisory import LearningRuntimeAdvisor
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
+from mllminal.privacy.contracts import (
+    CaptureRequest,
+    DeletionRequest,
+    HistoryExportRequest,
+    PrivacyPolicy,
+    PrivacyRule,
+)
+from mllminal.privacy.service import PrivacyService
 from mllminal.runtime_store import RuntimeStore
 
 
@@ -84,6 +93,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         ),
     )
     device_observer = DeviceObserver(settings.data_dir / "device", [])
+    privacy = PrivacyService(settings.database_path)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
     app.state.shutdown_callback = None
@@ -91,6 +101,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.provider_config = provider_config
     app.state.learning_repository = learning_repository
     app.state.device_observer = device_observer
+    app.state.privacy = privacy
 
     def error_response(
         code: str,
@@ -136,6 +147,116 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         )
 
     protected = [Depends(authorize)]
+
+    @app.get("/v1/privacy/status", dependencies=protected)
+    async def privacy_status() -> dict[str, Any]:
+        return privacy.status().model_dump(mode="json")
+
+    @app.get("/v1/privacy/policy", dependencies=protected)
+    async def privacy_policy() -> dict[str, Any]:
+        return privacy.policy().model_dump(mode="json")
+
+    @app.put("/v1/privacy/policy", dependencies=protected)
+    async def update_privacy_policy(
+        body: PrivacyPolicy,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.update_policy(body, idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/privacy/enable", dependencies=protected)
+    async def privacy_enable(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.enable(idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/privacy/disable", dependencies=protected)
+    async def privacy_disable(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.disable(idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/privacy/pause", dependencies=protected)
+    async def privacy_pause(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.pause(idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/privacy/resume", dependencies=protected)
+    async def privacy_resume(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.resume(idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/privacy/incognito/start", dependencies=protected)
+    async def privacy_incognito_start(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.start_incognito(idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/privacy/incognito/stop", dependencies=protected)
+    async def privacy_incognito_stop(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.stop_incognito(idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/privacy/emergency-stop", dependencies=protected)
+    async def privacy_emergency_stop(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.emergency_stop(idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/privacy/emergency-clear", dependencies=protected)
+    async def privacy_emergency_clear(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.emergency_clear(idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.get("/v1/privacy/exclusions", dependencies=protected)
+    async def privacy_exclusions() -> list[dict[str, Any]]:
+        return [rule.model_dump(mode="json") for rule in privacy.exclusions()]
+
+    @app.post("/v1/privacy/exclusions", dependencies=protected)
+    async def add_privacy_exclusion(
+        body: PrivacyRule,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.add_exclusion(body, idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.delete("/v1/privacy/exclusions/{rule_id}", dependencies=protected)
+    async def remove_privacy_exclusion(
+        rule_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, bool]:
+        return {"deleted": privacy.remove_exclusion(rule_id, idempotency_key=idempotency_key)}
+
+    @app.post("/v1/privacy/capture", dependencies=protected)
+    async def privacy_capture(
+        body: CaptureRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return privacy.capture(body, idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.get("/v1/privacy/history", dependencies=protected)
+    async def privacy_history() -> list[dict[str, Any]]:
+        return [record.model_dump(mode="json") for record in privacy.history()]
+
+    @app.post("/v1/privacy/history/export", dependencies=protected)
+    async def export_privacy_history(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+        body: HistoryExportRequest | None = None,
+    ) -> dict[str, Any]:
+        return {"history": json.loads(privacy.export_history(before=body.before if body else None))}
+
+    @app.post("/v1/privacy/history/delete", dependencies=protected)
+    async def delete_privacy_history(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+        body: DeletionRequest | None = None,
+    ) -> dict[str, int]:
+        return {
+            "deleted": privacy.delete_history(
+                idempotency_key=idempotency_key, before=body.before if body else None
+            )
+        }
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
@@ -356,6 +477,33 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         if callback is not None:
             callback()
         return {"status": "shutting_down"}
+
+    @app.websocket("/v1/privacy/events/stream")
+    async def privacy_event_stream(socket: WebSocket) -> None:
+        await socket.accept()
+        try:
+            authentication = await asyncio.wait_for(socket.receive_json(), timeout=5)
+            supplied = authentication.get("token") if isinstance(authentication, dict) else None
+            if authentication.get("type") != "authenticate" or not isinstance(supplied, str):
+                await socket.close(code=4401, reason="Authentication required")
+                return
+            if not secrets.compare_digest(supplied, token):
+                await socket.close(code=4401, reason="Authentication failed")
+                return
+            after = int(socket.query_params.get("after_sequence", "0"))
+            await socket.send_json({"type": "authenticated"})
+            while True:
+                for event in privacy.events(after):
+                    await socket.send_json(event)
+                    after = event["sequence"]
+                try:
+                    incoming = await asyncio.wait_for(socket.receive(), timeout=0.1)
+                except TimeoutError:
+                    continue
+                if incoming.get("type") == "websocket.disconnect":
+                    return
+        except (WebSocketDisconnect, TimeoutError, ValueError):
+            return
 
     @app.websocket("/v1/device/events/stream")
     async def device_event_stream(socket: WebSocket) -> None:
