@@ -14,6 +14,8 @@ from mllminal.apps.contracts import CapabilityRequest
 from mllminal.apps.service import ApplicationBridgeService
 from mllminal.assistance.contracts import AssistanceRequest
 from mllminal.assistance.service import ProactiveAssistanceService
+from mllminal.automl.contracts import AutoMLRequest
+from mllminal.automl.service import LocalAutoMLService
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.demonstration.contracts import (
     DemonstrationCaptureRequest,
@@ -87,6 +89,7 @@ def create_app(
     actions = typer.Typer(help="Preview and explicitly approve bounded device actions.")
     assist = typer.Typer(help="Surface reviewable workflow suggestions without executing them.")
     adapters = typer.Typer(help="Export typed workflows to optional local adapters.")
+    automl = typer.Typer(help="Rank bounded local policy candidates for review.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -195,6 +198,9 @@ def create_app(
 
     def langgraph_adapter() -> LangGraphWorkflowAdapter:
         return LangGraphWorkflowAdapter()
+
+    def automl_service() -> LocalAutoMLService:
+        return LocalAutoMLService()
 
     def demonstration_session_id(session_id: str | None) -> str:
         current = demonstration_service().status().session
@@ -705,6 +711,12 @@ def create_app(
             )
         )
 
+    @automl.command("rank")
+    def automl_rank(payload: str) -> None:
+        typer.echo(
+            automl_service().rank(AutoMLRequest.model_validate_json(payload)).model_dump_json()
+        )
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -821,6 +833,7 @@ def create_app(
     app.add_typer(actions, name="actions")
     app.add_typer(assist, name="assist")
     app.add_typer(adapters, name="adapters")
+    app.add_typer(automl, name="automl")
     return app
 
 

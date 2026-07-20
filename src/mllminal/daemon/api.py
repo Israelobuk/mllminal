@@ -23,6 +23,8 @@ from mllminal.apps.contracts import CapabilityRequest, CapabilityResult
 from mllminal.apps.service import ApplicationBridgeService
 from mllminal.assistance.contracts import AssistanceRequest
 from mllminal.assistance.service import ProactiveAssistanceService
+from mllminal.automl.contracts import AutoMLRequest
+from mllminal.automl.service import LocalAutoMLService
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.demonstration.contracts import (
@@ -129,6 +131,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     mining = WorkflowMiningService()
     actions = BoundedActionService()
     langgraph = LangGraphWorkflowAdapter()
+    automl = LocalAutoMLService()
     assistance = ProactiveAssistanceService()
     demonstration = DemonstrationService(settings.database_path, interaction)
     hub = EventHub()
@@ -147,6 +150,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.mining = mining
     app.state.actions = actions
     app.state.langgraph = langgraph
+    app.state.automl = automl
     app.state.assistance = assistance
     app.state.demonstration = demonstration
 
@@ -607,6 +611,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def langgraph_spec(body: WorkflowCreateRequest) -> dict[str, Any]:
         spec = langgraph.spec(body.definition)
         return {"available": langgraph.available(), "spec": spec.model_dump(mode="json")}
+
+    @app.post("/v1/automl/rank", dependencies=protected)
+    async def automl_rank(body: AutoMLRequest) -> dict[str, Any]:
+        return automl.rank(body).model_dump(mode="json")
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
