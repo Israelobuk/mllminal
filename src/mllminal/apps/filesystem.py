@@ -327,7 +327,7 @@ class FilesystemAdapter:
             else (self.approved_roots[0] / candidate).resolve()
         )
         if not any(path == root or path.is_relative_to(root) for root in self.approved_roots):
-            raise ValueError("path_outside_approved_roots")
+            raise ValueError("path_outside_workspace")
         root = next(
             root for root in self.approved_roots if path == root or path.is_relative_to(root)
         )
