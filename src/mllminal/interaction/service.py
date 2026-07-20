@@ -99,6 +99,8 @@ class InteractionService:
         stored_event = event
         if category is CaptureCategory.SEMANTIC_POINTER:
             stored_event = event.model_copy(update={"pointer": None})
+        elif category is CaptureCategory.RAW_COORDINATES:
+            stored_event = event.model_copy(update={"replayable": False})
         context = self._context(event)
         privacy_result = self.privacy.capture(
             CaptureRequest(
