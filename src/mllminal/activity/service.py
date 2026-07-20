@@ -111,35 +111,39 @@ class ActivityService:
 
     def _build_segments(self, period_start: datetime) -> list[ActivitySegment]:
         signals: list[tuple[datetime, ActivitySource, str, str | None, str, str]] = []
-        for event in self.interaction.events():
-            timestamp = self._as_utc(event.created_at)
+        for interaction_event in self.interaction.events():
+            timestamp = self._as_utc(interaction_event.created_at)
             if timestamp < period_start:
                 continue
-            application = event.target.application if event.target else "unknown"
-            window = event.target.window if event.target else None
+            application = (
+                interaction_event.target.application if interaction_event.target else "unknown"
+            )
+            window = interaction_event.target.window if interaction_event.target else None
             signals.append(
                 (
                     timestamp,
                     ActivitySource.INTERACTION,
                     application,
                     window,
-                    event.id,
-                    event.kind.value,
+                    interaction_event.id,
+                    interaction_event.kind.value,
                 )
             )
-        for event in self.observer.events():
-            timestamp = self._as_utc(event.timestamp)
+        for device_event in self.observer.events():
+            timestamp = self._as_utc(device_event.timestamp)
             if timestamp < period_start:
                 continue
-            application = event.application.process_name if event.application else "unknown"
+            application = (
+                device_event.application.process_name if device_event.application else "unknown"
+            )
             signals.append(
                 (
                     timestamp,
                     ActivitySource.DEVICE,
                     application,
-                    event.window.title_classification if event.window else None,
-                    event.event_id,
-                    event.event_type,
+                    device_event.window.title_classification if device_event.window else None,
+                    device_event.event_id,
+                    device_event.event_type,
                 )
             )
         signals.sort(key=lambda item: item[0])
