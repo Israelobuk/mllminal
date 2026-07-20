@@ -36,6 +36,8 @@ from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.runtime_advisory import LearningRuntimeAdvisor
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
+from mllminal.mining.contracts import MiningRequest
+from mllminal.mining.service import WorkflowMiningService
 from mllminal.privacy.contracts import (
     CaptureRequest,
     DeletionRequest,
@@ -119,6 +121,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     workflow = WorkflowService(settings.database_path)
     applications = ApplicationBridgeService(settings.database_path)
     visual = LocalVisualVerificationService(settings.data_dir / "visual")
+    mining = WorkflowMiningService()
     demonstration = DemonstrationService(settings.database_path, interaction)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
@@ -133,6 +136,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.workflow = workflow
     app.state.applications = applications
     app.state.visual = visual
+    app.state.mining = mining
     app.state.demonstration = demonstration
 
     def error_response(
@@ -567,6 +571,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.post("/v1/visual/verify", dependencies=protected)
     async def visual_verify(body: VisualVerificationRequest) -> dict[str, Any]:
         return visual.verify(body).model_dump(mode="json")
+
+    @app.post("/v1/workflow-mining", dependencies=protected)
+    async def workflow_mining(body: MiningRequest) -> dict[str, Any]:
+        return mining.mine(interaction.events(), body).model_dump(mode="json")
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:

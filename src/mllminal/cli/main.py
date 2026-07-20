@@ -25,6 +25,8 @@ from mllminal.learning.governance import CandidateGovernanceService, PromotionAp
 from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
+from mllminal.mining.contracts import MiningRequest
+from mllminal.mining.service import WorkflowMiningService
 from mllminal.privacy.contracts import (
     CaptureCategory,
     CaptureContext,
@@ -76,6 +78,7 @@ def create_app(
     workflow = typer.Typer(help="Define, preview, approve, and verify typed workflows.")
     apps = typer.Typer(help="Discover and grant bounded on-device application capabilities.")
     visual = typer.Typer(help="Record and verify local semantic visual observations.")
+    mining = typer.Typer(help="Mine repeated semantic interactions into workflow candidates.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -172,6 +175,9 @@ def create_app(
 
     def visual_service() -> LocalVisualVerificationService:
         return LocalVisualVerificationService(resolved_settings.data_dir / "visual")
+
+    def mining_service() -> WorkflowMiningService:
+        return WorkflowMiningService()
 
     def demonstration_session_id(session_id: str | None) -> str:
         current = demonstration_service().status().session
@@ -644,6 +650,11 @@ def create_app(
             .model_dump_json()
         )
 
+    @mining.command("run")
+    def mining_run(payload: str = "{}") -> None:
+        request = MiningRequest.model_validate_json(payload)
+        typer.echo(mining_service().mine(interaction_service().events(), request).model_dump_json())
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -756,6 +767,7 @@ def create_app(
     app.add_typer(workflow, name="workflow")
     app.add_typer(apps, name="apps")
     app.add_typer(visual, name="visual")
+    app.add_typer(mining, name="mining")
     return app
 
 
