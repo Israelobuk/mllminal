@@ -1,4 +1,4 @@
-"""Typer command-line interface for local model selection."""
+﻿"""Typer command-line interface for local model selection."""
 
 import asyncio
 import json
@@ -23,6 +23,7 @@ from mllminal.demonstration.contracts import (
 )
 from mllminal.demonstration.service import DemonstrationService
 from mllminal.device.observer import DeviceObserver
+from mllminal.device.windows_adapters import create_native_windows_adapters
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
@@ -94,7 +95,7 @@ def create_app(
     exclude = typer.Typer(help="Add privacy exclusions.")
 
     def observer() -> DeviceObserver:
-        return DeviceObserver(resolved_settings.data_dir / "device", [])
+        return DeviceObserver(resolved_settings.data_dir / "device", create_native_windows_adapters())
 
     def current() -> ProviderConfig:
         return store.load()
@@ -844,3 +845,5 @@ def create_app(
 
 
 app = create_app()
+
+

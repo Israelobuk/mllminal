@@ -1,4 +1,4 @@
-"""Authenticated REST and replayable WebSocket API."""
+﻿"""Authenticated REST and replayable WebSocket API."""
 
 import asyncio
 import json
@@ -34,6 +34,8 @@ from mllminal.demonstration.contracts import (
 )
 from mllminal.demonstration.service import DemonstrationService
 from mllminal.device.observer import DeviceObserver
+from mllminal.device.windows_adapters import create_native_windows_adapters
+from mllminal.device.windows_runtime import WindowsObservationRuntime
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
@@ -121,7 +123,8 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             learning_repository, settings.data_dir / "learning" / "checkpoints"
         ),
     )
-    device_observer = DeviceObserver(settings.data_dir / "device", [])
+    device_observer = DeviceObserver(settings.data_dir / "device", create_native_windows_adapters())
+    device_runtime = WindowsObservationRuntime(device_observer)
     privacy = PrivacyService(settings.database_path)
     interaction = InteractionService(settings.database_path, privacy)
     activity = ActivityService(settings.database_path, interaction, device_observer)
@@ -147,6 +150,8 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.provider_config = provider_config
     app.state.learning_repository = learning_repository
     app.state.device_observer = device_observer
+    app.state.device_runtime = device_runtime
+    app.add_event_handler("shutdown", device_runtime.stop)
     app.state.privacy = privacy
     app.state.interaction = interaction
     app.state.activity = activity
@@ -644,22 +649,22 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
 
     @app.post("/v1/device/start", dependencies=protected)
     async def device_start() -> dict[str, str]:
-        device_observer.start()
+        device_runtime.start()
         return {"state": device_observer.status.state}
 
     @app.post("/v1/device/stop", dependencies=protected)
     async def device_stop() -> dict[str, str]:
-        device_observer.stop()
+        device_runtime.stop()
         return {"state": device_observer.status.state}
 
     @app.post("/v1/device/pause", dependencies=protected)
     async def device_pause() -> dict[str, str]:
-        device_observer.pause()
+        device_runtime.pause()
         return {"state": device_observer.status.state}
 
     @app.post("/v1/device/resume", dependencies=protected)
     async def device_resume() -> dict[str, str]:
-        device_observer.resume()
+        device_runtime.resume()
         return {"state": device_observer.status.state}
 
     @app.get("/v1/status", dependencies=protected)
@@ -944,3 +949,5 @@ def _pending_payload(pending: PendingTask) -> dict[str, Any]:
         "plan": pending.plan.model_dump(mode="json"),
         "approval": pending.approval.model_dump(mode="json"),
     }
+
+

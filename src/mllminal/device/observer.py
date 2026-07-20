@@ -1,10 +1,10 @@
-"""Bounded, metadata-only observer with deterministic fake adapters."""
+﻿"""Bounded, metadata-only observer with deterministic and native adapters."""
 
 from __future__ import annotations
 
 import json
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Protocol
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -31,6 +31,14 @@ class ObserverCapability:
     metadata_only: bool = True
 
 
+class DeviceAdapter(Protocol):
+    name: str
+
+    def poll(self) -> list[RawDeviceSignal]: ...
+
+    def capability(self) -> ObserverCapability: ...
+
+
 class FakeDeviceAdapter:
     def __init__(
         self,
@@ -39,6 +47,9 @@ class FakeDeviceAdapter:
         failure: Exception | None = None,
     ) -> None:
         self.name, self.signals, self.failure = name, signals or [], failure
+
+    def capability(self) -> ObserverCapability:
+        return ObserverCapability(self.name, True)
 
     def poll(self) -> list[RawDeviceSignal]:
         if self.failure:
@@ -49,7 +60,7 @@ class FakeDeviceAdapter:
 
 class DeviceObserver:
     def __init__(
-        self, data_dir: Path, adapters: list[FakeDeviceAdapter], queue_capacity: int = 256
+        self, data_dir: Path, adapters: list[DeviceAdapter], queue_capacity: int = 256
     ) -> None:
         self.data_dir = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -65,28 +76,22 @@ class DeviceObserver:
         self._load_state()
 
     def start(self) -> None:
-        self.status = ObserverStatus(
-            "RUNNING", self.status.dropped_events, self.status.duplicate_events
-        )
+        self.status = ObserverStatus("RUNNING", self.status.dropped_events, self.status.duplicate_events)
         self._save_state()
 
     def stop(self) -> None:
-        self.status = ObserverStatus(
-            "STOPPED", self.status.dropped_events, self.status.duplicate_events
-        )
+        self.status = ObserverStatus("STOPPED", self.status.dropped_events, self.status.duplicate_events)
         self._save_state()
 
     def pause(self) -> None:
-        self.status = ObserverStatus(
-            "PAUSED", self.status.dropped_events, self.status.duplicate_events
-        )
+        self.status = ObserverStatus("PAUSED", self.status.dropped_events, self.status.duplicate_events)
         self._save_state()
 
     def resume(self) -> None:
         self.start()
 
     def capabilities(self) -> list[ObserverCapability]:
-        return [ObserverCapability(a.name, True) for a in self.adapters]
+        return [adapter.capability() for adapter in self.adapters]
 
     def health(self) -> dict[str, ObserverHealth]:
         return dict(self._health)
@@ -101,8 +106,12 @@ class DeviceObserver:
         if self.status.state != "RUNNING":
             return False
         event = normalize_signal(signal)
-        fp = f"{event.event_type}:{event.source}:{event.application}"
-        if fp in self._fingerprints:
+        fingerprint = json.dumps(
+            event.model_dump(mode="json", exclude={"event_id", "monotonic_sequence"}),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        if fingerprint in self._fingerprints:
             self.status = ObserverStatus(
                 self.status.state, self.status.dropped_events, self.status.duplicate_events + 1
             )
@@ -114,7 +123,7 @@ class DeviceObserver:
             )
             self._save_state()
             return False
-        self._fingerprints.add(fp)
+        self._fingerprints.add(fingerprint)
         self.queue.append(event)
         return True
 
@@ -125,6 +134,7 @@ class DeviceObserver:
             try:
                 for signal in adapter.poll():
                     self.ingest(signal)
+                self._health[adapter.name] = ObserverHealth()
             except Exception as error:
                 self._health[adapter.name] = ObserverHealth(False, str(error))
                 self._save_state()
@@ -144,10 +154,7 @@ class DeviceObserver:
     def _load_events(self) -> list[NormalizedDeviceEvent]:
         path = self.data_dir / "device-events.jsonl"
         return (
-            [
-                NormalizedDeviceEvent.model_validate_json(line)
-                for line in path.read_text(encoding="utf-8").splitlines()
-            ]
+            [NormalizedDeviceEvent.model_validate_json(line) for line in path.read_text(encoding="utf-8").splitlines()]
             if path.exists()
             else []
         )
