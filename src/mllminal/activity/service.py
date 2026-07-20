@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, cast
 
