@@ -7,6 +7,11 @@ import typer
 
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
+from mllminal.demonstration.contracts import (
+    DemonstrationCaptureRequest,
+    VariableLabel,
+)
+from mllminal.demonstration.service import DemonstrationService
 from mllminal.device.observer import DeviceObserver
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
@@ -58,6 +63,7 @@ def create_app(
     device = typer.Typer(help="Control metadata-only local device observation.")
     privacy = typer.Typer(help="Control consent, capture, exclusions, and privacy history.")
     interaction = typer.Typer(help="Capture semantic interactions and manage replay permission.")
+    demonstrate = typer.Typer(help="Teach MLLminal an explicit workflow.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -135,6 +141,17 @@ def create_app(
 
     def interaction_service() -> InteractionService:
         return InteractionService(resolved_settings.database_path, privacy_service())
+
+    def demonstration_service() -> DemonstrationService:
+        return DemonstrationService(resolved_settings.database_path, interaction_service())
+
+    def demonstration_session_id(session_id: str | None) -> str:
+        current = demonstration_service().status().session
+        value = session_id or (current.id if current else None)
+        if value is None:
+            typer.echo("No demonstration session is available.")
+            raise typer.Exit(code=1)
+        return value
 
     @learning.command("status")
     def learning_status() -> None:
@@ -319,6 +336,104 @@ def create_app(
         for event in interaction_service().events():
             typer.echo(event.model_dump_json())
 
+    @demonstrate.command("status")
+    def demonstrate_status(session_id: str | None = typer.Argument(default=None)) -> None:
+        typer.echo(demonstration_service().status(session_id).model_dump_json())
+
+    @demonstrate.command("start")
+    def demonstrate_start(
+        label: str,
+        timeout_seconds: int = typer.Option(900, "--timeout-seconds", min=1, max=3600),
+        emergency_stop_shortcut: str = typer.Option("CTRL+ALT+ESC", "--emergency-stop-shortcut"),
+    ) -> None:
+        typer.echo(
+            demonstration_service()
+            .start(
+                label,
+                timeout_seconds=timeout_seconds,
+                emergency_stop_shortcut=emergency_stop_shortcut,
+                idempotency_key=f"cli-demonstrate-start-{label}",
+            )
+            .model_dump_json()
+        )
+
+    @demonstrate.command("stop")
+    def demonstrate_stop(session_id: str | None = typer.Argument(default=None)) -> None:
+        value = demonstration_session_id(session_id)
+        typer.echo(
+            demonstration_service()
+            .stop(value, idempotency_key=f"cli-demonstrate-stop-{value}")
+            .model_dump_json()
+        )
+
+    @demonstrate.command("cancel")
+    def demonstrate_cancel(session_id: str | None = typer.Argument(default=None)) -> None:
+        value = demonstration_session_id(session_id)
+        typer.echo(
+            demonstration_service()
+            .cancel(value, idempotency_key=f"cli-demonstrate-cancel-{value}")
+            .model_dump_json()
+        )
+
+    @demonstrate.command("emergency-stop")
+    def demonstrate_emergency_stop(session_id: str | None = typer.Argument(default=None)) -> None:
+        value = demonstration_session_id(session_id)
+        typer.echo(
+            demonstration_service()
+            .emergency_stop(value, idempotency_key=f"cli-demonstrate-emergency-{value}")
+            .model_dump_json()
+        )
+
+    @demonstrate.command("record")
+    def demonstrate_record(
+        session_id: str,
+        payload: str,
+        normalized_file_operation: str | None = typer.Option(default=None),
+        application_transition: str | None = typer.Option(default=None),
+        text_entry_occurred: bool = typer.Option(default=False),
+    ) -> None:
+        event = InteractionEvent.model_validate_json(payload)
+        request = DemonstrationCaptureRequest(
+            event=event,
+            normalized_file_operation=normalized_file_operation,
+            application_transition=application_transition,
+            text_entry_occurred=text_entry_occurred,
+        )
+        typer.echo(
+            demonstration_service()
+            .record(session_id, request, idempotency_key=f"cli-demonstrate-record-{event.id}")
+            .model_dump_json()
+        )
+
+    @demonstrate.command("steps")
+    def demonstrate_steps(session_id: str | None = typer.Argument(default=None)) -> None:
+        value = demonstration_session_id(session_id)
+        for step in demonstration_service().steps(value):
+            typer.echo(step.model_dump_json())
+
+    @demonstrate.command("label")
+    def demonstrate_label(
+        session_id: str,
+        event_id: str,
+        label: VariableLabel,
+        field_name: str | None = typer.Option(default=None),
+    ) -> None:
+        typer.echo(
+            demonstration_service()
+            .assign_variable(
+                session_id,
+                event_id,
+                label,
+                field_name=field_name,
+                idempotency_key=f"cli-demonstrate-label-{session_id}-{event_id}",
+            )
+            .model_dump_json()
+        )
+
+    @demonstrate.command("candidate")
+    def demonstrate_candidate(candidate_id: str) -> None:
+        typer.echo(demonstration_service().candidate(candidate_id).model_dump_json())
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -426,6 +541,7 @@ def create_app(
     app.add_typer(learning, name="learning")
     app.add_typer(privacy, name="privacy")
     app.add_typer(interaction, name="interaction")
+    app.add_typer(demonstrate, name="demonstrate")
     return app
 
 
