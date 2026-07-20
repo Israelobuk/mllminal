@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -132,4 +132,3 @@ def test_two_privacy_websockets_replay_the_same_events(tmp_path: Path) -> None:
         reconnect.send_json({"type": "authenticate", "token": "test-token"})
         assert reconnect.receive_json() == {"type": "authenticated"}
         assert reconnect.receive_json()["sequence"] == expected[-1]["sequence"]
-
