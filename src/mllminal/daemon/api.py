@@ -21,6 +21,8 @@ from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
 from mllminal.apps.contracts import CapabilityRequest, CapabilityResult
 from mllminal.apps.service import ApplicationBridgeService
+from mllminal.assistance.contracts import AssistanceRequest
+from mllminal.assistance.service import ProactiveAssistanceService
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.demonstration.contracts import (
@@ -125,6 +127,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     visual = LocalVisualVerificationService(settings.data_dir / "visual")
     mining = WorkflowMiningService()
     actions = BoundedActionService()
+    assistance = ProactiveAssistanceService()
     demonstration = DemonstrationService(settings.database_path, interaction)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
@@ -141,6 +144,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.visual = visual
     app.state.mining = mining
     app.state.actions = actions
+    app.state.assistance = assistance
     app.state.demonstration = demonstration
 
     def error_response(
@@ -590,6 +594,11 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
         return actions.execute(body, idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/assistance/suggest", dependencies=protected)
+    async def assistance_suggest(body: AssistanceRequest) -> dict[str, Any]:
+        mined = mining.mine(interaction.events(), body.mining)
+        return assistance.suggest(mined, body).model_dump(mode="json")
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
