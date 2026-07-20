@@ -1,9 +1,6 @@
 ﻿from pathlib import Path
 
 import pytest
-
-from mllminal.privacy.contracts import CaptureCategory, CaptureMode, PrivacyPolicy
-from mllminal.privacy.service import PrivacyService
 from mllminal.interaction.contracts import (
     InteractionEvent,
     InteractionKind,
@@ -13,6 +10,10 @@ from mllminal.interaction.contracts import (
     TextEntryMetadata,
 )
 from mllminal.interaction.service import InteractionService
+from mllminal.privacy.contracts import CaptureCategory, CaptureMode, PrivacyPolicy
+from mllminal.privacy.service import PrivacyService
+
+
 
 
 def services(tmp_path: Path) -> tuple[PrivacyService, InteractionService]:
