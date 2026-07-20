@@ -17,6 +17,12 @@ from mllminal.activity.contracts import ActivityRefreshRequest
 from mllminal.activity.service import ActivityService
 from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
+from mllminal.workflow.contracts import (
+    WorkflowApprovalRequest,
+    WorkflowCreateRequest,
+    WorkflowRunRequest,
+)
+from mllminal.workflow.service import WorkflowService
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.demonstration.contracts import (
@@ -106,6 +112,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     privacy = PrivacyService(settings.database_path)
     interaction = InteractionService(settings.database_path, privacy)
     activity = ActivityService(settings.database_path, interaction, device_observer)
+    workflow = WorkflowService(settings.database_path)
     demonstration = DemonstrationService(settings.database_path, interaction)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
@@ -117,6 +124,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.privacy = privacy
     app.state.interaction = interaction
     app.state.activity = activity
+    app.state.workflow = workflow
     app.state.demonstration = demonstration
 
     def error_response(
@@ -423,6 +431,80 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.get("/v1/activity/boundaries", dependencies=protected)
     async def activity_boundaries() -> list[dict[str, Any]]:
         return [item.model_dump(mode="json") for item in activity.task_boundaries()]
+
+    @app.get("/v1/workflows", dependencies=protected)
+    async def workflow_definitions() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in workflow.definitions()]
+
+    @app.post("/v1/workflows", dependencies=protected)
+    async def workflow_create(
+        body: WorkflowCreateRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return workflow.create(body.definition, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.get("/v1/workflows/{workflow_id}", dependencies=protected)
+    async def workflow_definition(workflow_id: str) -> dict[str, Any]:
+        return workflow.definition(workflow_id).model_dump(mode="json")
+
+    @app.post("/v1/workflows/{workflow_id}/activate", dependencies=protected)
+    async def workflow_activate(
+        workflow_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return workflow.activate(workflow_id, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.post("/v1/workflows/{workflow_id}/archive", dependencies=protected)
+    async def workflow_archive(
+        workflow_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return workflow.archive(workflow_id, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.post("/v1/workflows/{workflow_id}/runs", dependencies=protected)
+    async def workflow_run(
+        workflow_id: str,
+        body: WorkflowRunRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return workflow.run(workflow_id, body, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.get("/v1/workflow-runs", dependencies=protected)
+    async def workflow_runs() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in workflow.runs()]
+
+    @app.get("/v1/workflow-runs/{run_id}", dependencies=protected)
+    async def workflow_run_record(run_id: str) -> dict[str, Any]:
+        return workflow.run_record(run_id).model_dump(mode="json")
+
+    @app.post("/v1/workflow-runs/{run_id}/approve", dependencies=protected)
+    async def workflow_approve(
+        run_id: str,
+        body: WorkflowApprovalRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return workflow.approve(run_id, body.approved, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.post("/v1/workflow-runs/{run_id}/rollback", dependencies=protected)
+    async def workflow_rollback(
+        run_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return workflow.rollback(run_id, idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.get("/v1/workflow-runs/{run_id}/events", dependencies=protected)
+    async def workflow_events(run_id: str) -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in workflow.events(run_id)]
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:

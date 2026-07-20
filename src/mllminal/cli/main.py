@@ -1,12 +1,15 @@
 """Typer command-line interface for local model selection."""
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 
 import typer
 
 from mllminal.activity.service import ActivityService
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
+from mllminal.workflow.contracts import WorkflowDefinition, WorkflowRunRequest
+from mllminal.workflow.service import WorkflowService
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.demonstration.contracts import (
     DemonstrationCaptureRequest,
@@ -66,6 +69,7 @@ def create_app(
     interaction = typer.Typer(help="Capture semantic interactions and manage replay permission.")
     demonstrate = typer.Typer(help="Teach MLLminal an explicit workflow.")
     activity = typer.Typer(help="Model activity, application sessions, and task sessions.")
+    workflow = typer.Typer(help="Define, preview, approve, and verify typed workflows.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -153,6 +157,9 @@ def create_app(
             interaction_service(),
             observer(),
         )
+
+    def workflow_service() -> WorkflowService:
+        return WorkflowService(resolved_settings.database_path)
 
     def demonstration_session_id(session_id: str | None) -> str:
         current = demonstration_service().status().session
@@ -486,6 +493,87 @@ def create_app(
         for item in activity_service().task_boundaries():
             typer.echo(item.model_dump_json())
 
+    @workflow.command("create")
+    def workflow_create(payload: str) -> None:
+        definition = WorkflowDefinition.model_validate_json(payload)
+        typer.echo(
+            workflow_service()
+            .create(definition, idempotency_key=f"cli-workflow-create-{definition.id}")
+            .model_dump_json()
+        )
+
+    @workflow.command("list")
+    def workflow_list() -> None:
+        for item in workflow_service().definitions():
+            typer.echo(item.model_dump_json())
+
+    @workflow.command("activate")
+    def workflow_activate(workflow_id: str) -> None:
+        typer.echo(
+            workflow_service()
+            .activate(workflow_id, idempotency_key=f"cli-workflow-activate-{workflow_id}")
+            .model_dump_json()
+        )
+
+    @workflow.command("archive")
+    def workflow_archive(workflow_id: str) -> None:
+        typer.echo(
+            workflow_service()
+            .archive(workflow_id, idempotency_key=f"cli-workflow-archive-{workflow_id}")
+            .model_dump_json()
+        )
+
+    @workflow.command("preview")
+    def workflow_preview(workflow_id: str, inputs: str = "{}") -> None:
+        request = WorkflowRunRequest(
+            inputs=json.loads(inputs),
+            preview=True,
+        )
+        typer.echo(
+            workflow_service()
+            .run(workflow_id, request, idempotency_key=f"cli-workflow-preview-{workflow_id}")
+            .model_dump_json()
+        )
+
+    @workflow.command("run")
+    def workflow_run(
+        workflow_id: str,
+        inputs: str = "{}",
+        live: bool = typer.Option(False, "--live"),
+    ) -> None:
+        request = WorkflowRunRequest(inputs=json.loads(inputs), preview=not live)
+        typer.echo(
+            workflow_service()
+            .run(workflow_id, request, idempotency_key=f"cli-workflow-run-{workflow_id}")
+            .model_dump_json()
+        )
+
+    @workflow.command("approve")
+    def workflow_approve(run_id: str, approved: bool = typer.Option(..., "--approved")) -> None:
+        typer.echo(
+            workflow_service()
+            .approve(run_id, approved, idempotency_key=f"cli-workflow-approve-{run_id}")
+            .model_dump_json()
+        )
+
+    @workflow.command("rollback")
+    def workflow_rollback(run_id: str) -> None:
+        typer.echo(
+            workflow_service()
+            .rollback(run_id, idempotency_key=f"cli-workflow-rollback-{run_id}")
+            .model_dump_json()
+        )
+
+    @workflow.command("runs")
+    def workflow_runs() -> None:
+        for item in workflow_service().runs():
+            typer.echo(item.model_dump_json())
+
+    @workflow.command("events")
+    def workflow_events(run_id: str) -> None:
+        for item in workflow_service().events(run_id):
+            typer.echo(item.model_dump_json())
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -595,6 +683,7 @@ def create_app(
     app.add_typer(interaction, name="interaction")
     app.add_typer(demonstrate, name="demonstrate")
     app.add_typer(activity, name="activity")
+    app.add_typer(workflow, name="workflow")
     return app
 
 
