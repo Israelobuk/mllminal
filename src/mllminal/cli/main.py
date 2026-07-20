@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 
 import typer
 
+from mllminal.activity.service import ActivityService
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.demonstration.contracts import (
@@ -64,6 +65,7 @@ def create_app(
     privacy = typer.Typer(help="Control consent, capture, exclusions, and privacy history.")
     interaction = typer.Typer(help="Capture semantic interactions and manage replay permission.")
     demonstrate = typer.Typer(help="Teach MLLminal an explicit workflow.")
+    activity = typer.Typer(help="Model activity, application sessions, and task sessions.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -144,6 +146,13 @@ def create_app(
 
     def demonstration_service() -> DemonstrationService:
         return DemonstrationService(resolved_settings.database_path, interaction_service())
+
+    def activity_service() -> ActivityService:
+        return ActivityService(
+            resolved_settings.database_path,
+            interaction_service(),
+            observer(),
+        )
 
     def demonstration_session_id(session_id: str | None) -> str:
         current = demonstration_service().status().session
@@ -434,6 +443,49 @@ def create_app(
     def demonstrate_candidate(candidate_id: str) -> None:
         typer.echo(demonstration_service().candidate(candidate_id).model_dump_json())
 
+    @activity.command("refresh")
+    def activity_refresh(
+        lookback_minutes: int = typer.Option(1440, "--lookback-minutes", min=1, max=10080),
+    ) -> None:
+        typer.echo(
+            activity_service()
+            .refresh(
+                lookback_minutes=lookback_minutes,
+                idempotency_key=f"cli-activity-refresh-{lookback_minutes}",
+            )
+            .model_dump_json()
+        )
+
+    @activity.command("status")
+    def activity_status() -> None:
+        summary = activity_service().summary()
+        typer.echo(summary.model_dump_json() if summary else "{}")
+
+    @activity.command("segments")
+    def activity_segments() -> None:
+        for item in activity_service().segments():
+            typer.echo(item.model_dump_json())
+
+    @activity.command("applications")
+    def activity_applications() -> None:
+        for item in activity_service().application_sessions():
+            typer.echo(item.model_dump_json())
+
+    @activity.command("tasks")
+    def activity_tasks() -> None:
+        for item in activity_service().task_sessions():
+            typer.echo(item.model_dump_json())
+
+    @activity.command("context-switches")
+    def activity_context_switches() -> None:
+        for item in activity_service().context_switches():
+            typer.echo(item.model_dump_json())
+
+    @activity.command("boundaries")
+    def activity_boundaries() -> None:
+        for item in activity_service().task_boundaries():
+            typer.echo(item.model_dump_json())
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -542,6 +594,7 @@ def create_app(
     app.add_typer(privacy, name="privacy")
     app.add_typer(interaction, name="interaction")
     app.add_typer(demonstrate, name="demonstrate")
+    app.add_typer(activity, name="activity")
     return app
 
 
