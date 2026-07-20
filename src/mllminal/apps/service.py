@@ -39,7 +39,12 @@ class ApplicationBridgeService:
         self.engine = create_engine(f"sqlite:///{database_path}")
         Base.metadata.create_all(self.engine)
         self.registry = ApplicationRegistry()
-        self.registry.register(FilesystemAdapter(workspace_root))
+        self.registry.register(
+            FilesystemAdapter(
+                workspace_root,
+                data_dir=self.database_path.parent / "filesystem",
+            )
+        )
         self.registry.register(ExcelAdapter())
         self.registry.register(EmailDraftAdapter())
         self.discovery = ApplicationDiscovery(self.registry)
