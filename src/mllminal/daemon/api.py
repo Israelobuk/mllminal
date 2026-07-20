@@ -1,4 +1,4 @@
-"""Authenticated REST and replayable WebSocket API."""
+﻿"""Authenticated REST and replayable WebSocket API."""
 
 import asyncio
 import json
@@ -18,6 +18,8 @@ from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.device.observer import DeviceObserver
+from mllminal.interaction.contracts import InteractionEvent
+from mllminal.interaction.service import InteractionService
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
 from mllminal.learning.registry import PolicyRegistry
@@ -94,6 +96,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     )
     device_observer = DeviceObserver(settings.data_dir / "device", [])
     privacy = PrivacyService(settings.database_path)
+    interaction = InteractionService(settings.database_path, privacy)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
     app.state.shutdown_callback = None
@@ -102,6 +105,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.learning_repository = learning_repository
     app.state.device_observer = device_observer
     app.state.privacy = privacy
+    app.state.interaction = interaction
 
     def error_response(
         code: str,
@@ -257,6 +261,40 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
                 idempotency_key=idempotency_key, before=body.before if body else None
             )
         }
+
+    @app.get("/v1/interaction/status", dependencies=protected)
+    async def interaction_status() -> dict[str, Any]:
+        return interaction.status().model_dump(mode="json")
+
+    @app.post("/v1/interaction/events", dependencies=protected)
+    async def capture_interaction(
+        body: InteractionEvent,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return interaction.capture(body, idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.get("/v1/interaction/events", dependencies=protected)
+    async def interaction_events() -> list[dict[str, Any]]:
+        return [event.model_dump(mode="json") for event in interaction.events()]
+
+    @app.post("/v1/interaction/replay/authorize", dependencies=protected)
+    async def authorize_interaction_replay(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return interaction.authorize_replay(idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/interaction/replay/revoke", dependencies=protected)
+    async def revoke_interaction_replay(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return interaction.revoke_replay(idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.post("/v1/interaction/events/{event_id}/replay", dependencies=protected)
+    async def prepare_interaction_replay(
+        event_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return interaction.prepare_replay(event_id, idempotency_key=idempotency_key).model_dump(mode="json")
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
@@ -580,3 +618,4 @@ def _pending_payload(pending: PendingTask) -> dict[str, Any]:
         "plan": pending.plan.model_dump(mode="json"),
         "approval": pending.approval.model_dump(mode="json"),
     }
+

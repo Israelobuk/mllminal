@@ -1,4 +1,4 @@
-"""Typer command-line interface for local model selection."""
+﻿"""Typer command-line interface for local model selection."""
 
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -8,6 +8,8 @@ import typer
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.device.observer import DeviceObserver
+from mllminal.interaction.contracts import InteractionEvent
+from mllminal.interaction.service import InteractionService
 from mllminal.learning.contracts import PolicyVersion
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
@@ -55,6 +57,7 @@ def create_app(
     learning = typer.Typer(help="Inspect and train local candidate policies.")
     device = typer.Typer(help="Control metadata-only local device observation.")
     privacy = typer.Typer(help="Control consent, capture, exclusions, and privacy history.")
+    interaction = typer.Typer(help="Capture semantic interactions and manage replay permission.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -129,6 +132,9 @@ def create_app(
 
     def privacy_service() -> PrivacyService:
         return PrivacyService(resolved_settings.database_path)
+
+    def interaction_service() -> InteractionService:
+        return InteractionService(resolved_settings.database_path, privacy_service())
 
     @learning.command("status")
     def learning_status() -> None:
@@ -279,6 +285,32 @@ def create_app(
         for event in observer().events():
             typer.echo(event.model_dump_json())
 
+    @interaction.command("status")
+    def interaction_status() -> None:
+        typer.echo(interaction_service().status().model_dump_json())
+
+    @interaction.command("replay-authorize")
+    def interaction_replay_authorize() -> None:
+        typer.echo(interaction_service().authorize_replay(idempotency_key="cli-interaction-replay-authorize").model_dump_json())
+
+    @interaction.command("replay-revoke")
+    def interaction_replay_revoke() -> None:
+        typer.echo(interaction_service().revoke_replay(idempotency_key="cli-interaction-replay-revoke").model_dump_json())
+
+    @interaction.command("capture")
+    def interaction_capture(
+        payload: str,
+        idempotency_key: str | None = typer.Option(default=None, "--idempotency-key"),
+    ) -> None:
+        event = InteractionEvent.model_validate_json(payload)
+        key = idempotency_key or f"cli-interaction-{event.id}"
+        typer.echo(interaction_service().capture(event, idempotency_key=key).model_dump_json())
+
+    @interaction.command("events")
+    def interaction_events() -> None:
+        for event in interaction_service().events():
+            typer.echo(event.model_dump_json())
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -385,7 +417,10 @@ def create_app(
     app.add_typer(device, name="device")
     app.add_typer(learning, name="learning")
     app.add_typer(privacy, name="privacy")
+    app.add_typer(interaction, name="interaction")
     return app
 
 
 app = create_app()
+
+
