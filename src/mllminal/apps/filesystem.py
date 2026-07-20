@@ -160,7 +160,10 @@ class FilesystemAdapter:
             entries = [self._entry(item) for item in sorted(folder.iterdir())[:limit]]
             return self._success(request, "list", {"folder": str(folder), "entries": entries})
         if capability == "filesystem.inspect":
-            path = self._confined_path(self._argument(request, "path"), must_exist=True)
+            path = self._confined_path(
+                self._argument(request, "path", request.arguments.get("folder")),
+                must_exist=True,
+            )
             return self._success(request, "inspect", self._metadata(path))
         if capability == "filesystem.find_latest":
             folder = self._confined_path(self._argument(request, "folder", "."), must_exist=True)
