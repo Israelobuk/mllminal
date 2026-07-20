@@ -27,6 +27,7 @@ from mllminal.automl.contracts import AutoMLRequest
 from mllminal.automl.service import LocalAutoMLService
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
+from mllminal.demonstration.bridge import DeviceDemonstrationBridge
 from mllminal.demonstration.contracts import (
     DemonstrationCaptureRequest,
     DemonstrationStartRequest,
@@ -153,6 +154,8 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     automl = LocalAutoMLService()
     assistance = ProactiveAssistanceService()
     demonstration = DemonstrationService(settings.database_path, interaction)
+    demonstration_bridge = DeviceDemonstrationBridge(demonstration)
+    device_observer.subscribe(demonstration_bridge.handle)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
     app.state.shutdown_callback = None
@@ -174,6 +177,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.automl = automl
     app.state.assistance = assistance
     app.state.demonstration = demonstration
+    app.state.demonstration_bridge = demonstration_bridge
 
     def error_response(
         code: str,
@@ -385,6 +389,8 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         body: DemonstrationStartRequest,
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
+        if not privacy.status().observation_enabled:
+            raise PermissionError("Enable visible observation before starting a demonstration")
         return demonstration.start(
             body.label,
             timeout_seconds=body.timeout_seconds,

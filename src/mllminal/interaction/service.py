@@ -173,6 +173,12 @@ class InteractionService:
     @staticmethod
     def _category(event: InteractionEvent) -> CaptureCategory:
         if event.kind in {
+            InteractionKind.APPLICATION_FOCUSED,
+            InteractionKind.WINDOW_FOCUSED,
+            InteractionKind.FILE_OPERATION,
+        }:
+            return CaptureCategory.DEVICE_METADATA
+        if event.kind in {
             InteractionKind.KEYBOARD_SHORTCUT,
             InteractionKind.KEYBOARD_NAVIGATION,
             InteractionKind.KEYBOARD_CONFIRM,

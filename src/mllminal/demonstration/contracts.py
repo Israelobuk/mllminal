@@ -24,6 +24,8 @@ class VariableLabel(StrEnum):
     CURRENT_DATE = "current_date"
     SELECTED_FILE = "selected_file"
     DO_NOT_AUTOMATE = "do_not_automate"
+    SKIP_STEP = "skip_step"
+    USE_PREVIOUS_OUTPUT = "previous_output"
 
 
 class DemonstrationSession(Contract):
@@ -63,6 +65,8 @@ class DemonstrationCaptureRequest(Contract):
     normalized_file_operation: str | None = None
     application_transition: str | None = None
     text_entry_occurred: bool = False
+    fragile: bool = False
+    source_event_id: str | None = None
 
 
 class DemonstrationCaptureResult(Contract):
@@ -80,6 +84,9 @@ class DemonstrationStep(Contract):
     normalized_file_operation: str | None = None
     application_transition: str | None = None
     text_entry_occurred: bool = False
+    fragile: bool = False
+    source_event_id: str | None = None
+    required_capability: str = "windows.observation"
 
 
 class VariableAssignment(Contract):
@@ -99,6 +106,12 @@ class WorkflowCandidate(Contract):
     step_ids: list[str] = Field(default_factory=list)
     variables: list[VariableAssignment] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
+    optional_step_ids: list[str] = Field(default_factory=list)
+    fragile_step_ids: list[str] = Field(default_factory=list)
+    approval_step_ids: list[str] = Field(default_factory=list)
+    required_capabilities: list[str] = Field(default_factory=list)
+    verification_requirements: list[str] = Field(default_factory=list)
+    unsupported_steps: list[str] = Field(default_factory=list)
 
 
 class DemonstrationStopResult(Contract):

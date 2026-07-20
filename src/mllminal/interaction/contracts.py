@@ -12,6 +12,9 @@ from mllminal.privacy.contracts import PrivacyDecision, SensitiveControlClassifi
 
 class InteractionKind(StrEnum):
     CONTROL_INVOKED = "control.invoked"
+    APPLICATION_FOCUSED = "application.focused"
+    WINDOW_FOCUSED = "window.focused"
+    FILE_OPERATION = "file.operation"
     MOUSE_CLICK = "mouse.click"
     MOUSE_DOUBLE_CLICK = "mouse.double_click"
     MOUSE_SCROLL = "mouse.scroll"
@@ -55,6 +58,7 @@ class PointerMetadata(Contract):
     button: str | None = None
     delta_x: float | None = None
     delta_y: float | None = None
+    amount_bucket: str | None = None
 
 
 class TextEntryMetadata(Contract):

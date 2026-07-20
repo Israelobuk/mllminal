@@ -173,33 +173,45 @@ class WindowsForegroundAdapter:
         )
         return ObserverCapability(self.name, available)
 
-    def poll(self) -> list[RawDeviceSignal]:
+    def current_metadata(self) -> dict[str, Any] | None:
         if not self.capability().available:
-            return []
+            return None
         assert self.win32gui is not None
         assert self.win32process is not None
         assert self.win32api is not None
         assert self.win32con is not None
         hwnd = int(self.win32gui.GetForegroundWindow())
         if not hwnd:
-            return []
+            return None
         _thread_id, pid = self.win32process.GetWindowThreadProcessId(hwnd)
         pid = int(pid)
         title = str(self.win32gui.GetWindowText(hwnd) or "")
         window_class = str(self.win32gui.GetClassName(hwnd) or "unknown")
         path = _process_path(self.win32api, self.win32process, self.win32con, pid)
-        process_name = _process_name(path, pid)
-        current = (hwnd, pid, window_class, self._classify_title(title, window_class), path)
-        if current == self._last:
-            return []
-        self._last = current
-        base = {
-            "process_name": process_name,
+        return {
+            "_window_handle": hwnd,
+            "process_name": _process_name(path, pid),
             "executable_path": path,
             "application_class": window_class,
             "window_class": window_class,
-            "title_classification": current[3],
+            "title_classification": self._classify_title(title, window_class),
         }
+
+    def poll(self) -> list[RawDeviceSignal]:
+        metadata = self.current_metadata()
+        if metadata is None:
+            return []
+        current = (
+            int(metadata["_window_handle"]),
+            hash(str(metadata["process_name"])),
+            str(metadata["window_class"]),
+            str(metadata["title_classification"]),
+            str(metadata.get("executable_path") or "") or None,
+        )
+        if current == self._last:
+            return []
+        self._last = current
+        base = {key: value for key, value in metadata.items() if not key.startswith("_")}
         return [
             _signal("application.focused", self.name, base),
             _signal("window.focused", self.name, base),
@@ -263,8 +275,18 @@ class WindowsUIAutomationAdapter:
             control_id = int(element.CurrentControlType)
             control_type = self._CONTROL_TYPES.get(control_id, f"uia-{control_id}")
             class_name = str(element.CurrentClassName or "unknown")
+            lowered_class = class_name.lower()
+            secure_markers = (
+                "password",
+                "pin",
+                "credential",
+                "auth",
+                "token",
+                "payment",
+                "secret",
+            )
             secure = bool(getattr(element, "CurrentIsPassword", False)) or (
-                control_type == "edit" and "password" in class_name.lower()
+                control_type == "edit" and any(marker in lowered_class for marker in secure_markers)
             )
             metadata = {
                 "control_type": control_type,
@@ -372,12 +394,15 @@ class WindowsInputHookAdapter:
         use_native: bool = False,
         secure_focus: Callable[[], bool] | None = None,
         focused_control: Callable[[], dict[str, Any] | None] | None = None,
+        focused_context: Callable[[], dict[str, Any] | None] | None = None,
         emergency_stop: Callable[[], None] | None = None,
     ) -> None:
         self.enabled = use_native and sys.platform == "win32"
         self.secure_focus = secure_focus
         self.focused_control = focused_control
+        self.focused_context = focused_context
         self.emergency_stop = emergency_stop
+        self._secure_rejection_emitted = False
         self._signals: deque[RawDeviceSignal] = deque(maxlen=256)
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -423,8 +448,16 @@ class WindowsInputHookAdapter:
             self._signals.append(_signal(event_type, self.name, payload))
 
     def _keyboard_event(self, vk: int) -> None:
-        if self.secure_focus and self.secure_focus():
+        secure = bool(self.secure_focus and self.secure_focus())
+        if secure:
+            if not self._secure_rejection_emitted:
+                self._queue(
+                    "capture.rejected",
+                    {"reason": "secure_control", "category": "keyboard"},
+                )
+                self._secure_rejection_emitted = True
             return
+        self._secure_rejection_emitted = False
         modifiers = self._modifiers()
         if vk == 0x1B and {"ctrl", "alt"} <= modifiers:
             if self.emergency_stop:
@@ -459,6 +492,16 @@ class WindowsInputHookAdapter:
                 "keyboard.shortcut",
                 {"shortcut": "+".join([*sorted(modifiers), chr(vk).lower()])},
             )
+        elif not modifiers and (0x20 <= vk <= 0x39 or 0x41 <= vk <= 0x5A):
+            control = self.focused_control() if self.focused_control else None
+            if control and control.get("control_type") == "edit":
+                self._queue(
+                    "text_entry.started",
+                    {
+                        "field_classification": "text",
+                        "length_bucket": "unknown",
+                    },
+                )
 
     def _mouse_event(self, event_type: str, mouse_data: int = 0) -> None:
         if self.secure_focus and self.secure_focus():
@@ -474,6 +517,11 @@ class WindowsInputHookAdapter:
             self._queue(event_type, payload)
             return
         payload = {"button": "left"}
+        context = self.focused_context() if self.focused_context else None
+        if context:
+            payload.update(
+                {key: value for key, value in context.items() if not key.startswith("_")}
+            )
         if self.focused_control:
             control = self.focused_control()
             if control and not control.get("secure", False):
@@ -573,15 +621,17 @@ def create_native_windows_adapters(
 ) -> list[Any]:
     """Build the real Windows observer stack; unavailable adapters remain inert."""
     uia = WindowsUIAutomationAdapter(use_native=True)
+    foreground = WindowsForegroundAdapter(use_native=True)
     return [
         WindowsProcessAdapter(use_native=True),
-        WindowsForegroundAdapter(use_native=True),
+        foreground,
         WindowsIdleAdapter(use_native=True),
         uia,
         WindowsInputHookAdapter(
             use_native=True,
             secure_focus=uia.secure_focus,
             focused_control=uia.focused_metadata,
+            focused_context=foreground.current_metadata,
             emergency_stop=emergency_stop,
         ),
     ]
