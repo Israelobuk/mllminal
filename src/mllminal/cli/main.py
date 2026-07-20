@@ -44,7 +44,12 @@ from mllminal.privacy.contracts import (
     PrivacyRuleType,
 )
 from mllminal.privacy.service import PrivacyService
-from mllminal.verification.contracts import LocalVisualObservation, VisualVerificationRequest
+from mllminal.verification.contracts import (
+    LocalVisualObservation,
+    VisionRequest,
+    VisualVerificationRequest,
+)
+from mllminal.verification.runtime import LocalVisionRuntime
 from mllminal.verification.service import LocalVisualVerificationService
 from mllminal.workflow.contracts import WorkflowDefinition, WorkflowRunRequest
 from mllminal.workflow.service import WorkflowService
@@ -195,6 +200,13 @@ def create_app(
 
     def visual_service() -> LocalVisualVerificationService:
         return LocalVisualVerificationService(resolved_settings.data_dir / "visual")
+
+    def vision_service() -> LocalVisionRuntime:
+        return LocalVisionRuntime(
+            resolved_settings.data_dir / "vision",
+            privacy_service(),
+            visual_service(),
+        )
 
     def mining_service() -> WorkflowMiningService:
         return WorkflowMiningService()
@@ -731,6 +743,11 @@ def create_app(
                 )
             ).model_dump_json()
         )
+
+    @visual.command("inspect")
+    def visual_inspect(payload: str) -> None:
+        request = VisionRequest.model_validate_json(payload)
+        typer.echo(asyncio.run(vision_service().inspect(request)).model_dump_json())
 
     @visual.command("observe")
     def visual_observe(payload: str) -> None:
