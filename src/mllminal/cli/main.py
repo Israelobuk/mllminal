@@ -5,8 +5,8 @@ from collections.abc import Awaitable, Callable
 
 import typer
 
-from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.activity.service import ActivityService
+from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.demonstration.contracts import (
     DemonstrationCaptureRequest,

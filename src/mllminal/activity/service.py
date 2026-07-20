@@ -5,9 +5,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
-from sqlalchemy import delete, select
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session as DbSession
-from sqlalchemy import create_engine
 
 from mllminal.activity.contracts import (
     ActivityRefreshResult,
@@ -31,7 +30,6 @@ from mllminal.activity.persistence import (
 )
 from mllminal.contracts import utc_now
 from mllminal.device.observer import DeviceObserver
-from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.persistence import Base
 
@@ -213,7 +211,7 @@ class ActivityService:
                 to_application=current.application,
                 occurred_at=current.started_at,
             )
-            for previous, current in zip(segments, segments[1:])
+            for previous, current in pairwise(segments)
             if previous.application != current.application
         ]
 
