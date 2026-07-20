@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session as DbSession
@@ -80,7 +80,7 @@ class InteractionService:
             state.updated_at = utc_now()
             return self._status_in(database)
 
-        return self._mutate(idempotency_key, "replay.authorize", action, InteractionStatus)
+        return self._mutate(idempotency_key, "replay.authorize", action)
 
     def revoke_replay(self, *, idempotency_key: str) -> InteractionStatus:
         def action(database: DbSession) -> InteractionStatus:
@@ -91,7 +91,7 @@ class InteractionService:
             state.updated_at = utc_now()
             return self._status_in(database)
 
-        return self._mutate(idempotency_key, "replay.revoke", action, InteractionStatus)
+        return self._mutate(idempotency_key, "replay.revoke", action)
 
     def capture(self, event: InteractionEvent, *, idempotency_key: str) -> InteractionCaptureResult:
         cached = self._cached(idempotency_key, "capture")
@@ -236,10 +236,10 @@ class InteractionService:
                 raise ValueError("Idempotency key was already used for a different operation")
             return cast(dict[str, Any], json.loads(row.result_json))
 
-    def _mutate(self, key: str, operation: str, action: Any, model: Any) -> Any:
+    def _mutate(self, key: str, operation: str, action: Any) -> InteractionStatus:
         cached = self._cached(key, operation)
         if cached is not None:
-            return cast(T, model.model_validate(cached))
+            return InteractionStatus.model_validate(cached)
         with DbSession(self.engine) as database, database.begin():
             result = action(database)
             database.add(
