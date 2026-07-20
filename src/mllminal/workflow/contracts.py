@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from mllminal.contracts import Contract, new_id, utc_now
 
@@ -126,6 +126,7 @@ class WorkflowStepResult(Contract):
 
 
 class WorkflowRun(Contract):
+    model_config = ConfigDict(extra="forbid", frozen=False)
     id: str = Field(default_factory=new_id)
     workflow_id: str
     workflow_version: int

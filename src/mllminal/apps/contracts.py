@@ -51,6 +51,7 @@ class CapabilityRequest(Contract):
 
 
 class CapabilityResult(Contract):
+    execution_id: str = Field(default_factory=new_id)
     capability: str
     succeeded: bool
     preview: bool

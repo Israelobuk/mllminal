@@ -182,7 +182,11 @@ def create_app(
         return WorkflowService(resolved_settings.database_path)
 
     def application_service() -> ApplicationBridgeService:
-        return ApplicationBridgeService(resolved_settings.database_path)
+        return ApplicationBridgeService(
+            resolved_settings.database_path,
+            workspace_root=resolved_settings.workspace_root,
+            emergency_stop_active=lambda: privacy_service().status().emergency_stop_active,
+        )
 
     def visual_service() -> LocalVisualVerificationService:
         return LocalVisualVerificationService(resolved_settings.data_dir / "visual")
@@ -191,7 +195,9 @@ def create_app(
         return WorkflowMiningService()
 
     def action_service() -> BoundedActionService:
-        return BoundedActionService()
+        return BoundedActionService(
+            emergency_stop_active=lambda: privacy_service().status().emergency_stop_active
+        )
 
     def assistance_service() -> ProactiveAssistanceService:
         return ProactiveAssistanceService()

@@ -1,6 +1,7 @@
 """Permissioned application bridge service."""
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -26,13 +27,19 @@ from mllminal.persistence import Base
 
 
 class ApplicationBridgeService:
-    def __init__(self, database_path: Path) -> None:
+    def __init__(
+        self,
+        database_path: Path,
+        workspace_root: Path | None = None,
+        emergency_stop_active: Callable[[], bool] | None = None,
+    ) -> None:
         self.database_path = database_path
+        self._emergency_stop_active = emergency_stop_active or (lambda: False)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.engine = create_engine(f"sqlite:///{database_path}")
         Base.metadata.create_all(self.engine)
         self.registry = ApplicationRegistry()
-        self.registry.register(FilesystemAdapter())
+        self.registry.register(FilesystemAdapter(workspace_root))
         self.registry.register(ExcelAdapter())
         self.registry.register(EmailDraftAdapter())
         self.discovery = ApplicationDiscovery(self.registry)
@@ -101,6 +108,8 @@ class ApplicationBridgeService:
         cached = self._cached(idempotency_key, "app.execute")
         if cached is not None:
             return CapabilityResult.model_validate(cached)
+        if self._emergency_stop_active():
+            raise PermissionError("Emergency stop active")
         capabilities = await self.capabilities(application)
         definition = next((item for item in capabilities if item.name == request.capability), None)
         if definition is None:
@@ -120,7 +129,21 @@ class ApplicationBridgeService:
         return result
 
     async def verify(self, application: str, result: CapabilityResult) -> VerificationResult:
+        if not self._is_persisted_execution(result):
+            raise PermissionError("Verification requires a persisted bridge execution result")
         return await self.registry.get(application).verify(result)
+
+    def _is_persisted_execution(self, result: CapabilityResult) -> bool:
+        with DbSession(self.engine) as database:
+            rows = database.scalars(
+                select(ApplicationBridgeIdempotencyRow).where(
+                    ApplicationBridgeIdempotencyRow.operation == "app.execute"
+                )
+            )
+            for row in rows:
+                if json.loads(row.result_json) == result.model_dump(mode="json"):
+                    return True
+        return False
 
     def _cached(self, key: str, operation: str) -> dict[str, Any] | None:
         with DbSession(self.engine) as database:

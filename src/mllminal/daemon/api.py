@@ -126,10 +126,16 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     interaction = InteractionService(settings.database_path, privacy)
     activity = ActivityService(settings.database_path, interaction, device_observer)
     workflow = WorkflowService(settings.database_path)
-    applications = ApplicationBridgeService(settings.database_path)
+    applications = ApplicationBridgeService(
+        settings.database_path,
+        workspace_root=settings.workspace_root,
+        emergency_stop_active=lambda: privacy.status().emergency_stop_active,
+    )
     visual = LocalVisualVerificationService(settings.data_dir / "visual")
     mining = WorkflowMiningService()
-    actions = BoundedActionService()
+    actions = BoundedActionService(
+        emergency_stop_active=lambda: privacy.status().emergency_stop_active
+    )
     langgraph = LangGraphWorkflowAdapter()
     automl = LocalAutoMLService()
     assistance = ProactiveAssistanceService()

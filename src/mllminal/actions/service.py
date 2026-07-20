@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from mllminal.actions.contracts import ActionRequest, ActionResult
@@ -22,14 +23,21 @@ class BoundedActionService:
         }
     )
 
-    def __init__(self, executor: ActionExecutor | None = None) -> None:
+    def __init__(
+        self,
+        executor: ActionExecutor | None = None,
+        emergency_stop_active: Callable[[], bool] | None = None,
+    ) -> None:
         self.executor = executor
+        self._emergency_stop_active = emergency_stop_active or (lambda: False)
         self._results: dict[str, ActionResult] = {}
 
     def actions(self) -> list[str]:
         return sorted(self.ALLOWED_ACTIONS)
 
     def execute(self, request: ActionRequest, *, idempotency_key: str) -> ActionResult:
+        if self._emergency_stop_active():
+            raise PermissionError("Emergency stop active")
         cached = self._results.get(idempotency_key)
         if cached is not None:
             return cached
