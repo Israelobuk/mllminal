@@ -13,6 +13,8 @@ from fastapi import Depends, FastAPI, Header, Request, WebSocket, WebSocketDisco
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
+from mllminal.acceptance.contracts import AcceptanceRecordRequest
+from mllminal.acceptance.service import ProductAcceptanceService
 from mllminal.actions.contracts import ActionRequest
 from mllminal.actions.service import BoundedActionService
 from mllminal.activity.contracts import ActivityRefreshRequest
@@ -151,6 +153,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     activity = ActivityService(settings.database_path, interaction, device_observer)
     workflow = WorkflowService(settings.database_path)
     repair = WorkflowRepairService(workflow, settings.data_dir / "workflow-repair")
+    acceptance = ProductAcceptanceService(settings.data_dir / "acceptance")
     applications = ApplicationBridgeService(
         settings.database_path,
         workspace_root=settings.workspace_root,
@@ -184,6 +187,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.workflow = workflow
     app.state.repair = repair
     app.state.applications = applications
+    app.state.acceptance = acceptance
     app.state.visual = visual
     app.state.vision_runtime = vision_runtime
     app.state.mining = mining
@@ -686,6 +690,23 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.post("/v1/automl/rank", dependencies=protected)
     async def automl_rank(body: AutoMLRequest) -> dict[str, Any]:
         return automl.rank(body).model_dump(mode="json")
+
+    @app.get("/v1/acceptance/report", dependencies=protected)
+    async def acceptance_report() -> dict[str, Any]:
+        return acceptance.report()
+
+    @app.post("/v1/acceptance/start", dependencies=protected)
+    async def acceptance_start() -> dict[str, Any]:
+        return acceptance.start().model_dump(mode="json")
+
+    @app.get("/v1/acceptance/status", dependencies=protected)
+    async def acceptance_status() -> dict[str, Any] | None:
+        run = acceptance.status()
+        return run.model_dump(mode="json") if run else None
+
+    @app.post("/v1/acceptance/record", dependencies=protected)
+    async def acceptance_record(body: AcceptanceRecordRequest) -> dict[str, Any]:
+        return acceptance.record(body).model_dump(mode="json")
 
     @app.get("/v1/system/hardware", dependencies=protected)
     async def system_hardware() -> dict[str, Any]:
