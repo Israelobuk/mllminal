@@ -13,6 +13,8 @@ from fastapi import Depends, FastAPI, Header, Request, WebSocket, WebSocketDisco
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
+from mllminal.actions.contracts import ActionRequest
+from mllminal.actions.service import BoundedActionService
 from mllminal.activity.contracts import ActivityRefreshRequest
 from mllminal.activity.service import ActivityService
 from mllminal.agent.factory import create_provider
@@ -122,6 +124,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     applications = ApplicationBridgeService(settings.database_path)
     visual = LocalVisualVerificationService(settings.data_dir / "visual")
     mining = WorkflowMiningService()
+    actions = BoundedActionService()
     demonstration = DemonstrationService(settings.database_path, interaction)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
@@ -137,6 +140,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.applications = applications
     app.state.visual = visual
     app.state.mining = mining
+    app.state.actions = actions
     app.state.demonstration = demonstration
 
     def error_response(
@@ -575,6 +579,17 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.post("/v1/workflow-mining", dependencies=protected)
     async def workflow_mining(body: MiningRequest) -> dict[str, Any]:
         return mining.mine(interaction.events(), body).model_dump(mode="json")
+
+    @app.get("/v1/actions", dependencies=protected)
+    async def action_catalog() -> list[str]:
+        return actions.actions()
+
+    @app.post("/v1/actions/execute", dependencies=protected)
+    async def action_execute(
+        body: ActionRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return actions.execute(body, idempotency_key=idempotency_key).model_dump(mode="json")
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
