@@ -14,14 +14,6 @@ from mllminal.learning.governance import CandidateGovernanceService, PromotionAp
 from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
-from mllminal.privacy.contracts import (
-    CaptureCategory,
-    CaptureContext,
-    CaptureRequest,
-    PrivacyRule,
-    PrivacyRuleType,
-)
-from mllminal.privacy.service import PrivacyService
 
 ModelProbe = Callable[[ProviderConfig], Awaitable[bool]]
 
@@ -54,9 +46,6 @@ def create_app(
     )
     learning = typer.Typer(help="Inspect and train local candidate policies.")
     device = typer.Typer(help="Control metadata-only local device observation.")
-    privacy = typer.Typer(help="Control consent, capture, exclusions, and privacy history.")
-    incognito = typer.Typer(help="Control private observation sessions.")
-    exclude = typer.Typer(help="Add privacy exclusions.")
 
     def observer() -> DeviceObserver:
         return DeviceObserver(resolved_settings.data_dir / "device", [])
@@ -126,9 +115,6 @@ def create_app(
         typer.echo("Start the local model service or run: mllminal models use deterministic")
         typer.echo(f"Connection: {connection}")
         raise typer.Exit(code=1)
-
-    def privacy_service() -> PrivacyService:
-        return PrivacyService(resolved_settings.database_path)
 
     @learning.command("status")
     def learning_status() -> None:
@@ -279,112 +265,9 @@ def create_app(
         for event in observer().events():
             typer.echo(event.model_dump_json())
 
-    @privacy.command("status")
-    def privacy_status() -> None:
-        typer.echo(privacy_service().status().model_dump_json())
-
-    @privacy.command("enable")
-    def privacy_enable() -> None:
-        typer.echo(privacy_service().enable(idempotency_key="cli-enable").model_dump_json())
-
-    @privacy.command("disable")
-    def privacy_disable() -> None:
-        typer.echo(privacy_service().disable(idempotency_key="cli-disable").model_dump_json())
-
-    @privacy.command("pause")
-    def privacy_pause() -> None:
-        typer.echo(privacy_service().pause(idempotency_key="cli-pause").model_dump_json())
-
-    @privacy.command("resume")
-    def privacy_resume() -> None:
-        typer.echo(privacy_service().resume(idempotency_key="cli-resume").model_dump_json())
-
-    @incognito.command("start")
-    def privacy_incognito_start() -> None:
-        typer.echo(
-            privacy_service()
-            .start_incognito(idempotency_key="cli-incognito-start")
-            .model_dump_json()
-        )
-
-    @incognito.command("stop")
-    def privacy_incognito_stop() -> None:
-        typer.echo(
-            privacy_service().stop_incognito(idempotency_key="cli-incognito-stop").model_dump_json()
-        )
-
-    @privacy.command("emergency-stop")
-    def privacy_emergency_stop() -> None:
-        typer.echo(
-            privacy_service().emergency_stop(idempotency_key="cli-emergency-stop").model_dump_json()
-        )
-
-    @privacy.command("emergency-clear")
-    def privacy_emergency_clear() -> None:
-        typer.echo(
-            privacy_service()
-            .emergency_clear(idempotency_key="cli-emergency-clear")
-            .model_dump_json()
-        )
-
-    @privacy.command("exclusions")
-    def privacy_exclusions() -> None:
-        for rule in privacy_service().exclusions():
-            typer.echo(rule.model_dump_json())
-
-    @exclude.command("app")
-    def privacy_exclude_app(application: str) -> None:
-        rule = PrivacyRule(rule_type=PrivacyRuleType.APPLICATION, pattern=application)
-        typer.echo(
-            privacy_service()
-            .add_exclusion(rule, idempotency_key=f"cli-{rule.rule_id}")
-            .model_dump_json()
-        )
-
-    @exclude.command("folder")
-    def privacy_exclude_folder(path: str) -> None:
-        rule = PrivacyRule(rule_type=PrivacyRuleType.FOLDER, pattern=path)
-        typer.echo(
-            privacy_service()
-            .add_exclusion(rule, idempotency_key=f"cli-{rule.rule_id}")
-            .model_dump_json()
-        )
-
-    @privacy.command("capture")
-    def privacy_capture(
-        category: CaptureCategory = CaptureCategory.DEVICE_METADATA,
-        application: str | None = typer.Option(default=None),
-    ) -> None:
-        result = privacy_service().capture(
-            CaptureRequest(
-                category=category,
-                payload={"application": application} if application else {},
-                context=CaptureContext(application=application),
-            ),
-            idempotency_key=f"cli-capture-{category.value}",
-        )
-        typer.echo(result.model_dump_json())
-
-    @privacy.command("history")
-    def privacy_history() -> None:
-        for record in privacy_service().history():
-            typer.echo(record.model_dump_json())
-
-    @privacy.command("export-history")
-    def privacy_export_history() -> None:
-        typer.echo(privacy_service().export_history())
-
-    @privacy.command("delete-history")
-    def privacy_delete_history() -> None:
-        count = privacy_service().delete_history(idempotency_key="cli-delete-history")
-        typer.echo(str(count))
-
-    privacy.add_typer(incognito, name="incognito")
-    privacy.add_typer(exclude, name="exclude")
     app.add_typer(models, name="models")
     app.add_typer(device, name="device")
     app.add_typer(learning, name="learning")
-    app.add_typer(privacy, name="privacy")
     return app
 
 
