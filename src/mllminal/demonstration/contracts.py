@@ -6,7 +6,7 @@ from enum import StrEnum
 from pydantic import Field
 
 from mllminal.contracts import Contract, new_id, utc_now
-from mllminal.interaction.contracts import InteractionEvent, InteractionCaptureResult
+from mllminal.interaction.contracts import InteractionCaptureResult, InteractionEvent
 
 
 class DemonstrationState(StrEnum):
