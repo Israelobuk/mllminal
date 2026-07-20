@@ -33,6 +33,8 @@ from mllminal.privacy.contracts import (
     PrivacyRuleType,
 )
 from mllminal.privacy.service import PrivacyService
+from mllminal.verification.contracts import LocalVisualObservation, VisualVerificationRequest
+from mllminal.verification.service import LocalVisualVerificationService
 from mllminal.workflow.contracts import WorkflowDefinition, WorkflowRunRequest
 from mllminal.workflow.service import WorkflowService
 
@@ -73,6 +75,7 @@ def create_app(
     activity = typer.Typer(help="Model activity, application sessions, and task sessions.")
     workflow = typer.Typer(help="Define, preview, approve, and verify typed workflows.")
     apps = typer.Typer(help="Discover and grant bounded on-device application capabilities.")
+    visual = typer.Typer(help="Record and verify local semantic visual observations.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -166,6 +169,9 @@ def create_app(
 
     def application_service() -> ApplicationBridgeService:
         return ApplicationBridgeService(resolved_settings.database_path)
+
+    def visual_service() -> LocalVisualVerificationService:
+        return LocalVisualVerificationService(resolved_settings.data_dir / "visual")
 
     def demonstration_session_id(session_id: str | None) -> str:
         current = demonstration_service().status().session
@@ -616,6 +622,28 @@ def create_app(
             ).model_dump_json()
         )
 
+    @visual.command("observe")
+    def visual_observe(payload: str) -> None:
+        typer.echo(
+            visual_service()
+            .observe(LocalVisualObservation.model_validate_json(payload))
+            .model_dump_json()
+        )
+
+    @visual.command("latest")
+    def visual_latest() -> None:
+        latest = visual_service().latest()
+        if latest is not None:
+            typer.echo(latest.model_dump_json())
+
+    @visual.command("verify")
+    def visual_verify(payload: str) -> None:
+        typer.echo(
+            visual_service()
+            .verify(VisualVerificationRequest.model_validate_json(payload))
+            .model_dump_json()
+        )
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -727,6 +755,7 @@ def create_app(
     app.add_typer(activity, name="activity")
     app.add_typer(workflow, name="workflow")
     app.add_typer(apps, name="apps")
+    app.add_typer(visual, name="visual")
     return app
 
 

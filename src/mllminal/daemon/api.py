@@ -45,6 +45,8 @@ from mllminal.privacy.contracts import (
 )
 from mllminal.privacy.service import PrivacyService
 from mllminal.runtime_store import RuntimeStore
+from mllminal.verification.contracts import LocalVisualObservation, VisualVerificationRequest
+from mllminal.verification.service import LocalVisualVerificationService
 from mllminal.workflow.contracts import (
     WorkflowApprovalRequest,
     WorkflowCreateRequest,
@@ -116,6 +118,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     activity = ActivityService(settings.database_path, interaction, device_observer)
     workflow = WorkflowService(settings.database_path)
     applications = ApplicationBridgeService(settings.database_path)
+    visual = LocalVisualVerificationService(settings.data_dir / "visual")
     demonstration = DemonstrationService(settings.database_path, interaction)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
@@ -129,6 +132,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.activity = activity
     app.state.workflow = workflow
     app.state.applications = applications
+    app.state.visual = visual
     app.state.demonstration = demonstration
 
     def error_response(
@@ -550,6 +554,19 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         body: CapabilityResult,
     ) -> dict[str, Any]:
         return (await applications.verify(application, body)).model_dump(mode="json")
+
+    @app.post("/v1/visual/observe", dependencies=protected)
+    async def visual_observe(body: LocalVisualObservation) -> dict[str, Any]:
+        return visual.observe(body).model_dump(mode="json")
+
+    @app.get("/v1/visual/latest", dependencies=protected)
+    async def visual_latest() -> dict[str, Any] | None:
+        latest = visual.latest()
+        return latest.model_dump(mode="json") if latest is not None else None
+
+    @app.post("/v1/visual/verify", dependencies=protected)
+    async def visual_verify(body: VisualVerificationRequest) -> dict[str, Any]:
+        return visual.verify(body).model_dump(mode="json")
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
