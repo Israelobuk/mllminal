@@ -46,6 +46,8 @@ from mllminal.privacy.contracts import (
     PrivacyRuleType,
 )
 from mllminal.privacy.service import PrivacyService
+from mllminal.repair.contracts import RepairApprovalRequest, RepairProposalRequest
+from mllminal.repair.service import WorkflowRepairService
 from mllminal.verification.contracts import (
     LocalVisualObservation,
     VisionRequest,
@@ -192,6 +194,11 @@ def create_app(
 
     def workflow_service() -> WorkflowService:
         return WorkflowService(resolved_settings.database_path)
+
+    def repair_service() -> WorkflowRepairService:
+        return WorkflowRepairService(
+            workflow_service(), resolved_settings.data_dir / "workflow-repair"
+        )
 
     def compiler_service() -> WorkflowCompilerService:
         return WorkflowCompilerService()
@@ -707,6 +714,18 @@ def create_app(
             .rollback(run_id, idempotency_key=f"cli-workflow-rollback-{run_id}")
             .model_dump_json()
         )
+
+    @workflow.command("repair-propose")
+    def workflow_repair_propose(run_id: str, diagnostics: str = "{}") -> None:
+        request = RepairProposalRequest(run_id=run_id, diagnostics=json.loads(diagnostics))
+        typer.echo(repair_service().propose(request).model_dump_json())
+
+    @workflow.command("repair-approve")
+    def workflow_repair_approve(
+        proposal_id: str, approved: bool = typer.Option(..., "--approved")
+    ) -> None:
+        request = RepairApprovalRequest(approved=approved)
+        typer.echo(repair_service().approve(proposal_id, request).model_dump_json())
 
     @workflow.command("runs")
     def workflow_runs() -> None:

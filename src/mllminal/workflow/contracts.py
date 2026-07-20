@@ -82,6 +82,7 @@ class WorkflowDefinition(Contract):
     name: str
     version: int = Field(default=1, ge=1)
     state: WorkflowDefinitionState = WorkflowDefinitionState.DRAFT
+    parent_workflow_id: str | None = None
     inputs: list[WorkflowInput] = Field(default_factory=list)
     permissions: list[WorkflowPermission] = Field(default_factory=list)
     steps: list[WorkflowStep] = Field(min_length=1)
