@@ -16,6 +16,16 @@ _DEVICE_EVENTS = {
     "window.closed",
     "window.focused",
     "window.title_changed",
+    "control.focused",
+    "control.invoked",
+    "mouse.click",
+    "mouse.double_click",
+    "mouse.scroll",
+    "keyboard.shortcut",
+    "keyboard.navigation",
+    "keyboard.confirm",
+    "keyboard.cancel",
+    "keyboard.tab",
     "file.created",
     "file.modified",
     "file.moved",
@@ -44,6 +54,7 @@ class ApplicationIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     process_name: str
     application_class: str = "unknown"
+    executable_path: str | None = None
     executable_hash: str | None = None
     publisher: str | None = None
 
@@ -52,6 +63,16 @@ class WindowIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     title_classification: str = "unknown"
     title_redacted: bool = True
+    window_class: str = "unknown"
+
+
+class ControlIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    control_type: str = "unknown"
+    name: str | None = None
+    automation_id: str | None = None
+    class_name: str = "unknown"
+    secure: bool = False
 
 
 class RawDeviceSignal(BaseModel):
@@ -82,6 +103,7 @@ class NormalizedDeviceEvent(BaseModel):
     monotonic_sequence: int = Field(default=0, ge=0)
     application: ApplicationIdentity | None = None
     window: WindowIdentity | None = None
+    control: ControlIdentity | None = None
 
 
 def normalize_signal(signal: RawDeviceSignal) -> NormalizedDeviceEvent:
@@ -92,13 +114,32 @@ def normalize_signal(signal: RawDeviceSignal) -> NormalizedDeviceEvent:
     if "process_name" in payload:
         application = ApplicationIdentity(
             process_name=str(payload["process_name"]),
+            application_class=str(payload.get("application_class") or "unknown"),
+            executable_path=(
+                str(payload["executable_path"]) if payload.get("executable_path") else None
+            ),
             publisher=str(payload["publisher"]) if payload.get("publisher") else None,
         )
-    window = WindowIdentity(title_classification="document") if "title" in payload else None
+    window = None
+    if {"title", "title_classification", "window_class"} & payload.keys():
+        window = WindowIdentity(
+            title_classification=str(payload.get("title_classification") or "document"),
+            window_class=str(payload.get("window_class") or "unknown"),
+        )
+    control = None
+    if "control_type" in payload:
+        control = ControlIdentity(
+            control_type=str(payload.get("control_type") or "unknown"),
+            name=(str(payload["name"]) if payload.get("name") else None),
+            automation_id=(str(payload["automation_id"]) if payload.get("automation_id") else None),
+            class_name=str(payload.get("class_name") or "unknown"),
+            secure=bool(payload.get("secure", False)),
+        )
     return NormalizedDeviceEvent(
         event_type=signal.event_type,
         timestamp=signal.timestamp,
         source=signal.source,
         application=application,
         window=window,
+        control=control,
     )

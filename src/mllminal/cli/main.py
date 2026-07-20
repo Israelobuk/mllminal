@@ -23,6 +23,7 @@ from mllminal.demonstration.contracts import (
 )
 from mllminal.demonstration.service import DemonstrationService
 from mllminal.device.observer import DeviceObserver
+from mllminal.device.windows_adapters import create_native_windows_adapters
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
@@ -37,6 +38,7 @@ from mllminal.mining.service import WorkflowMiningService
 from mllminal.privacy.contracts import (
     CaptureCategory,
     CaptureContext,
+    CaptureMode,
     CaptureRequest,
     PrivacyRule,
     PrivacyRuleType,
@@ -78,6 +80,7 @@ def create_app(
     )
     learning = typer.Typer(help="Inspect and train local candidate policies.")
     device = typer.Typer(help="Control metadata-only local device observation.")
+    observe = typer.Typer(help="Control visible Windows observation state.")
     privacy = typer.Typer(help="Control consent, capture, exclusions, and privacy history.")
     interaction = typer.Typer(help="Capture semantic interactions and manage replay permission.")
     demonstrate = typer.Typer(help="Teach MLLminal an explicit workflow.")
@@ -94,7 +97,9 @@ def create_app(
     exclude = typer.Typer(help="Add privacy exclusions.")
 
     def observer() -> DeviceObserver:
-        return DeviceObserver(resolved_settings.data_dir / "device", [])
+        return DeviceObserver(
+            resolved_settings.data_dir / "device", create_native_windows_adapters()
+        )
 
     def current() -> ProviderConfig:
         return store.load()
@@ -354,6 +359,76 @@ def create_app(
         value = observer()
         value.resume()
         typer.echo(value.status.state)
+
+    @observe.command("status")
+    def observe_status() -> None:
+        status = privacy_service().status()
+        events = observer().events()
+        current_application = None
+        for event in reversed(events):
+            if event.application is not None:
+                current_application = event.application.process_name
+                break
+        modes = status.capture_modes
+        payload = {
+            "observation_enabled": status.observation_enabled,
+            "paused": status.paused or observer().status.state == "PAUSED",
+            "semantic_clicks_enabled": modes.get(
+                CaptureCategory.SEMANTIC_POINTER, CaptureMode.DISABLED
+            ).value
+            != "disabled",
+            "shortcut_monitoring_enabled": modes.get(
+                CaptureCategory.KEYBOARD_SHORTCUTS, CaptureMode.DISABLED
+            ).value
+            != "disabled",
+            "text_metadata_enabled": modes.get(
+                CaptureCategory.TEXT_ENTRY_METADATA, CaptureMode.DISABLED
+            ).value
+            != "disabled",
+            "temporary_vision_enabled": modes.get(
+                CaptureCategory.TEMPORARY_VISION, CaptureMode.DISABLED
+            ).value
+            != "disabled",
+            "current_application": current_application,
+            "exclusions_active": status.exclusion_count > 0,
+            "emergency_stop_active": status.emergency_stop_active,
+            "observer_state": observer().status.state,
+        }
+        typer.echo(json.dumps(payload, sort_keys=True))
+
+    @observe.command("enable")
+    def observe_enable() -> None:
+        result = privacy_service().enable(idempotency_key="cli-observe-enable")
+        value = observer()
+        value.start()
+        typer.echo(result.model_dump_json())
+
+    @observe.command("disable")
+    def observe_disable() -> None:
+        result = privacy_service().disable(idempotency_key="cli-observe-disable")
+        value = observer()
+        value.stop()
+        typer.echo(result.model_dump_json())
+
+    @observe.command("pause")
+    def observe_pause() -> None:
+        result = privacy_service().pause(idempotency_key="cli-observe-pause")
+        value = observer()
+        value.pause()
+        typer.echo(result.model_dump_json())
+
+    @observe.command("resume")
+    def observe_resume() -> None:
+        result = privacy_service().resume(idempotency_key="cli-observe-resume")
+        value = observer()
+        value.resume()
+        typer.echo(result.model_dump_json())
+
+    @observe.command("emergency-stop")
+    def observe_emergency_stop() -> None:
+        result = privacy_service().emergency_stop(idempotency_key="cli-observe-emergency-stop")
+        observer().pause()
+        typer.echo(result.model_dump_json())
 
     @device.command("capabilities")
     def device_capabilities() -> None:
@@ -827,6 +902,7 @@ def create_app(
     privacy.add_typer(exclude, name="exclude")
     app.add_typer(models, name="models")
     app.add_typer(device, name="device")
+    app.add_typer(observe, name="observe")
     app.add_typer(learning, name="learning")
     app.add_typer(privacy, name="privacy")
     app.add_typer(interaction, name="interaction")

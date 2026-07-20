@@ -34,6 +34,8 @@ from mllminal.demonstration.contracts import (
 )
 from mllminal.demonstration.service import DemonstrationService
 from mllminal.device.observer import DeviceObserver
+from mllminal.device.windows_adapters import create_native_windows_adapters
+from mllminal.device.windows_runtime import WindowsObservationRuntime
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
@@ -121,8 +123,19 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             learning_repository, settings.data_dir / "learning" / "checkpoints"
         ),
     )
-    device_observer = DeviceObserver(settings.data_dir / "device", [])
     privacy = PrivacyService(settings.database_path)
+
+    def native_emergency_stop() -> None:
+        privacy.emergency_stop(idempotency_key="native-emergency-stop")
+
+    device_observer = DeviceObserver(
+        settings.data_dir / "device",
+        create_native_windows_adapters(emergency_stop=native_emergency_stop),
+    )
+    device_runtime = WindowsObservationRuntime(
+        device_observer,
+        emergency_stop_active=lambda: privacy.status().emergency_stop_active,
+    )
     interaction = InteractionService(settings.database_path, privacy)
     activity = ActivityService(settings.database_path, interaction, device_observer)
     workflow = WorkflowService(settings.database_path)
@@ -147,6 +160,8 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.provider_config = provider_config
     app.state.learning_repository = learning_repository
     app.state.device_observer = device_observer
+    app.state.device_runtime = device_runtime
+    app.router.add_event_handler("shutdown", device_runtime.stop)
     app.state.privacy = privacy
     app.state.interaction = interaction
     app.state.activity = activity
@@ -224,25 +239,33 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def privacy_enable(
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return privacy.enable(idempotency_key=idempotency_key).model_dump(mode="json")
+        result = privacy.enable(idempotency_key=idempotency_key)
+        device_runtime.start()
+        return result.model_dump(mode="json")
 
     @app.post("/v1/privacy/disable", dependencies=protected)
     async def privacy_disable(
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return privacy.disable(idempotency_key=idempotency_key).model_dump(mode="json")
+        result = privacy.disable(idempotency_key=idempotency_key)
+        device_runtime.stop()
+        return result.model_dump(mode="json")
 
     @app.post("/v1/privacy/pause", dependencies=protected)
     async def privacy_pause(
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return privacy.pause(idempotency_key=idempotency_key).model_dump(mode="json")
+        result = privacy.pause(idempotency_key=idempotency_key)
+        device_runtime.pause()
+        return result.model_dump(mode="json")
 
     @app.post("/v1/privacy/resume", dependencies=protected)
     async def privacy_resume(
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return privacy.resume(idempotency_key=idempotency_key).model_dump(mode="json")
+        result = privacy.resume(idempotency_key=idempotency_key)
+        device_runtime.resume()
+        return result.model_dump(mode="json")
 
     @app.post("/v1/privacy/incognito/start", dependencies=protected)
     async def privacy_incognito_start(
@@ -260,7 +283,9 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def privacy_emergency_stop(
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return privacy.emergency_stop(idempotency_key=idempotency_key).model_dump(mode="json")
+        result = privacy.emergency_stop(idempotency_key=idempotency_key)
+        device_runtime.emergency_stop()
+        return result.model_dump(mode="json")
 
     @app.post("/v1/privacy/emergency-clear", dependencies=protected)
     async def privacy_emergency_clear(
@@ -628,10 +653,25 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
 
     @app.get("/v1/device/status", dependencies=protected)
     async def device_status() -> dict[str, Any]:
+        privacy_state = privacy.status()
+        current_application = None
+        for event in reversed(device_observer.events()):
+            if event.application is not None:
+                current_application = event.application.process_name
+                break
         return {
             "state": device_observer.status.state,
+            "observation_enabled": privacy_state.observation_enabled,
+            "paused": privacy_state.paused or device_observer.status.state == "PAUSED",
             "dropped_events": device_observer.status.dropped_events,
             "duplicate_events": device_observer.status.duplicate_events,
+            "semantic_clicks_enabled": True,
+            "shortcut_monitoring_enabled": True,
+            "text_metadata_enabled": False,
+            "temporary_vision_enabled": False,
+            "current_application": current_application,
+            "exclusions_active": privacy_state.exclusion_count > 0,
+            "emergency_stop_active": privacy_state.emergency_stop_active,
         }
 
     @app.get("/v1/device/capabilities", dependencies=protected)
@@ -644,22 +684,22 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
 
     @app.post("/v1/device/start", dependencies=protected)
     async def device_start() -> dict[str, str]:
-        device_observer.start()
+        device_runtime.start()
         return {"state": device_observer.status.state}
 
     @app.post("/v1/device/stop", dependencies=protected)
     async def device_stop() -> dict[str, str]:
-        device_observer.stop()
+        device_runtime.stop()
         return {"state": device_observer.status.state}
 
     @app.post("/v1/device/pause", dependencies=protected)
     async def device_pause() -> dict[str, str]:
-        device_observer.pause()
+        device_runtime.pause()
         return {"state": device_observer.status.state}
 
     @app.post("/v1/device/resume", dependencies=protected)
     async def device_resume() -> dict[str, str]:
-        device_observer.resume()
+        device_runtime.resume()
         return {"state": device_observer.status.state}
 
     @app.get("/v1/status", dependencies=protected)

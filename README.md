@@ -2,9 +2,9 @@
 
 ## Windows device observer
 
-The optional Windows-first observer records structured local metadata only: application/process lifecycle, foreground/window transitions, redacted window-title changes, filesystem operation types, and idle/active state. Start or control it with `mllminal device start`, `stop`, `pause`, `resume`, `status`, and `events`.
+The Windows-first observer records structured local metadata only: application/process lifecycle, foreground/window transitions, redacted window-title classifications, UI Automation control metadata, safe semantic mouse/keyboard events, filesystem operation types, and idle/active state. On Windows it uses native pywin32/UI Automation/hooks when available; unavailable capabilities degrade without stopping the daemon. Start or control it with `mllminal device start`, `stop`, `pause`, `resume`, `status`, and `events`.
 
-MLLminal never captures keystrokes, typed text, passwords, clipboard contents, screen pixels, browser-page content, microphone audio, or camera input. Window titles are redacted before persistence. Optional Windows dependencies (such as `psutil`) degrade to unavailable capabilities without stopping the daemon. Observer events are stored locally under the configured data directory in `device/device-events.jsonl` and replayed through `/v1/device/events/stream` after WebSocket authentication.
+MLLminal never captures typed characters, passwords, clipboard contents, screen pixels, browser-page content, microphone audio, or camera input. Window titles are classified and redacted before persistence; secure UI Automation fields suppress keyboard metadata. Observation has no execution authority. Observer events are stored locally under the configured data directory in `device/device-events.jsonl` and replayed through `/v1/device/events/stream` after WebSocket authentication.
 
 
 MLLminal is a local-first, terminal-first AI execution environment powered by Mil.
@@ -56,3 +56,4 @@ Authenticated daemon clients can inspect `/v1/learning/status`, `/v1/learning/ru
 When learning is enabled, the daemon loads the currently promoted checkpoint at startup and may record a masked policy recommendation at an approved planning checkpoint. Recommendations are advisory only: Mil continues to require the existing permissions, approval, tool schema, workspace confinement, task-state, and verification gates. The final runtime action remains the deterministic approval path.
 
 MLLminal safely falls back to its deterministic policy behavior when learning is disabled, no trained policy is promoted, a checkpoint is missing or fails its digest/compatibility validation, confidence is too low, or all learned actions are masked. Only verified terminal outcomes are eligible for replay; incomplete and unverified work is excluded.
+
