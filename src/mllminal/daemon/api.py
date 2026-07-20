@@ -39,6 +39,7 @@ from mllminal.demonstration.service import DemonstrationService
 from mllminal.device.observer import DeviceObserver
 from mllminal.device.windows_adapters import create_native_windows_adapters
 from mllminal.device.windows_runtime import WindowsObservationRuntime
+from mllminal.hardware.service import HardwareProbe
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
@@ -685,6 +686,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.post("/v1/automl/rank", dependencies=protected)
     async def automl_rank(body: AutoMLRequest) -> dict[str, Any]:
         return automl.rank(body).model_dump(mode="json")
+
+    @app.get("/v1/system/hardware", dependencies=protected)
+    async def system_hardware() -> dict[str, Any]:
+        return HardwareProbe(settings).report().model_dump(mode="json")
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
