@@ -1,4 +1,4 @@
-﻿"""Bounded, metadata-only observer with deterministic and native adapters."""
+"""Bounded, metadata-only observer with deterministic and native adapters."""
 
 from __future__ import annotations
 
@@ -76,15 +76,21 @@ class DeviceObserver:
         self._load_state()
 
     def start(self) -> None:
-        self.status = ObserverStatus("RUNNING", self.status.dropped_events, self.status.duplicate_events)
+        self.status = ObserverStatus(
+            "RUNNING", self.status.dropped_events, self.status.duplicate_events
+        )
         self._save_state()
 
     def stop(self) -> None:
-        self.status = ObserverStatus("STOPPED", self.status.dropped_events, self.status.duplicate_events)
+        self.status = ObserverStatus(
+            "STOPPED", self.status.dropped_events, self.status.duplicate_events
+        )
         self._save_state()
 
     def pause(self) -> None:
-        self.status = ObserverStatus("PAUSED", self.status.dropped_events, self.status.duplicate_events)
+        self.status = ObserverStatus(
+            "PAUSED", self.status.dropped_events, self.status.duplicate_events
+        )
         self._save_state()
 
     def resume(self) -> None:
@@ -154,7 +160,10 @@ class DeviceObserver:
     def _load_events(self) -> list[NormalizedDeviceEvent]:
         path = self.data_dir / "device-events.jsonl"
         return (
-            [NormalizedDeviceEvent.model_validate_json(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            [
+                NormalizedDeviceEvent.model_validate_json(line)
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
             if path.exists()
             else []
         )

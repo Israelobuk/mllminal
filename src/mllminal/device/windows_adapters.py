@@ -332,6 +332,36 @@ class _MouseHook(ctypes.Structure):
     ]
 
 
+class _LastInputInfo(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
+
+
+class WindowsIdleAdapter:
+    name = "windows.idle"
+
+    def __init__(self, *, use_native: bool = False, idle_after_seconds: int = 60) -> None:
+        self.enabled = use_native and sys.platform == "win32"
+        self.idle_after_seconds = idle_after_seconds
+        self._last_state: bool | None = None
+
+    def capability(self) -> ObserverCapability:
+        return ObserverCapability(self.name, self.enabled)
+
+    def poll(self) -> list[RawDeviceSignal]:
+        if not self.enabled:
+            return []
+        info = _LastInputInfo()
+        info.cbSize = ctypes.sizeof(info)
+        if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+            return []
+        elapsed_ms = ctypes.windll.kernel32.GetTickCount() - int(info.dwTime)
+        idle = elapsed_ms >= self.idle_after_seconds * 1000
+        if idle == self._last_state:
+            return []
+        self._last_state = idle
+        return [_signal("user.idle" if idle else "user.active", self.name, {})]
+
+
 class WindowsInputHookAdapter:
     name = "windows.input"
 
@@ -545,6 +575,7 @@ def create_native_windows_adapters(
     return [
         WindowsProcessAdapter(use_native=True),
         WindowsForegroundAdapter(use_native=True),
+        WindowsIdleAdapter(use_native=True),
         uia,
         WindowsInputHookAdapter(
             use_native=True,

@@ -651,10 +651,25 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
 
     @app.get("/v1/device/status", dependencies=protected)
     async def device_status() -> dict[str, Any]:
+        privacy_state = privacy.status()
+        current_application = None
+        for event in reversed(device_observer.events()):
+            if event.application is not None:
+                current_application = event.application.process_name
+                break
         return {
             "state": device_observer.status.state,
+            "observation_enabled": privacy_state.observation_enabled,
+            "paused": privacy_state.paused or device_observer.status.state == "PAUSED",
             "dropped_events": device_observer.status.dropped_events,
             "duplicate_events": device_observer.status.duplicate_events,
+            "semantic_clicks_enabled": True,
+            "shortcut_monitoring_enabled": True,
+            "text_metadata_enabled": False,
+            "temporary_vision_enabled": False,
+            "current_application": current_application,
+            "exclusions_active": privacy_state.exclusion_count > 0,
+            "emergency_stop_active": privacy_state.emergency_stop_active,
         }
 
     @app.get("/v1/device/capabilities", dependencies=protected)
