@@ -15,8 +15,6 @@ from mllminal.privacy.contracts import CaptureCategory, CaptureMode, PrivacyPoli
 from mllminal.privacy.service import PrivacyService
 
 
-
-
 def services(tmp_path: Path) -> tuple[PrivacyService, InteractionService]:
     privacy = PrivacyService(tmp_path / "state.db")
     interaction = InteractionService(tmp_path / "state.db", privacy)
