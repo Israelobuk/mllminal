@@ -1,6 +1,16 @@
 # Real-world Windows product acceptance
 
-Milestone 11 adds the final acceptance state machine and Windows runbook. The code records scenario evidence but never marks a clean-machine acceptance as passed automatically. Run `scripts/windows/run-product-acceptance.ps1` on a clean Windows environment and record each stage through `mllminal acceptance record` or the authenticated acceptance API.
+Milestone 11 adds the acceptance state machine, readiness classification, and Windows runbook. It records evidence but never marks a clean-machine acceptance as passed automatically.
+
+Companion evidence documents:
+
+- acceptance-results.md: current certification state and evidence ledger
+- security-model.md: enforced and manual security boundaries
+- performance-baseline.md: required raw measurements
+- desktop-client.md: live synchronization acceptance
+- packaging.md: clean install and uninstall acceptance
+
+Run scripts/windows/run-product-acceptance.ps1 on a clean Windows environment and record each stage through mllminal acceptance record or the authenticated acceptance API.
 
 ## Required scenario
 
@@ -10,19 +20,15 @@ Milestone 11 adds the final acceptance state machine and Windows runbook. The co
 4. Compile three demonstrations into one draft workflow.
 5. Label source file, reporting date, stable destination folder, and draft recipient.
 6. Preview the typed workflow and review permission, approval, rollback, and verification manifests.
-7. Approve the run explicitly.
-8. Use the filesystem adapter to find the workbook, rename it, move it, and independently verify destination existence/source absence.
-9. Use the Excel adapter to open read-only, export PDF, verify a non-empty PDF, and close without saving.
-10. Use the Outlook adapter to create a draft, set recipient/subject/body, attach the approved PDF, and verify the draft remains unsent.
-11. Confirm desktop and CLI show matching task/progress/verification state.
+7. Approve explicitly.
+8. Find, rename, move, and independently verify the workbook through the filesystem adapter.
+9. Open read-only in Excel, export PDF, verify non-empty output, and close without saving.
+10. Create an Outlook draft, set recipient/subject/body, attach the approved PDF, and verify it remains unsent.
+11. Confirm desktop and CLI show matching task, progress, and verification state.
 12. Review the draft and record the final stage.
 
 There is no automatic email send capability.
 
-## Security and performance
+## Security, performance, and current status
 
-The acceptance report distinguishes implemented controls from manual-required clean-machine checks. Exercise secure-input suppression, malicious workflow/path/junction/symlink inputs, permission bypass, unauthorized replay, forged verification, emergency-stop bypass, stale approval reuse, duplicate execution after restart, application spoofing, malicious OCR/prompt injection, adapter crash, corrupted state, and unauthorized desktop access.
-
-Record idle CPU/memory, observation overhead, event persistence throughput, event-stream latency, CLI/desktop startup, workflow preview, filesystem action, Excel export, and OCR latency. Keep raw measurements with the acceptance evidence; this repository does not claim those real-Windows measurements have been run from CI.
-
-`mllminal acceptance report` reports the current scenario, implemented security boundaries, manual-required security checks, performance measurements, and the invariant that automatic email sending is disabled.
+The report distinguishes implemented controls from manual-required clean-machine checks and includes readiness classification. Exercise all security cases in security-model.md and record all metrics in performance-baseline.md. This repository currently has no clean-machine passing acceptance record. Do not label the product complete until the workflow runs against real Windows applications without fixture substitution.

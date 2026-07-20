@@ -31,6 +31,14 @@ class AcceptanceState(StrEnum):
     PASSED = "passed"
 
 
+class ReadinessClass(StrEnum):
+    PRODUCTION_CAPABLE = "Production-capable"
+    BETA = "Beta"
+    PROTOTYPE = "Prototype"
+    FIXTURE_ONLY = "Fixture-only"
+    DEFERRED = "Deferred"
+
+
 class AcceptanceRecordRequest(Contract):
     stage: AcceptanceStage
     evidence: list[str] = Field(default_factory=list, max_length=32)
@@ -43,6 +51,14 @@ class AcceptanceCheck(Contract):
     category: Literal["scenario", "security", "performance"]
     status: str
     evidence: list[str] = Field(default_factory=list)
+    note: str | None = None
+
+
+class CapabilityReadiness(Contract):
+    capability: str
+    classification: ReadinessClass
+    evidence: list[str] = Field(default_factory=list)
+    manual_evidence_required: bool = True
     note: str | None = None
 
 
