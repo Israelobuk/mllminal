@@ -22,7 +22,7 @@ from mllminal.apps.contracts import (
     CapabilityResult,
     VerificationResult,
 )
-from mllminal.contracts import new_id
+from mllminal.contracts import new_id, utc_now
 
 
 @dataclass
@@ -398,43 +398,333 @@ class ExcelAdapter:
             stream.write(json.dumps(record, sort_keys=True) + "\n")
 
 
+@dataclass
+class _OutlookSession:
+    application: Any
+    item: Any
+    entry_id: str
+
+
 class EmailDraftAdapter:
+    """Outlook desktop draft adapter; sending and credential access are absent."""
+
     name = "email"
-    display_name = "Email draft surface"
+    display_name = "Outlook desktop drafts"
+
+    def __init__(self, workspace_root: Path | None = None, data_dir: Path | None = None) -> None:
+        self.workspace_root = (workspace_root or Path.cwd()).expanduser().resolve()
+        self.audit_path = (data_dir or self.workspace_root / ".mllminal") / "email-audit.jsonl"
+        self.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        self.sessions: dict[str, _OutlookSession] = {}
+        self._win32com = self._optional_module("win32com.client")
 
     async def detect(self) -> ApplicationAvailability:
+        available = (
+            sys.platform == "win32"
+            and self._win32com is not None
+            and self._outlook_binary() is not None
+        )
         return ApplicationAvailability(
             application=self.name,
             display_name=self.display_name,
-            detected=False,
-            available=False,
-            state=ApplicationState.DETECTED,
-            metadata={"reason": "browser_or_desktop_draft_bridge_not_connected"},
+            detected=available,
+            available=available,
+            state=ApplicationState.AVAILABLE if available else ApplicationState.DETECTED,
+            local_session=available,
+            metadata={
+                "provider": "outlook.com",
+                "binary": str(self._outlook_binary()) if available else None,
+                "reason": None if available else "local_outlook_com_unavailable",
+                "send_supported": False,
+            },
         )
 
     async def capabilities(self) -> list[CapabilityDefinition]:
+        definitions = [
+            (
+                "email.detect_client",
+                "Detect the local Outlook client",
+                CapabilityMode.READ_ONLY,
+                False,
+            ),
+            ("email.create_draft", "Create an Outlook draft", CapabilityMode.PREVIEW, True),
+            ("email.set_recipients", "Set draft recipients", CapabilityMode.PREVIEW, True),
+            ("email.set_subject", "Set draft subject", CapabilityMode.PREVIEW, True),
+            ("email.set_body", "Set draft body", CapabilityMode.PREVIEW, True),
+            ("email.attach_file", "Attach an approved local file", CapabilityMode.PREVIEW, True),
+            (
+                "email.verify_draft",
+                "Verify an unsent Outlook draft",
+                CapabilityMode.READ_ONLY,
+                False,
+            ),
+        ]
         return [
             CapabilityDefinition(
-                name="email.create_draft",
-                display_name="Create an email draft",
-                mode=CapabilityMode.DRAFT_ONLY,
+                name=name,
+                display_name=display_name,
+                mode=mode,
                 permission_scope="email.draft",
-                consequential=True,
+                consequential=consequential,
             )
+            for name, display_name, mode, consequential in definitions
         ]
 
     async def execute(self, request: CapabilityRequest) -> CapabilityResult:
+        try:
+            result = await self._execute(request)
+        except Exception as error:
+            result = self._failure(request, str(error) or "outlook_automation_failed")
+        self._audit(request, result)
+        return result
+
+    async def verify(self, result: CapabilityResult) -> VerificationResult:
+        if not result.succeeded:
+            return VerificationResult(
+                succeeded=False,
+                reason="Email draft operation did not succeed",
+                observed=result.output,
+            )
+        sent = bool(result.output.get("sent", False))
+        draft = bool(result.output.get("draft", False))
+        succeeded = draft and not sent
+        return VerificationResult(
+            succeeded=succeeded,
+            reason=(
+                "Outlook draft verified and remains unsent"
+                if succeeded
+                else "Outlook draft verification failed"
+            ),
+            observed=result.output,
+        )
+
+    async def _execute(self, request: CapabilityRequest) -> CapabilityResult:
+        capability = request.capability
+        if capability == "email.detect_client":
+            availability = await self.detect()
+            return self._success(request, "detect_client", availability.model_dump(mode="json"))
+        if capability == "email.create_draft":
+            if request.preview:
+                return self._preview(
+                    request,
+                    "create_draft",
+                    {"draft": True, "sent": False, "created": False},
+                )
+            if not self.available:
+                raise RuntimeError("local_outlook_com_unavailable")
+            win32com = self._win32com
+            if win32com is None:
+                raise RuntimeError("local_outlook_com_unavailable")
+            application = win32com.Dispatch("Outlook.Application")
+            item = application.CreateItem(0)
+            item.Save()
+            entry_id = str(item.EntryID)
+            self.sessions[entry_id] = _OutlookSession(application, item, entry_id)
+            return self._success(
+                request,
+                "create_draft",
+                {"draft_id": entry_id, "draft": True, "sent": False, "created": True},
+            )
+        draft_id_value = self._argument(request, "draft_id")
+        if not isinstance(draft_id_value, str):
+            raise ValueError("draft_id_required")
+        draft_id = draft_id_value
+        session = self._session(draft_id)
+        if capability == "email.set_recipients":
+            recipients = request.arguments.get("recipients")
+            if (
+                not isinstance(recipients, list)
+                or not recipients
+                or not all(
+                    isinstance(value, str) and self._valid_address(value) for value in recipients
+                )
+            ):
+                raise ValueError("valid_recipients_required")
+            if request.preview:
+                return self._preview(
+                    request,
+                    "set_recipients",
+                    {
+                        "draft_id": draft_id,
+                        "recipient_count": len(recipients),
+                        "draft": True,
+                        "sent": False,
+                    },
+                )
+            session.item.To = "; ".join(recipients)
+            session.item.Save()
+            return self._draft_success(request, "set_recipients", draft_id)
+        if capability == "email.set_subject":
+            subject = self._argument(request, "subject")
+            if (
+                not isinstance(subject, str)
+                or not subject.strip()
+                or "\r" in subject
+                or "\n" in subject
+            ):
+                raise ValueError("valid_subject_required")
+            if request.preview:
+                return self._preview(
+                    request, "set_subject", {"draft_id": draft_id, "draft": True, "sent": False}
+                )
+            session.item.Subject = subject[:255]
+            session.item.Save()
+            return self._draft_success(request, "set_subject", draft_id)
+        if capability == "email.set_body":
+            body = self._argument(request, "body")
+            if not isinstance(body, str) or len(body) > 200_000:
+                raise ValueError("valid_body_required")
+            if request.preview:
+                return self._preview(
+                    request,
+                    "set_body",
+                    {"draft_id": draft_id, "body_length": len(body), "draft": True, "sent": False},
+                )
+            session.item.BodyFormat = 1
+            session.item.Body = body
+            session.item.Save()
+            return self._draft_success(request, "set_body", draft_id)
+        if capability == "email.attach_file":
+            attachment = self._approved_path(self._argument(request, "path"), must_exist=True)
+            if not attachment.is_file():
+                raise ValueError("attachment_not_found")
+            if request.preview:
+                return self._preview(
+                    request,
+                    "attach_file",
+                    {"draft_id": draft_id, "path": str(attachment), "draft": True, "sent": False},
+                )
+            session.item.Attachments.Add(str(attachment), 1)
+            session.item.Save()
+            return self._draft_success(request, "attach_file", draft_id, path=str(attachment))
+        if capability == "email.verify_draft":
+            saved = bool(getattr(session.item, "Saved", False))
+            sent = bool(getattr(session.item, "Sent", False))
+            return self._success(
+                request,
+                "verify_draft",
+                {"draft_id": draft_id, "draft": saved and not sent, "saved": saved, "sent": sent},
+            )
+        return self._failure(request, "capability_not_supported")
+
+    def _session(self, draft_id: str) -> _OutlookSession:
+        cached = self.sessions.get(draft_id)
+        if cached is not None:
+            return cached
+        if not self.available:
+            raise RuntimeError("local_outlook_com_unavailable")
+        win32com = self._win32com
+        if win32com is None:
+            raise RuntimeError("local_outlook_com_unavailable")
+        application = win32com.Dispatch("Outlook.Application")
+        namespace = application.GetNamespace("MAPI")
+        item = namespace.GetItemFromID(draft_id)
+        session = _OutlookSession(application, item, draft_id)
+        self.sessions[draft_id] = session
+        return session
+
+    def _approved_path(self, value: object, *, must_exist: bool) -> Path:
+        if not isinstance(value, str) or not value.strip() or "\x00" in value:
+            raise ValueError("invalid_path")
+        candidate = Path(value).expanduser()
+        if any(part == ".." for part in candidate.parts):
+            raise ValueError("path_traversal_not_allowed")
+        path = (candidate if candidate.is_absolute() else self.workspace_root / candidate).resolve()
+        if path != self.workspace_root and not path.is_relative_to(self.workspace_root):
+            raise ValueError("path_outside_workspace")
+        if path.is_symlink():
+            raise ValueError("symlink_not_allowed")
+        if must_exist and not path.exists():
+            raise ValueError("path_not_found")
+        return path
+
+    @staticmethod
+    def _valid_address(value: str) -> bool:
+        local, separator, domain = value.partition("@")
+        return bool(separator and local and domain and " " not in value and "." in domain)
+
+    @property
+    def available(self) -> bool:
+        return (
+            sys.platform == "win32"
+            and self._win32com is not None
+            and self._outlook_binary() is not None
+        )
+
+    @staticmethod
+    def _optional_module(name: str) -> Any | None:
+        try:
+            return import_module(name)
+        except ImportError:
+            return None
+
+    @staticmethod
+    def _outlook_binary() -> Path | None:
+        if sys.platform != "win32":
+            return None
+        found = shutil.which("OUTLOOK.EXE")
+        if found:
+            return Path(found)
+        with suppress(Exception):
+            winreg = import_module("winreg")
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE",
+            ) as key:
+                value = winreg.QueryValue(key, None)
+                if value:
+                    return Path(str(value))
+        return None
+
+    def _draft_success(
+        self, request: CapabilityRequest, operation: str, draft_id: str, **extra: Any
+    ) -> CapabilityResult:
+        return self._success(
+            request, operation, {"draft_id": draft_id, "draft": True, "sent": False, **extra}
+        )
+
+    def _success(
+        self, request: CapabilityRequest, operation: str, output: dict[str, Any]
+    ) -> CapabilityResult:
         return CapabilityResult(
             capability=request.capability,
             succeeded=True,
-            preview=True,
+            preview=request.preview,
             draft_only=True,
-            output={"draft": request.arguments, "sent": False},
+            output={"operation": operation, **output},
         )
 
-    async def verify(self, result: CapabilityResult) -> VerificationResult:
-        return VerificationResult(
-            succeeded=result.succeeded and result.draft_only,
-            reason="Email adapter is draft-only until a bounded desktop bridge is granted",
-            observed=result.output,
+    def _preview(
+        self, request: CapabilityRequest, operation: str, output: dict[str, Any]
+    ) -> CapabilityResult:
+        return self._success(request.model_copy(update={"preview": True}), operation, output)
+
+    @staticmethod
+    def _failure(request: CapabilityRequest, error: str) -> CapabilityResult:
+        return CapabilityResult(
+            capability=request.capability,
+            succeeded=False,
+            preview=request.preview,
+            draft_only=True,
+            error=error,
         )
+
+    @staticmethod
+    def _argument(request: CapabilityRequest, name: str) -> object:
+        value = request.arguments.get(name)
+        if value is None:
+            raise ValueError(f"{name}_required")
+        return value
+
+    def _audit(self, request: CapabilityRequest, result: CapabilityResult) -> None:
+        record = {
+            "at": utc_now().isoformat(),
+            "execution_id": result.execution_id,
+            "capability": request.capability,
+            "succeeded": result.succeeded,
+            "preview": result.preview,
+            "error": result.error,
+            "output": result.output,
+        }
+        with self.audit_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, sort_keys=True) + "\n")
