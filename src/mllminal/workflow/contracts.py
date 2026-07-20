@@ -18,9 +18,18 @@ class WorkflowDefinitionState(StrEnum):
 class WorkflowInputType(StrEnum):
     STRING = "string"
     INTEGER = "integer"
+    NUMBER = "number"
     BOOLEAN = "boolean"
     PATH = "path"
+    FILE = "file"
+    FOLDER = "folder"
     DATE = "date"
+    DATETIME = "datetime"
+    CONTACT = "contact"
+    APPLICATION = "application"
+    SELECTED_ITEM = "selected_item"
+    PREVIOUS_OUTPUT = "previous_output"
+    USER_CHOICE = "user_choice"
 
 
 class WorkflowRunState(StrEnum):

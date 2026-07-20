@@ -16,6 +16,8 @@ from mllminal.assistance.contracts import AssistanceRequest
 from mllminal.assistance.service import ProactiveAssistanceService
 from mllminal.automl.contracts import AutoMLRequest
 from mllminal.automl.service import LocalAutoMLService
+from mllminal.compiler.contracts import CompilerRequest
+from mllminal.compiler.service import WorkflowCompilerService
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.demonstration.contracts import (
     DemonstrationCaptureRequest,
@@ -190,6 +192,9 @@ def create_app(
 
     def workflow_service() -> WorkflowService:
         return WorkflowService(resolved_settings.database_path)
+
+    def compiler_service() -> WorkflowCompilerService:
+        return WorkflowCompilerService()
 
     def application_service() -> ApplicationBridgeService:
         return ApplicationBridgeService(
@@ -626,6 +631,11 @@ def create_app(
     def activity_boundaries() -> None:
         for item in activity_service().task_boundaries():
             typer.echo(item.model_dump_json())
+
+    @workflow.command("compile")
+    def workflow_compile(payload: str) -> None:
+        request = CompilerRequest.model_validate_json(payload)
+        typer.echo(compiler_service().compile(request).model_dump_json())
 
     @workflow.command("create")
     def workflow_create(payload: str) -> None:

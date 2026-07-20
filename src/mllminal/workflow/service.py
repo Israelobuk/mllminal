@@ -342,8 +342,17 @@ class WorkflowService:
         return {
             "string": lambda: isinstance(value, str),
             "path": lambda: isinstance(value, str),
+            "file": lambda: isinstance(value, str),
+            "folder": lambda: isinstance(value, str),
             "date": lambda: isinstance(value, str),
+            "datetime": lambda: isinstance(value, str),
+            "contact": lambda: isinstance(value, str),
+            "application": lambda: isinstance(value, str),
+            "selected_item": lambda: isinstance(value, str),
+            "previous_output": lambda: isinstance(value, (str, dict, list)),
+            "user_choice": lambda: isinstance(value, (str, int, float, bool)),
             "integer": lambda: isinstance(value, int) and not isinstance(value, bool),
+            "number": lambda: isinstance(value, (int, float)) and not isinstance(value, bool),
             "boolean": lambda: isinstance(value, bool),
         }[kind]()
 
