@@ -1,24 +1,52 @@
-﻿"""Versioned, metadata-only device observer contracts."""
+"""Versioned, metadata-only device observer contracts."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any, Literal, Self
-from uuid6 import uuid7
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from uuid6 import uuid7
 
 _DEVICE_EVENTS = {
-    "application.started", "application.exited", "application.focused",
-    "window.opened", "window.closed", "window.focused", "window.title_changed",
-    "control.focused", "mouse.click", "mouse.double_click", "mouse.scroll",
-    "keyboard.shortcut", "keyboard.navigation", "keyboard.confirm", "keyboard.cancel",
-    "keyboard.tab", "file.created", "file.modified", "file.moved", "file.renamed",
-    "file.deleted", "user.active", "user.idle", "observer.started", "observer.stopped",
-    "observer.paused", "observer.resumed",
+    "application.started",
+    "application.exited",
+    "application.focused",
+    "window.opened",
+    "window.closed",
+    "window.focused",
+    "window.title_changed",
+    "control.focused",
+    "control.invoked",
+    "mouse.click",
+    "mouse.double_click",
+    "mouse.scroll",
+    "keyboard.shortcut",
+    "keyboard.navigation",
+    "keyboard.confirm",
+    "keyboard.cancel",
+    "keyboard.tab",
+    "file.created",
+    "file.modified",
+    "file.moved",
+    "file.renamed",
+    "file.deleted",
+    "user.active",
+    "user.idle",
+    "observer.started",
+    "observer.stopped",
+    "observer.paused",
+    "observer.resumed",
 }
 _FORBIDDEN = {
-    "typed_text", "password", "clipboard", "token", "screenshot", "audio", "camera", "keystroke",
+    "typed_text",
+    "password",
+    "clipboard",
+    "token",
+    "screenshot",
+    "audio",
+    "camera",
+    "keystroke",
 }
 
 
@@ -41,6 +69,7 @@ class WindowIdentity(BaseModel):
 class ControlIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     control_type: str = "unknown"
+    name: str | None = None
     automation_id: str | None = None
     class_name: str = "unknown"
     secure: bool = False
@@ -55,7 +84,9 @@ class RawDeviceSignal(BaseModel):
 
     @model_validator(mode="after")
     def validate_safe_payload(self) -> Self:
-        if self.timestamp.tzinfo is None or self.timestamp.utcoffset() != UTC.utcoffset(self.timestamp):
+        if self.timestamp.tzinfo is None or self.timestamp.utcoffset() != UTC.utcoffset(
+            self.timestamp
+        ):
             raise ValueError("timestamp must be UTC")
         if _FORBIDDEN & {key.lower() for key in self.payload}:
             raise ValueError("forbidden raw payload field")
@@ -84,7 +115,9 @@ def normalize_signal(signal: RawDeviceSignal) -> NormalizedDeviceEvent:
         application = ApplicationIdentity(
             process_name=str(payload["process_name"]),
             application_class=str(payload.get("application_class") or "unknown"),
-            executable_path=(str(payload["executable_path"]) if payload.get("executable_path") else None),
+            executable_path=(
+                str(payload["executable_path"]) if payload.get("executable_path") else None
+            ),
             publisher=str(payload["publisher"]) if payload.get("publisher") else None,
         )
     window = None
@@ -97,6 +130,7 @@ def normalize_signal(signal: RawDeviceSignal) -> NormalizedDeviceEvent:
     if "control_type" in payload:
         control = ControlIdentity(
             control_type=str(payload.get("control_type") or "unknown"),
+            name=(str(payload["name"]) if payload.get("name") else None),
             automation_id=(str(payload["automation_id"]) if payload.get("automation_id") else None),
             class_name=str(payload.get("class_name") or "unknown"),
             secure=bool(payload.get("secure", False)),

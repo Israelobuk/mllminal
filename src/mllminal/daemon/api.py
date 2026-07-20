@@ -1,4 +1,4 @@
-﻿"""Authenticated REST and replayable WebSocket API."""
+"""Authenticated REST and replayable WebSocket API."""
 
 import asyncio
 import json
@@ -123,9 +123,17 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             learning_repository, settings.data_dir / "learning" / "checkpoints"
         ),
     )
-    device_observer = DeviceObserver(settings.data_dir / "device", create_native_windows_adapters())
-    device_runtime = WindowsObservationRuntime(device_observer)
     privacy = PrivacyService(settings.database_path)
+    device_observer = DeviceObserver(
+        settings.data_dir / "device",
+        create_native_windows_adapters(
+            emergency_stop=lambda: privacy.emergency_stop(idempotency_key="native-emergency-stop")
+        ),
+    )
+    device_runtime = WindowsObservationRuntime(
+        device_observer,
+        emergency_stop_active=lambda: privacy.status().emergency_stop_active,
+    )
     interaction = InteractionService(settings.database_path, privacy)
     activity = ActivityService(settings.database_path, interaction, device_observer)
     workflow = WorkflowService(settings.database_path)
@@ -229,25 +237,33 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def privacy_enable(
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return privacy.enable(idempotency_key=idempotency_key).model_dump(mode="json")
+        result = privacy.enable(idempotency_key=idempotency_key)
+        device_runtime.start()
+        return result.model_dump(mode="json")
 
     @app.post("/v1/privacy/disable", dependencies=protected)
     async def privacy_disable(
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return privacy.disable(idempotency_key=idempotency_key).model_dump(mode="json")
+        result = privacy.disable(idempotency_key=idempotency_key)
+        device_runtime.stop()
+        return result.model_dump(mode="json")
 
     @app.post("/v1/privacy/pause", dependencies=protected)
     async def privacy_pause(
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return privacy.pause(idempotency_key=idempotency_key).model_dump(mode="json")
+        result = privacy.pause(idempotency_key=idempotency_key)
+        device_runtime.pause()
+        return result.model_dump(mode="json")
 
     @app.post("/v1/privacy/resume", dependencies=protected)
     async def privacy_resume(
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return privacy.resume(idempotency_key=idempotency_key).model_dump(mode="json")
+        result = privacy.resume(idempotency_key=idempotency_key)
+        device_runtime.resume()
+        return result.model_dump(mode="json")
 
     @app.post("/v1/privacy/incognito/start", dependencies=protected)
     async def privacy_incognito_start(
@@ -265,7 +281,9 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def privacy_emergency_stop(
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return privacy.emergency_stop(idempotency_key=idempotency_key).model_dump(mode="json")
+        result = privacy.emergency_stop(idempotency_key=idempotency_key)
+        device_runtime.emergency_stop()
+        return result.model_dump(mode="json")
 
     @app.post("/v1/privacy/emergency-clear", dependencies=protected)
     async def privacy_emergency_clear(
@@ -949,5 +967,3 @@ def _pending_payload(pending: PendingTask) -> dict[str, Any]:
         "plan": pending.plan.model_dump(mode="json"),
         "approval": pending.approval.model_dump(mode="json"),
     }
-
-

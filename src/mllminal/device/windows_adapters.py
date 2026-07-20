@@ -1,4 +1,4 @@
-﻿"""Native Windows metadata adapters with deterministic fixture fallbacks.
+"""Native Windows metadata adapters with deterministic fixture fallbacks.
 
 These adapters intentionally discard content at the collection boundary. They expose process,
 foreground-window, UI Automation control, and safe semantic input metadata only.
@@ -6,23 +6,26 @@ foreground-window, UI Automation control, and safe semantic input metadata only.
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
-from ctypes import wintypes
-import os
 import sys
 import threading
 from collections import deque
+from collections.abc import Callable
+from ctypes import wintypes
 from datetime import UTC, datetime
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, ClassVar
 
 from mllminal.device.contracts import RawDeviceSignal
 from mllminal.device.observer import ObserverCapability
 
 
 def _signal(event_type: str, source: str, payload: dict[str, Any]) -> RawDeviceSignal:
-    return RawDeviceSignal(event_type=event_type, source=source, timestamp=datetime.now(UTC), payload=payload)
+    return RawDeviceSignal(
+        event_type=event_type, source=source, timestamp=datetime.now(UTC), payload=payload
+    )
 
 
 def _module(name: str) -> Any | None:
@@ -42,10 +45,8 @@ def _process_path(win32api: Any, win32process: Any, win32con: Any, pid: int) -> 
         return None
     finally:
         if handle is not None:
-            try:
+            with contextlib.suppress(Exception):
                 win32api.CloseHandle(handle)
-            except Exception:
-                pass
 
 
 def _process_name(path: str | None, pid: int) -> str:
@@ -220,10 +221,19 @@ class WindowsForegroundAdapter:
 
 class WindowsUIAutomationAdapter:
     name = "windows.uia"
-    _CONTROL_TYPES = {
-        50000: "button", 50002: "checkbox", 50003: "combobox", 50004: "edit",
-        50005: "hyperlink", 50006: "image", 50007: "listitem", 50011: "menuitem",
-        50019: "tab", 50020: "text", 50024: "treeitem", 50032: "window",
+    _CONTROL_TYPES: ClassVar[dict[int, str]] = {
+        50000: "button",
+        50002: "checkbox",
+        50003: "combobox",
+        50004: "edit",
+        50005: "hyperlink",
+        50006: "image",
+        50007: "listitem",
+        50011: "menuitem",
+        50019: "tab",
+        50020: "text",
+        50024: "treeitem",
+        50032: "window",
     }
 
     def __init__(self, *, use_native: bool = False, client_module: Any | None = None) -> None:
@@ -255,12 +265,15 @@ class WindowsUIAutomationAdapter:
             secure = bool(getattr(element, "CurrentIsPassword", False)) or (
                 control_type == "edit" and "password" in class_name.lower()
             )
-            return {
+            metadata = {
                 "control_type": control_type,
                 "automation_id": str(element.CurrentAutomationId or "") or None,
                 "class_name": class_name,
                 "secure": secure,
             }
+            if not secure and control_type not in {"edit", "text"}:
+                metadata["name"] = str(element.CurrentName or "") or None
+            return metadata
         except Exception:
             return None
 
@@ -299,19 +312,41 @@ class WindowsUIAutomationAdapter:
 
 
 class _KbdHook(ctypes.Structure):
-    _fields_ = [("vk_code", ctypes.c_ulong), ("scan_code", ctypes.c_ulong), ("flags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("extra", ctypes.c_void_p)]
+    _fields_ = [
+        ("vk_code", ctypes.c_ulong),
+        ("scan_code", ctypes.c_ulong),
+        ("flags", ctypes.c_ulong),
+        ("time", ctypes.c_ulong),
+        ("extra", ctypes.c_void_p),
+    ]
 
 
 class _MouseHook(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long), ("mouse_data", ctypes.c_ulong), ("flags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("extra", ctypes.c_void_p)]
+    _fields_ = [
+        ("x", ctypes.c_long),
+        ("y", ctypes.c_long),
+        ("mouse_data", ctypes.c_ulong),
+        ("flags", ctypes.c_ulong),
+        ("time", ctypes.c_ulong),
+        ("extra", ctypes.c_void_p),
+    ]
 
 
 class WindowsInputHookAdapter:
     name = "windows.input"
 
-    def __init__(self, *, use_native: bool = False, secure_focus: Callable[[], bool] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        use_native: bool = False,
+        secure_focus: Callable[[], bool] | None = None,
+        focused_control: Callable[[], dict[str, Any] | None] | None = None,
+        emergency_stop: Callable[[], None] | None = None,
+    ) -> None:
         self.enabled = use_native and sys.platform == "win32"
         self.secure_focus = secure_focus
+        self.focused_control = focused_control
+        self.emergency_stop = emergency_stop
         self._signals: deque[RawDeviceSignal] = deque(maxlen=256)
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -330,7 +365,9 @@ class WindowsInputHookAdapter:
             return
         self._stop.clear()
         self._ready.clear()
-        self._thread = threading.Thread(target=self._pump, name="mllminal-windows-hooks", daemon=True)
+        self._thread = threading.Thread(
+            target=self._pump, name="mllminal-windows-hooks", daemon=True
+        )
         self._thread.start()
         self._ready.wait(timeout=2)
 
@@ -358,7 +395,23 @@ class WindowsInputHookAdapter:
         if self.secure_focus and self.secure_focus():
             return
         modifiers = self._modifiers()
-        names = {0x1B: "escape", 0x0D: "enter", 0x09: "tab", 0x25: "left", 0x26: "up", 0x27: "right", 0x28: "down", 0x21: "page_up", 0x22: "page_down", 0x24: "home", 0x23: "end"}
+        if vk == 0x1B and {"ctrl", "alt"} <= modifiers:
+            if self.emergency_stop:
+                self.emergency_stop()
+            return
+        names = {
+            0x09: "tab",
+            0x0D: "enter",
+            0x1B: "escape",
+            0x21: "page_up",
+            0x22: "page_down",
+            0x23: "end",
+            0x24: "home",
+            0x25: "left",
+            0x26: "up",
+            0x27: "right",
+            0x28: "down",
+        }
         if vk in {0x1B}:
             self._queue("keyboard.cancel", {"key_role": "cancel"})
         elif vk in {0x0D}:
@@ -366,14 +419,37 @@ class WindowsInputHookAdapter:
         elif vk == 0x09:
             self._queue("keyboard.tab", {"key_role": "tab", "reverse": "shift" in modifiers})
         elif vk in names and vk not in {0x1B, 0x0D, 0x09}:
-            self._queue("keyboard.navigation", {"key_role": names[vk], "modifiers": sorted(modifiers)})
+            self._queue(
+                "keyboard.navigation",
+                {"key_role": names[vk], "modifiers": sorted(modifiers)},
+            )
         elif modifiers and 0x41 <= vk <= 0x5A:
-            self._queue("keyboard.shortcut", {"shortcut": "+".join([*sorted(modifiers), chr(vk).lower()])})
+            self._queue(
+                "keyboard.shortcut",
+                {"shortcut": "+".join([*sorted(modifiers), chr(vk).lower()])},
+            )
 
-    def _mouse_event(self, event_type: str) -> None:
+    def _mouse_event(self, event_type: str, mouse_data: int = 0) -> None:
         if self.secure_focus and self.secure_focus():
             return
-        self._queue(event_type, {"button": "left"} if "click" in event_type else {"direction": "vertical"})
+        if event_type == "mouse.scroll":
+            delta = ctypes.c_short((mouse_data >> 16) & 0xFFFF).value
+            payload: dict[str, Any] = {
+                "direction": "up" if delta > 0 else "down",
+                "amount_bucket": (
+                    "small" if abs(delta) <= 120 else "medium" if abs(delta) <= 360 else "large"
+                ),
+            }
+            self._queue(event_type, payload)
+            return
+        payload = {"button": "left"}
+        if self.focused_control:
+            control = self.focused_control()
+            if control and not control.get("secure", False):
+                payload.update(control)
+                self._queue("control.invoked", payload)
+                return
+        self._queue(event_type, payload)
 
     def _modifiers(self) -> set[str]:
         user32 = ctypes.windll.user32
@@ -387,14 +463,23 @@ class WindowsInputHookAdapter:
 
         def keyboard(n_code: int, w_param: int, l_param: int) -> int:
             if n_code >= 0 and w_param in (0x0100, 0x0104):
-                self._keyboard_event(int(ctypes.cast(l_param, ctypes.POINTER(_KbdHook)).contents.vk_code))
+                self._keyboard_event(
+                    int(ctypes.cast(l_param, ctypes.POINTER(_KbdHook)).contents.vk_code)
+                )
             return int(user32.CallNextHookEx(0, n_code, w_param, l_param))
 
         def mouse(n_code: int, w_param: int, _l_param: int) -> int:
             if n_code >= 0:
-                events = {0x0201: "mouse.click", 0x0203: "mouse.double_click", 0x020A: "mouse.scroll"}
+                events = {
+                    0x0201: "mouse.click",
+                    0x0203: "mouse.double_click",
+                    0x020A: "mouse.scroll",
+                }
                 if w_param in events:
-                    self._mouse_event(events[w_param])
+                    mouse_data = int(
+                        ctypes.cast(_l_param, ctypes.POINTER(_MouseHook)).contents.mouse_data
+                    )
+                    self._mouse_event(events[w_param], mouse_data)
             return int(user32.CallNextHookEx(0, n_code, w_param, _l_param))
 
         self._keyboard_callback = hook_proc(keyboard)
@@ -425,33 +510,46 @@ class FakeWindowsAdapter:
         result: list[RawDeviceSignal] = []
         for kind, payload in self.batches:
             if kind == "process":
-                result += [_signal("application.started", self.name, {"process_name": name}) for name in payload.get("started", [])]
-                result += [_signal("application.exited", self.name, {"process_name": name}) for name in payload.get("exited", [])]
+                result += [
+                    _signal("application.started", self.name, {"process_name": name})
+                    for name in payload.get("started", [])
+                ]
+                result += [
+                    _signal("application.exited", self.name, {"process_name": name})
+                    for name in payload.get("exited", [])
+                ]
             elif kind == "foreground":
                 safe = {key: value for key, value in payload.items() if key != "title"}
                 result.append(_signal("application.focused", self.name, safe))
                 if "title" in payload:
-                    result.append(_signal("window.title_changed", self.name, {**safe, "title": "redacted"}))
+                    result.append(
+                        _signal("window.title_changed", self.name, {**safe, "title": "redacted"})
+                    )
             elif kind == "filesystem":
-                result.append(_signal(str(payload["event_type"]), self.name, {"process_name": "filesystem"}))
+                result.append(
+                    _signal(str(payload["event_type"]), self.name, {"process_name": "filesystem"})
+                )
             elif kind == "idle":
-                result.append(_signal("user.idle" if payload.get("idle") else "user.active", self.name, {}))
+                result.append(
+                    _signal("user.idle" if payload.get("idle") else "user.active", self.name, {})
+                )
         self.batches = []
         return result
 
 
-def create_native_windows_adapters() -> list[Any]:
+def create_native_windows_adapters(
+    emergency_stop: Callable[[], None] | None = None,
+) -> list[Any]:
     """Build the real Windows observer stack; unavailable adapters remain inert."""
     uia = WindowsUIAutomationAdapter(use_native=True)
     return [
         WindowsProcessAdapter(use_native=True),
         WindowsForegroundAdapter(use_native=True),
         uia,
-        WindowsInputHookAdapter(use_native=True, secure_focus=uia.secure_focus),
+        WindowsInputHookAdapter(
+            use_native=True,
+            secure_focus=uia.secure_focus,
+            focused_control=uia.focused_metadata,
+            emergency_stop=emergency_stop,
+        ),
     ]
-
-
-
-
-
-
