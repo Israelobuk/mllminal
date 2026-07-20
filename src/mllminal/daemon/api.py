@@ -58,6 +58,8 @@ from mllminal.privacy.contracts import (
     PrivacyRule,
 )
 from mllminal.privacy.service import PrivacyService
+from mllminal.repair.contracts import RepairApprovalRequest, RepairProposalRequest
+from mllminal.repair.service import WorkflowRepairService
 from mllminal.runtime_store import RuntimeStore
 from mllminal.verification.contracts import (
     LocalVisualObservation,
@@ -147,6 +149,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     interaction = InteractionService(settings.database_path, privacy)
     activity = ActivityService(settings.database_path, interaction, device_observer)
     workflow = WorkflowService(settings.database_path)
+    repair = WorkflowRepairService(workflow, settings.data_dir / "workflow-repair")
     applications = ApplicationBridgeService(
         settings.database_path,
         workspace_root=settings.workspace_root,
@@ -178,6 +181,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.interaction = interaction
     app.state.activity = activity
     app.state.workflow = workflow
+    app.state.repair = repair
     app.state.applications = applications
     app.state.visual = visual
     app.state.vision_runtime = vision_runtime
@@ -506,6 +510,16 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.get("/v1/activity/boundaries", dependencies=protected)
     async def activity_boundaries() -> list[dict[str, Any]]:
         return [item.model_dump(mode="json") for item in activity.task_boundaries()]
+
+    @app.post("/v1/workflow-repair/propose", dependencies=protected)
+    async def workflow_repair_propose(body: RepairProposalRequest) -> dict[str, Any]:
+        return repair.propose(body).model_dump(mode="json")
+
+    @app.post("/v1/workflow-repair/{proposal_id}/approve", dependencies=protected)
+    async def workflow_repair_approve(
+        proposal_id: str, body: RepairApprovalRequest
+    ) -> dict[str, Any]:
+        return repair.approve(proposal_id, body).model_dump(mode="json")
 
     @app.get("/v1/workflows", dependencies=protected)
     async def workflow_definitions() -> list[dict[str, Any]]:
