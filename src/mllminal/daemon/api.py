@@ -34,6 +34,7 @@ from mllminal.demonstration.service import DemonstrationService
 from mllminal.device.observer import DeviceObserver
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
+from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
 from mllminal.learning.registry import PolicyRegistry
@@ -127,6 +128,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     visual = LocalVisualVerificationService(settings.data_dir / "visual")
     mining = WorkflowMiningService()
     actions = BoundedActionService()
+    langgraph = LangGraphWorkflowAdapter()
     assistance = ProactiveAssistanceService()
     demonstration = DemonstrationService(settings.database_path, interaction)
     hub = EventHub()
@@ -144,6 +146,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.visual = visual
     app.state.mining = mining
     app.state.actions = actions
+    app.state.langgraph = langgraph
     app.state.assistance = assistance
     app.state.demonstration = demonstration
 
@@ -599,6 +602,11 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def assistance_suggest(body: AssistanceRequest) -> dict[str, Any]:
         mined = mining.mine(interaction.events(), body.mining)
         return assistance.suggest(mined, body).model_dump(mode="json")
+
+    @app.post("/v1/adapters/langgraph", dependencies=protected)
+    async def langgraph_spec(body: WorkflowCreateRequest) -> dict[str, Any]:
+        spec = langgraph.spec(body.definition)
+        return {"available": langgraph.available(), "spec": spec.model_dump(mode="json")}
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
