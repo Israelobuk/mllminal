@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 
 import typer
 
+from mllminal.acceptance.contracts import AcceptanceRecordRequest
+from mllminal.acceptance.service import ProductAcceptanceService
 from mllminal.actions.contracts import ActionRequest
 from mllminal.actions.service import BoundedActionService
 from mllminal.activity.service import ActivityService
@@ -100,12 +102,16 @@ def create_app(
     visual = typer.Typer(help="Record and verify local semantic visual observations.")
     mining = typer.Typer(help="Mine repeated semantic interactions into workflow candidates.")
     actions = typer.Typer(help="Preview and explicitly approve bounded device actions.")
+    acceptance = typer.Typer(help="Track the Windows product acceptance scenario.")
     assist = typer.Typer(help="Surface reviewable workflow suggestions without executing them.")
     adapters = typer.Typer(help="Export typed workflows to optional local adapters.")
     automl = typer.Typer(help="Rank bounded local policy candidates for review.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
     system = typer.Typer(help="Inspect local hardware and runtime recommendations.")
+
+    def acceptance_service() -> ProductAcceptanceService:
+        return ProductAcceptanceService(resolved_settings.data_dir / "acceptance")
 
     def observer() -> DeviceObserver:
         return DeviceObserver(
@@ -807,6 +813,24 @@ def create_app(
         request = MiningRequest.model_validate_json(payload)
         typer.echo(mining_service().mine(interaction_service().events(), request).model_dump_json())
 
+    @acceptance.command("start")
+    def acceptance_start() -> None:
+        typer.echo(acceptance_service().start().model_dump_json())
+
+    @acceptance.command("status")
+    def acceptance_status() -> None:
+        run = acceptance_service().status()
+        typer.echo(run.model_dump_json() if run else "null")
+
+    @acceptance.command("report")
+    def acceptance_report() -> None:
+        typer.echo(json.dumps(acceptance_service().report()))
+
+    @acceptance.command("record")
+    def acceptance_record(payload: str) -> None:
+        request = AcceptanceRecordRequest.model_validate_json(payload)
+        typer.echo(acceptance_service().record(request).model_dump_json())
+
     @actions.command("list")
     def actions_list() -> None:
         for action in action_service().actions():
@@ -965,6 +989,7 @@ def create_app(
     app.add_typer(visual, name="visual")
     app.add_typer(mining, name="mining")
     app.add_typer(actions, name="actions")
+    app.add_typer(acceptance, name="acceptance")
     app.add_typer(assist, name="assist")
     app.add_typer(adapters, name="adapters")
     app.add_typer(automl, name="automl")
