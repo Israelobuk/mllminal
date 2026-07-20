@@ -18,6 +18,8 @@ _DEVICE_EVENTS = {
     "window.title_changed",
     "control.focused",
     "control.invoked",
+    "capture.rejected",
+    "text_entry.started",
     "mouse.click",
     "mouse.double_click",
     "mouse.scroll",
@@ -37,6 +39,20 @@ _DEVICE_EVENTS = {
     "observer.stopped",
     "observer.paused",
     "observer.resumed",
+}
+_SAFE_METADATA = {
+    "amount_bucket",
+    "category",
+    "button",
+    "direction",
+    "field_classification",
+    "length_bucket",
+    "key_role",
+    "modifiers",
+    "operation",
+    "reason",
+    "reverse",
+    "shortcut",
 }
 _FORBIDDEN = {
     "typed_text",
@@ -104,6 +120,7 @@ class NormalizedDeviceEvent(BaseModel):
     application: ApplicationIdentity | None = None
     window: WindowIdentity | None = None
     control: ControlIdentity | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def normalize_signal(signal: RawDeviceSignal) -> NormalizedDeviceEvent:
@@ -135,6 +152,7 @@ def normalize_signal(signal: RawDeviceSignal) -> NormalizedDeviceEvent:
             class_name=str(payload.get("class_name") or "unknown"),
             secure=bool(payload.get("secure", False)),
         )
+    metadata = {key: payload[key] for key in _SAFE_METADATA if key in payload}
     return NormalizedDeviceEvent(
         event_type=signal.event_type,
         timestamp=signal.timestamp,
@@ -142,4 +160,5 @@ def normalize_signal(signal: RawDeviceSignal) -> NormalizedDeviceEvent:
         application=application,
         window=window,
         control=control,
+        metadata=metadata,
     )

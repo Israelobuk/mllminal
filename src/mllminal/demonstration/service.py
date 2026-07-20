@@ -222,6 +222,9 @@ class DemonstrationService:
                     normalized_file_operation=request.normalized_file_operation,
                     application_transition=request.application_transition,
                     text_entry_occurred=request.text_entry_occurred,
+                    fragile=request.fragile,
+                    source_event_id=request.source_event_id,
+                    required_capability=self._capability_for_event(request.event),
                 )
                 row.step_count += 1
                 row.updated_at = utc_now()
@@ -326,6 +329,22 @@ class DemonstrationService:
                 title=session.label,
                 step_ids=[step.id for step in steps],
                 variables=variables,
+                fragile_step_ids=[step.id for step in steps if step.fragile],
+                approval_step_ids=[
+                    step.id
+                    for step in steps
+                    if step.event.kind.value in {"file.operation", "control.invoked"}
+                ],
+                required_capabilities=sorted({step.required_capability for step in steps}),
+                verification_requirements=sorted(
+                    {
+                        "independent filesystem verification"
+                        if step.event.kind.value == "file.operation"
+                        else "post-action state verification"
+                        for step in steps
+                        if step.event.kind.value in {"file.operation", "control.invoked"}
+                    }
+                ),
             )
             row = database.get(DemonstrationSessionRow, session.id)
             if row is None:
@@ -447,6 +466,17 @@ class DemonstrationService:
                     created_at=utc_now(),
                 )
             )
+
+    @staticmethod
+    def _capability_for_event(event: Any) -> str:
+        kind = event.kind.value
+        if kind == "file.operation":
+            return "filesystem.metadata"
+        if kind == "control.invoked":
+            return "windows.uia.invoke"
+        if kind.startswith("keyboard") or kind.startswith("text_entry"):
+            return "windows.input.metadata"
+        return "windows.observation"
 
     @staticmethod
     def _normalize_shortcut(shortcut: str) -> str:
