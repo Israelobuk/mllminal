@@ -1,4 +1,4 @@
-﻿"""SQLite rows for semantic interaction capture and replay permission."""
+"""SQLite rows for semantic interaction capture and replay permission."""
 
 import json
 from datetime import datetime
@@ -45,4 +45,3 @@ def load_event_rows(database: DbSession) -> list[InteractionEventRow]:
 
 def serialize(value: object) -> str:
     return json.dumps(value)
-

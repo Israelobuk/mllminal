@@ -86,28 +86,41 @@ class InteractionEvent(Contract):
     def validate_shape(self) -> "InteractionEvent":
         if self.kind is InteractionKind.CONTROL_INVOKED and self.target is None:
             raise ValueError("control.invoked requires a semantic target")
-        if self.kind in {
-            InteractionKind.KEYBOARD_SHORTCUT,
-            InteractionKind.KEYBOARD_CONFIRM,
-            InteractionKind.KEYBOARD_CANCEL,
-            InteractionKind.KEYBOARD_TAB,
-            InteractionKind.KEYBOARD_COPY,
-            InteractionKind.KEYBOARD_PASTE,
-        } and not self.shortcut:
+        if (
+            self.kind
+            in {
+                InteractionKind.KEYBOARD_SHORTCUT,
+                InteractionKind.KEYBOARD_CONFIRM,
+                InteractionKind.KEYBOARD_CANCEL,
+                InteractionKind.KEYBOARD_TAB,
+                InteractionKind.KEYBOARD_COPY,
+                InteractionKind.KEYBOARD_PASTE,
+            }
+            and not self.shortcut
+        ):
             raise ValueError(f"{self.kind} requires a semantic shortcut")
         if self.kind is InteractionKind.KEYBOARD_NAVIGATION and self.navigation_key is None:
             raise ValueError("keyboard.navigation requires a navigation key")
-        if self.kind in {
-            InteractionKind.TEXT_ENTRY_STARTED,
-            InteractionKind.TEXT_ENTRY_COMPLETED,
-        } and self.text_metadata is None:
+        if (
+            self.kind
+            in {
+                InteractionKind.TEXT_ENTRY_STARTED,
+                InteractionKind.TEXT_ENTRY_COMPLETED,
+            }
+            and self.text_metadata is None
+        ):
             raise ValueError(f"{self.kind} requires text-entry metadata")
-        if self.kind in {
-            InteractionKind.MOUSE_CLICK,
-            InteractionKind.MOUSE_DOUBLE_CLICK,
-            InteractionKind.MOUSE_SCROLL,
-            InteractionKind.MOUSE_DRAG,
-        } and self.target is None and self.pointer is None:
+        if (
+            self.kind
+            in {
+                InteractionKind.MOUSE_CLICK,
+                InteractionKind.MOUSE_DOUBLE_CLICK,
+                InteractionKind.MOUSE_SCROLL,
+                InteractionKind.MOUSE_DRAG,
+            }
+            and self.target is None
+            and self.pointer is None
+        ):
             raise ValueError(f"{self.kind} requires a semantic target or pointer metadata")
         return self
 

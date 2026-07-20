@@ -1,4 +1,4 @@
-﻿"""Typer command-line interface for local model selection."""
+"""Typer command-line interface for local model selection."""
 
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -291,11 +291,19 @@ def create_app(
 
     @interaction.command("replay-authorize")
     def interaction_replay_authorize() -> None:
-        typer.echo(interaction_service().authorize_replay(idempotency_key="cli-interaction-replay-authorize").model_dump_json())
+        typer.echo(
+            interaction_service()
+            .authorize_replay(idempotency_key="cli-interaction-replay-authorize")
+            .model_dump_json()
+        )
 
     @interaction.command("replay-revoke")
     def interaction_replay_revoke() -> None:
-        typer.echo(interaction_service().revoke_replay(idempotency_key="cli-interaction-replay-revoke").model_dump_json())
+        typer.echo(
+            interaction_service()
+            .revoke_replay(idempotency_key="cli-interaction-replay-revoke")
+            .model_dump_json()
+        )
 
     @interaction.command("capture")
     def interaction_capture(
@@ -422,6 +430,3 @@ def create_app(
 
 
 app = create_app()
-
-
-

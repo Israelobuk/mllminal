@@ -1,4 +1,4 @@
-﻿"""Authenticated REST and replayable WebSocket API."""
+"""Authenticated REST and replayable WebSocket API."""
 
 import asyncio
 import json
@@ -294,9 +294,9 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         event_id: str,
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return interaction.prepare_replay(
-            event_id, idempotency_key=idempotency_key
-        ).model_dump(mode="json")
+        return interaction.prepare_replay(event_id, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
@@ -620,5 +620,3 @@ def _pending_payload(pending: PendingTask) -> dict[str, Any]:
         "plan": pending.plan.model_dump(mode="json"),
         "approval": pending.approval.model_dump(mode="json"),
     }
-
-

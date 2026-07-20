@@ -1,4 +1,4 @@
-﻿"""Privacy-filtered semantic interaction capture with separate replay permission."""
+"""Privacy-filtered semantic interaction capture with separate replay permission."""
 
 import json
 from pathlib import Path
@@ -251,8 +251,3 @@ class InteractionService:
                 )
             )
             return result
-
-
-
-
-

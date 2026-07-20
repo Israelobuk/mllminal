@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 import pytest
 
@@ -124,9 +124,7 @@ def test_shortcuts_navigation_and_text_entry_store_only_semantic_metadata(
     assert text.event is not None
     assert "raw_text" not in text.event.model_dump()
     with pytest.raises(ValueError):
-        TextEntryMetadata.model_validate(
-            {"field_classification": "search", "raw_text": "secret"}
-        )
+        TextEntryMetadata.model_validate({"field_classification": "search", "raw_text": "secret"})
 
 
 def test_secure_text_is_rejected_and_replay_permission_is_separate(tmp_path: Path) -> None:
@@ -170,4 +168,3 @@ def test_visible_capture_status_tracks_privacy_consent(tmp_path: Path) -> None:
     assert interaction.status().visible_status == "OBSERVATION OFF"
     privacy.enable(idempotency_key="enable-visible")
     assert interaction.status().visible_status == "OBSERVATION ON"
-
