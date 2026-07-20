@@ -15,6 +15,8 @@ from pydantic import BaseModel, ConfigDict
 
 from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
+from mllminal.activity.contracts import ActivityRefreshRequest
+from mllminal.activity.service import ActivityService
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.demonstration.contracts import (
@@ -103,6 +105,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     device_observer = DeviceObserver(settings.data_dir / "device", [])
     privacy = PrivacyService(settings.database_path)
     interaction = InteractionService(settings.database_path, privacy)
+    activity = ActivityService(settings.database_path, interaction, device_observer)
     demonstration = DemonstrationService(settings.database_path, interaction)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
@@ -113,6 +116,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.device_observer = device_observer
     app.state.privacy = privacy
     app.state.interaction = interaction
+    app.state.activity = activity
     app.state.demonstration = demonstration
 
     def error_response(
@@ -384,6 +388,41 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.get("/v1/demonstrate/candidates/{candidate_id}", dependencies=protected)
     async def demonstration_candidate(candidate_id: str) -> dict[str, Any]:
         return demonstration.candidate(candidate_id).model_dump(mode="json")
+
+    @app.get("/v1/activity/summary", dependencies=protected)
+    async def activity_summary() -> dict[str, Any]:
+        summary = activity.summary()
+        return summary.model_dump(mode="json") if summary else {}
+
+    @app.post("/v1/activity/refresh", dependencies=protected)
+    async def activity_refresh(
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+        body: ActivityRefreshRequest | None = None,
+    ) -> dict[str, Any]:
+        return activity.refresh(
+            lookback_minutes=body.lookback_minutes if body else 1440,
+            idempotency_key=idempotency_key,
+        ).model_dump(mode="json")
+
+    @app.get("/v1/activity/segments", dependencies=protected)
+    async def activity_segments() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in activity.segments()]
+
+    @app.get("/v1/activity/applications", dependencies=protected)
+    async def activity_applications() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in activity.application_sessions()]
+
+    @app.get("/v1/activity/tasks", dependencies=protected)
+    async def activity_tasks() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in activity.task_sessions()]
+
+    @app.get("/v1/activity/context-switches", dependencies=protected)
+    async def activity_context_switches() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in activity.context_switches()]
+
+    @app.get("/v1/activity/boundaries", dependencies=protected)
+    async def activity_boundaries() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in activity.task_boundaries()]
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
