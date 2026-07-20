@@ -30,8 +30,6 @@ from mllminal.privacy.contracts import (
 )
 from mllminal.privacy.service import PrivacyService
 
-T = TypeVar("T")
-
 
 class InteractionService:
     def __init__(self, database_path: Path, privacy: PrivacyService) -> None:
