@@ -46,7 +46,9 @@ class ApplicationBridgeService:
             )
         )
         self.registry.register(ExcelAdapter(workspace_root, self.database_path.parent / "excel"))
-        self.registry.register(EmailDraftAdapter())
+        self.registry.register(
+            EmailDraftAdapter(workspace_root, self.database_path.parent / "email")
+        )
         self.discovery = ApplicationDiscovery(self.registry)
 
     async def discover(self) -> list[ApplicationAvailability]:
