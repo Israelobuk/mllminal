@@ -57,7 +57,12 @@ from mllminal.privacy.contracts import (
 )
 from mllminal.privacy.service import PrivacyService
 from mllminal.runtime_store import RuntimeStore
-from mllminal.verification.contracts import LocalVisualObservation, VisualVerificationRequest
+from mllminal.verification.contracts import (
+    LocalVisualObservation,
+    VisionRequest,
+    VisualVerificationRequest,
+)
+from mllminal.verification.runtime import LocalVisionRuntime
 from mllminal.verification.service import LocalVisualVerificationService
 from mllminal.workflow.contracts import (
     WorkflowApprovalRequest,
@@ -146,6 +151,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         emergency_stop_active=lambda: privacy.status().emergency_stop_active,
     )
     visual = LocalVisualVerificationService(settings.data_dir / "visual")
+    vision_runtime = LocalVisionRuntime(settings.data_dir / "vision", privacy, visual)
     mining = WorkflowMiningService()
     actions = BoundedActionService(
         emergency_stop_active=lambda: privacy.status().emergency_stop_active
@@ -171,6 +177,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.workflow = workflow
     app.state.applications = applications
     app.state.visual = visual
+    app.state.vision_runtime = vision_runtime
     app.state.mining = mining
     app.state.actions = actions
     app.state.langgraph = langgraph
@@ -610,6 +617,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         body: CapabilityResult,
     ) -> dict[str, Any]:
         return (await applications.verify(application, body)).model_dump(mode="json")
+
+    @app.post("/v1/vision/inspect", dependencies=protected)
+    async def vision_inspect(body: VisionRequest) -> dict[str, Any]:
+        return (await vision_runtime.inspect(body)).model_dump(mode="json")
 
     @app.post("/v1/visual/observe", dependencies=protected)
     async def visual_observe(body: LocalVisualObservation) -> dict[str, Any]:
