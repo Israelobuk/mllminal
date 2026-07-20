@@ -316,7 +316,7 @@ class DemonstrationService:
                     id=row.id,
                     session_id=row.session_id,
                     event_id=row.event_id,
-                    label=row.label,
+                    label=VariableLabel(row.label),
                     field_name=row.field_name,
                 )
                 for row in load_variables(database, session.id)
@@ -396,7 +396,7 @@ class DemonstrationService:
         return DemonstrationSession(
             id=row.id,
             label=row.label,
-            state=row.state,
+            state=DemonstrationState(row.state),
             timeout_seconds=row.timeout_seconds,
             emergency_stop_shortcut=row.emergency_stop_shortcut,
             started_at=row.started_at,
