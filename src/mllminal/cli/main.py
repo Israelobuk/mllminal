@@ -38,6 +38,7 @@ from mllminal.mining.service import WorkflowMiningService
 from mllminal.privacy.contracts import (
     CaptureCategory,
     CaptureContext,
+    CaptureMode,
     CaptureRequest,
     PrivacyRule,
     PrivacyRuleType,
@@ -372,13 +373,21 @@ def create_app(
         payload = {
             "observation_enabled": status.observation_enabled,
             "paused": status.paused or observer().status.state == "PAUSED",
-            "semantic_clicks_enabled": modes.get(CaptureCategory.SEMANTIC_POINTER).value
+            "semantic_clicks_enabled": modes.get(
+                CaptureCategory.SEMANTIC_POINTER, CaptureMode.DISABLED
+            ).value
             != "disabled",
-            "shortcut_monitoring_enabled": modes.get(CaptureCategory.KEYBOARD_SHORTCUTS).value
+            "shortcut_monitoring_enabled": modes.get(
+                CaptureCategory.KEYBOARD_SHORTCUTS, CaptureMode.DISABLED
+            ).value
             != "disabled",
-            "text_metadata_enabled": modes.get(CaptureCategory.TEXT_ENTRY_METADATA).value
+            "text_metadata_enabled": modes.get(
+                CaptureCategory.TEXT_ENTRY_METADATA, CaptureMode.DISABLED
+            ).value
             != "disabled",
-            "temporary_vision_enabled": modes.get(CaptureCategory.TEMPORARY_VISION).value
+            "temporary_vision_enabled": modes.get(
+                CaptureCategory.TEMPORARY_VISION, CaptureMode.DISABLED
+            ).value
             != "disabled",
             "current_application": current_application,
             "exclusions_active": status.exclusion_count > 0,

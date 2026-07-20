@@ -118,6 +118,7 @@ class WindowsProcessAdapter:
         return events
 
     def _psutil_snapshot(self) -> dict[int, tuple[str, str | None]]:
+        assert self.psutil is not None
         current: dict[int, tuple[str, str | None]] = {}
         for process in self.psutil.process_iter(["pid", "name", "exe"]):
             try:

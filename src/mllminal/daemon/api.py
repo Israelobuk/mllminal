@@ -124,11 +124,13 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         ),
     )
     privacy = PrivacyService(settings.database_path)
+
+    def native_emergency_stop() -> None:
+        privacy.emergency_stop(idempotency_key="native-emergency-stop")
+
     device_observer = DeviceObserver(
         settings.data_dir / "device",
-        create_native_windows_adapters(
-            emergency_stop=lambda: privacy.emergency_stop(idempotency_key="native-emergency-stop")
-        ),
+        create_native_windows_adapters(emergency_stop=native_emergency_stop),
     )
     device_runtime = WindowsObservationRuntime(
         device_observer,
@@ -159,7 +161,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.learning_repository = learning_repository
     app.state.device_observer = device_observer
     app.state.device_runtime = device_runtime
-    app.add_event_handler("shutdown", device_runtime.stop)
+    app.router.add_event_handler("shutdown", device_runtime.stop)
     app.state.privacy = privacy
     app.state.interaction = interaction
     app.state.activity = activity

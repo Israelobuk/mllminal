@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from collections.abc import Callable, Protocol
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Protocol
 
 from mllminal.device.contracts import NormalizedDeviceEvent, RawDeviceSignal, normalize_signal
 
