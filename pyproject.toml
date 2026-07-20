@@ -29,6 +29,7 @@ dependencies = [
 [project.scripts]
 mllminal = "mllminal.cli.main:app"
 mllminald = "mllminal.daemon.main:main"
+mllminal-ui = "mllminal.client.app:main"
 
 [dependency-groups]
 dev = [
