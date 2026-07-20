@@ -12,6 +12,8 @@ from mllminal.activity.service import ActivityService
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.apps.contracts import CapabilityRequest
 from mllminal.apps.service import ApplicationBridgeService
+from mllminal.assistance.contracts import AssistanceRequest
+from mllminal.assistance.service import ProactiveAssistanceService
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.demonstration.contracts import (
     DemonstrationCaptureRequest,
@@ -82,6 +84,7 @@ def create_app(
     visual = typer.Typer(help="Record and verify local semantic visual observations.")
     mining = typer.Typer(help="Mine repeated semantic interactions into workflow candidates.")
     actions = typer.Typer(help="Preview and explicitly approve bounded device actions.")
+    assist = typer.Typer(help="Surface reviewable workflow suggestions without executing them.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -184,6 +187,9 @@ def create_app(
 
     def action_service() -> BoundedActionService:
         return BoundedActionService()
+
+    def assistance_service() -> ProactiveAssistanceService:
+        return ProactiveAssistanceService()
 
     def demonstration_session_id(session_id: str | None) -> str:
         current = demonstration_service().status().session
@@ -675,6 +681,12 @@ def create_app(
             .model_dump_json()
         )
 
+    @assist.command("suggest")
+    def assist_suggest(payload: str = "{}") -> None:
+        request = AssistanceRequest.model_validate_json(payload)
+        mined = WorkflowMiningService().mine(interaction_service().events(), request.mining)
+        typer.echo(assistance_service().suggest(mined, request).model_dump_json())
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -789,6 +801,7 @@ def create_app(
     app.add_typer(visual, name="visual")
     app.add_typer(mining, name="mining")
     app.add_typer(actions, name="actions")
+    app.add_typer(assist, name="assist")
     return app
 
 
