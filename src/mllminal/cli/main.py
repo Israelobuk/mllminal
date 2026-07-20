@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 
 import typer
 
+from mllminal.actions.contracts import ActionRequest
+from mllminal.actions.service import BoundedActionService
 from mllminal.activity.service import ActivityService
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.apps.contracts import CapabilityRequest
@@ -79,6 +81,7 @@ def create_app(
     apps = typer.Typer(help="Discover and grant bounded on-device application capabilities.")
     visual = typer.Typer(help="Record and verify local semantic visual observations.")
     mining = typer.Typer(help="Mine repeated semantic interactions into workflow candidates.")
+    actions = typer.Typer(help="Preview and explicitly approve bounded device actions.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -178,6 +181,9 @@ def create_app(
 
     def mining_service() -> WorkflowMiningService:
         return WorkflowMiningService()
+
+    def action_service() -> BoundedActionService:
+        return BoundedActionService()
 
     def demonstration_session_id(session_id: str | None) -> str:
         current = demonstration_service().status().session
@@ -655,6 +661,20 @@ def create_app(
         request = MiningRequest.model_validate_json(payload)
         typer.echo(mining_service().mine(interaction_service().events(), request).model_dump_json())
 
+    @actions.command("list")
+    def actions_list() -> None:
+        for action in action_service().actions():
+            typer.echo(action)
+
+    @actions.command("execute")
+    def actions_execute(payload: str) -> None:
+        request = ActionRequest.model_validate_json(payload)
+        typer.echo(
+            action_service()
+            .execute(request, idempotency_key=f"cli-action-{request.action}")
+            .model_dump_json()
+        )
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -768,6 +788,7 @@ def create_app(
     app.add_typer(apps, name="apps")
     app.add_typer(visual, name="visual")
     app.add_typer(mining, name="mining")
+    app.add_typer(actions, name="actions")
     return app
 
 
