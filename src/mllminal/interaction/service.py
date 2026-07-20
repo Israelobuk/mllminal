@@ -239,7 +239,7 @@ class InteractionService:
         if cached is not None:
             return InteractionStatus.model_validate(cached)
         with DbSession(self.engine) as database, database.begin():
-            result = action(database)
+            result = cast(InteractionStatus, action(database))
             database.add(
                 InteractionIdempotencyRow(
                     key=key,
