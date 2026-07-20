@@ -45,7 +45,7 @@ class ApplicationBridgeService:
                 data_dir=self.database_path.parent / "filesystem",
             )
         )
-        self.registry.register(ExcelAdapter())
+        self.registry.register(ExcelAdapter(workspace_root, self.database_path.parent / "excel"))
         self.registry.register(EmailDraftAdapter())
         self.discovery = ApplicationDiscovery(self.registry)
 
