@@ -112,6 +112,7 @@ def test_privacy_exclusion_emergency_and_history_delete_routes(tmp_path: Path) -
 def test_two_privacy_websockets_replay_the_same_events(tmp_path: Path) -> None:
     client, headers = make_client(tmp_path)
     client.post("/v1/privacy/enable", headers={**headers, "Idempotency-Key": "enable"})
+    client.post("/v1/privacy/pause", headers={**headers, "Idempotency-Key": "pause"})
     expected = client.app.state.privacy.events()
 
     with client.websocket_connect("/v1/privacy/events/stream?after_sequence=0") as first:

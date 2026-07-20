@@ -492,16 +492,8 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
                 return
             after = int(socket.query_params.get("after_sequence", "0"))
             await socket.send_json({"type": "authenticated"})
-            while True:
-                for event in privacy.events(after):
-                    await socket.send_json(event)
-                    after = event["sequence"]
-                try:
-                    incoming = await asyncio.wait_for(socket.receive(), timeout=0.1)
-                except TimeoutError:
-                    continue
-                if incoming.get("type") == "websocket.disconnect":
-                    return
+            for event in privacy.events(after):
+                await socket.send_json(event)
         except (WebSocketDisconnect, TimeoutError, ValueError):
             return
 
