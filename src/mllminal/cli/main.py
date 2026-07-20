@@ -23,6 +23,7 @@ from mllminal.demonstration.service import DemonstrationService
 from mllminal.device.observer import DeviceObserver
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
+from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
 from mllminal.learning.contracts import PolicyVersion
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
@@ -85,6 +86,7 @@ def create_app(
     mining = typer.Typer(help="Mine repeated semantic interactions into workflow candidates.")
     actions = typer.Typer(help="Preview and explicitly approve bounded device actions.")
     assist = typer.Typer(help="Surface reviewable workflow suggestions without executing them.")
+    adapters = typer.Typer(help="Export typed workflows to optional local adapters.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -190,6 +192,9 @@ def create_app(
 
     def assistance_service() -> ProactiveAssistanceService:
         return ProactiveAssistanceService()
+
+    def langgraph_adapter() -> LangGraphWorkflowAdapter:
+        return LangGraphWorkflowAdapter()
 
     def demonstration_session_id(session_id: str | None) -> str:
         current = demonstration_service().status().session
@@ -687,6 +692,19 @@ def create_app(
         mined = WorkflowMiningService().mine(interaction_service().events(), request.mining)
         typer.echo(assistance_service().suggest(mined, request).model_dump_json())
 
+    @adapters.command("langgraph")
+    def adapter_langgraph(payload: str) -> None:
+        definition = WorkflowDefinition.model_validate_json(payload)
+        adapter = langgraph_adapter()
+        typer.echo(
+            json.dumps(
+                {
+                    "available": adapter.available(),
+                    "spec": adapter.spec(definition).model_dump(mode="json"),
+                }
+            )
+        )
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -802,6 +820,7 @@ def create_app(
     app.add_typer(mining, name="mining")
     app.add_typer(actions, name="actions")
     app.add_typer(assist, name="assist")
+    app.add_typer(adapters, name="adapters")
     return app
 
 
