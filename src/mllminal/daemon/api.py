@@ -17,12 +17,6 @@ from mllminal.activity.contracts import ActivityRefreshRequest
 from mllminal.activity.service import ActivityService
 from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
-from mllminal.workflow.contracts import (
-    WorkflowApprovalRequest,
-    WorkflowCreateRequest,
-    WorkflowRunRequest,
-)
-from mllminal.workflow.service import WorkflowService
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.demonstration.contracts import (
@@ -49,6 +43,12 @@ from mllminal.privacy.contracts import (
 )
 from mllminal.privacy.service import PrivacyService
 from mllminal.runtime_store import RuntimeStore
+from mllminal.workflow.contracts import (
+    WorkflowApprovalRequest,
+    WorkflowCreateRequest,
+    WorkflowRunRequest,
+)
+from mllminal.workflow.service import WorkflowService
 
 
 class SessionCreate(BaseModel):

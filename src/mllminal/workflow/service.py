@@ -18,8 +18,8 @@ from mllminal.workflow.contracts import (
     WorkflowDefinitionState,
     WorkflowRun,
     WorkflowRunEvent,
-    WorkflowRunState,
     WorkflowRunRequest,
+    WorkflowRunState,
     WorkflowStep,
     WorkflowStepResult,
 )

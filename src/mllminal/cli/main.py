@@ -8,8 +8,6 @@ import typer
 
 from mllminal.activity.service import ActivityService
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
-from mllminal.workflow.contracts import WorkflowDefinition, WorkflowRunRequest
-from mllminal.workflow.service import WorkflowService
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.demonstration.contracts import (
     DemonstrationCaptureRequest,
@@ -33,6 +31,8 @@ from mllminal.privacy.contracts import (
     PrivacyRuleType,
 )
 from mllminal.privacy.service import PrivacyService
+from mllminal.workflow.contracts import WorkflowDefinition, WorkflowRunRequest
+from mllminal.workflow.service import WorkflowService
 
 ModelProbe = Callable[[ProviderConfig], Awaitable[bool]]
 
