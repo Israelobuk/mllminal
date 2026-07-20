@@ -26,6 +26,7 @@ from mllminal.demonstration.contracts import (
 from mllminal.demonstration.service import DemonstrationService
 from mllminal.device.observer import DeviceObserver
 from mllminal.device.windows_adapters import create_native_windows_adapters
+from mllminal.hardware.service import HardwareProbe
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
@@ -104,6 +105,7 @@ def create_app(
     automl = typer.Typer(help="Rank bounded local policy candidates for review.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
+    system = typer.Typer(help="Inspect local hardware and runtime recommendations.")
 
     def observer() -> DeviceObserver:
         return DeviceObserver(
@@ -844,6 +846,10 @@ def create_app(
             automl_service().rank(AutoMLRequest.model_validate_json(payload)).model_dump_json()
         )
 
+    @system.command("hardware")
+    def system_hardware() -> None:
+        typer.echo(HardwareProbe(resolved_settings).report().model_dump_json())
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -962,6 +968,7 @@ def create_app(
     app.add_typer(assist, name="assist")
     app.add_typer(adapters, name="adapters")
     app.add_typer(automl, name="automl")
+    app.add_typer(system, name="system")
     return app
 
 
