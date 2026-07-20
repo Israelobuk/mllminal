@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 import pytest
 
@@ -170,3 +170,4 @@ def test_visible_capture_status_tracks_privacy_consent(tmp_path: Path) -> None:
     assert interaction.status().visible_status == "OBSERVATION OFF"
     privacy.enable(idempotency_key="enable-visible")
     assert interaction.status().visible_status == "OBSERVATION ON"
+

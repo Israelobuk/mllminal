@@ -3,7 +3,7 @@
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-import mllminal.interaction.persistence  # noqa: F401
+import mllminal.interaction.persistence
 import mllminal.privacy.persistence
 import mllminal.runtime_store  # noqa: F401
 from mllminal.persistence import Base
@@ -41,4 +41,5 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
+
 

@@ -300,7 +300,7 @@ def create_app(
     @interaction.command("capture")
     def interaction_capture(
         payload: str,
-        idempotency_key: str | None = typer.Option(default=None, "--idempotency-key"),
+        idempotency_key: str | None = typer.Option(None, "--idempotency-key"),
     ) -> None:
         event = InteractionEvent.model_validate_json(payload)
         key = idempotency_key or f"cli-interaction-{event.id}"
@@ -422,5 +422,6 @@ def create_app(
 
 
 app = create_app()
+
 
 

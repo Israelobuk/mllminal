@@ -1,7 +1,6 @@
 ﻿"""Privacy-filtered semantic interaction capture with separate replay permission."""
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
@@ -27,7 +26,6 @@ from mllminal.privacy.contracts import (
     CaptureCategory,
     CaptureContext,
     CaptureRequest,
-    PrivacyDecisionType,
     SensitiveControlClassification,
 )
 from mllminal.privacy.service import PrivacyService
@@ -142,7 +140,10 @@ class InteractionService:
 
     def events(self) -> list[InteractionEvent]:
         with DbSession(self.engine) as database:
-            return [InteractionEvent.model_validate_json(row.payload_json) for row in load_event_rows(database)]
+            return [
+                InteractionEvent.model_validate_json(row.payload_json)
+                for row in load_event_rows(database)
+            ]
 
     def prepare_replay(self, event_id: str, *, idempotency_key: str) -> ReplayPlan:
         cached = self._cached(idempotency_key, "replay.prepare")
@@ -250,6 +251,7 @@ class InteractionService:
                 )
             )
             return result
+
 
 
 

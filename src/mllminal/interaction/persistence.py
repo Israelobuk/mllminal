@@ -1,4 +1,4 @@
-"""SQLite rows for semantic interaction capture and replay permission."""
+﻿"""SQLite rows for semantic interaction capture and replay permission."""
 
 import json
 from datetime import datetime
@@ -38,8 +38,11 @@ class InteractionIdempotencyRow(Base):
 
 
 def load_event_rows(database: DbSession) -> list[InteractionEventRow]:
-    return list(database.scalars(select(InteractionEventRow).order_by(InteractionEventRow.created_at)))
+    return list(
+        database.scalars(select(InteractionEventRow).order_by(InteractionEventRow.created_at))
+    )
 
 
 def serialize(value: object) -> str:
     return json.dumps(value)
+
