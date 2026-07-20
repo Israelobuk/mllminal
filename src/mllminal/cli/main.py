@@ -8,6 +8,8 @@ import typer
 
 from mllminal.activity.service import ActivityService
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
+from mllminal.apps.contracts import CapabilityRequest
+from mllminal.apps.service import ApplicationBridgeService
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.demonstration.contracts import (
     DemonstrationCaptureRequest,
@@ -70,6 +72,7 @@ def create_app(
     demonstrate = typer.Typer(help="Teach MLLminal an explicit workflow.")
     activity = typer.Typer(help="Model activity, application sessions, and task sessions.")
     workflow = typer.Typer(help="Define, preview, approve, and verify typed workflows.")
+    apps = typer.Typer(help="Discover and grant bounded on-device application capabilities.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
 
@@ -160,6 +163,9 @@ def create_app(
 
     def workflow_service() -> WorkflowService:
         return WorkflowService(resolved_settings.database_path)
+
+    def application_service() -> ApplicationBridgeService:
+        return ApplicationBridgeService(resolved_settings.database_path)
 
     def demonstration_session_id(session_id: str | None) -> str:
         current = demonstration_service().status().session
@@ -574,6 +580,42 @@ def create_app(
         for item in workflow_service().events(run_id):
             typer.echo(item.model_dump_json())
 
+    @apps.command("discover")
+    def apps_discover() -> None:
+        for item in asyncio.run(application_service().discover()):
+            typer.echo(item.model_dump_json())
+
+    @apps.command("grants")
+    def apps_grants() -> None:
+        for item in application_service().grants():
+            typer.echo(item.model_dump_json())
+
+    @apps.command("capabilities")
+    def apps_capabilities(application: str) -> None:
+        for item in asyncio.run(application_service().capabilities(application)):
+            typer.echo(item.model_dump_json())
+
+    @apps.command("grant")
+    def apps_grant(application: str, scope: str) -> None:
+        typer.echo(
+            application_service()
+            .grant(application, scope, idempotency_key=f"cli-app-grant-{application}-{scope}")
+            .model_dump_json()
+        )
+
+    @apps.command("execute")
+    def apps_execute(application: str, payload: str) -> None:
+        request = CapabilityRequest.model_validate_json(payload)
+        typer.echo(
+            asyncio.run(
+                application_service().execute(
+                    application,
+                    request,
+                    idempotency_key=f"cli-app-execute-{application}-{request.capability}",
+                )
+            ).model_dump_json()
+        )
+
     @privacy.command("status")
     def privacy_status() -> None:
         typer.echo(privacy_service().status().model_dump_json())
@@ -684,6 +726,7 @@ def create_app(
     app.add_typer(demonstrate, name="demonstrate")
     app.add_typer(activity, name="activity")
     app.add_typer(workflow, name="workflow")
+    app.add_typer(apps, name="apps")
     return app
 
 
