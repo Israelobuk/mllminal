@@ -17,6 +17,12 @@ from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
+from mllminal.demonstration.contracts import (
+    DemonstrationCaptureRequest,
+    DemonstrationStartRequest,
+    DemonstrationVariableRequest,
+)
+from mllminal.demonstration.service import DemonstrationService
 from mllminal.device.observer import DeviceObserver
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
@@ -97,6 +103,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     device_observer = DeviceObserver(settings.data_dir / "device", [])
     privacy = PrivacyService(settings.database_path)
     interaction = InteractionService(settings.database_path, privacy)
+    demonstration = DemonstrationService(settings.database_path, interaction)
     hub = EventHub()
     app = FastAPI(title="mllminald", version="0.1.0")
     app.state.shutdown_callback = None
@@ -106,6 +113,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.device_observer = device_observer
     app.state.privacy = privacy
     app.state.interaction = interaction
+    app.state.demonstration = demonstration
 
     def error_response(
         code: str,
@@ -297,6 +305,85 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         return interaction.prepare_replay(event_id, idempotency_key=idempotency_key).model_dump(
             mode="json"
         )
+
+    @app.get("/v1/demonstrate/status", dependencies=protected)
+    async def demonstration_status(session_id: str | None = None) -> dict[str, Any]:
+        return demonstration.status(session_id).model_dump(mode="json")
+
+    @app.post("/v1/demonstrate/start", dependencies=protected)
+    async def demonstration_start(
+        body: DemonstrationStartRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return demonstration.start(
+            body.label,
+            timeout_seconds=body.timeout_seconds,
+            emergency_stop_shortcut=body.emergency_stop_shortcut,
+            idempotency_key=idempotency_key,
+        ).model_dump(mode="json")
+
+    @app.get("/v1/demonstrate/sessions", dependencies=protected)
+    async def demonstration_sessions() -> list[dict[str, Any]]:
+        return [session.model_dump(mode="json") for session in demonstration.sessions()]
+
+    @app.post("/v1/demonstrate/sessions/{session_id}/record", dependencies=protected)
+    async def demonstration_record(
+        session_id: str,
+        body: DemonstrationCaptureRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return demonstration.record(session_id, body, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.post("/v1/demonstrate/sessions/{session_id}/stop", dependencies=protected)
+    async def demonstration_stop(
+        session_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return demonstration.stop(session_id, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.post("/v1/demonstrate/sessions/{session_id}/cancel", dependencies=protected)
+    async def demonstration_cancel(
+        session_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return demonstration.cancel(session_id, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.post("/v1/demonstrate/sessions/{session_id}/emergency-stop", dependencies=protected)
+    async def demonstration_emergency_stop(
+        session_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return demonstration.emergency_stop(session_id, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.get("/v1/demonstrate/sessions/{session_id}/steps", dependencies=protected)
+    async def demonstration_steps(session_id: str) -> list[dict[str, Any]]:
+        return [step.model_dump(mode="json") for step in demonstration.steps(session_id)]
+
+    @app.post("/v1/demonstrate/sessions/{session_id}/variables", dependencies=protected)
+    async def demonstration_variable(
+        session_id: str,
+        body: DemonstrationVariableRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return demonstration.assign_variable(
+            session_id,
+            body.event_id,
+            body.label,
+            field_name=body.field_name,
+            idempotency_key=idempotency_key,
+        ).model_dump(mode="json")
+
+    @app.get("/v1/demonstrate/candidates/{candidate_id}", dependencies=protected)
+    async def demonstration_candidate(candidate_id: str) -> dict[str, Any]:
+        return demonstration.candidate(candidate_id).model_dump(mode="json")
 
     @app.get("/v1/health")
     async def health() -> dict[str, str]:
