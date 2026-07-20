@@ -25,6 +25,8 @@ from mllminal.assistance.contracts import AssistanceRequest
 from mllminal.assistance.service import ProactiveAssistanceService
 from mllminal.automl.contracts import AutoMLRequest
 from mllminal.automl.service import LocalAutoMLService
+from mllminal.compiler.contracts import CompilerRequest
+from mllminal.compiler.service import WorkflowCompilerService
 from mllminal.config import ProviderConfigStore, Settings
 from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
 from mllminal.demonstration.bridge import DeviceDemonstrationBridge
@@ -153,6 +155,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     visual = LocalVisualVerificationService(settings.data_dir / "visual")
     vision_runtime = LocalVisionRuntime(settings.data_dir / "vision", privacy, visual)
     mining = WorkflowMiningService()
+    compiler = WorkflowCompilerService()
     actions = BoundedActionService(
         emergency_stop_active=lambda: privacy.status().emergency_stop_active
     )
@@ -179,6 +182,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.visual = visual
     app.state.vision_runtime = vision_runtime
     app.state.mining = mining
+    app.state.compiler = compiler
     app.state.actions = actions
     app.state.langgraph = langgraph
     app.state.automl = automl
@@ -634,6 +638,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.post("/v1/visual/verify", dependencies=protected)
     async def visual_verify(body: VisualVerificationRequest) -> dict[str, Any]:
         return visual.verify(body).model_dump(mode="json")
+
+    @app.post("/v1/workflow-compiler/compile", dependencies=protected)
+    async def workflow_compile(body: CompilerRequest) -> dict[str, Any]:
+        return compiler.compile(body).model_dump(mode="json")
 
     @app.post("/v1/workflow-mining", dependencies=protected)
     async def workflow_mining(body: MiningRequest) -> dict[str, Any]:
