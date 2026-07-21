@@ -62,6 +62,7 @@ class DemonstrationVariableRequest(Contract):
 
 class DemonstrationCaptureRequest(Contract):
     event: InteractionEvent
+    application_profile_id: str | None = None
     normalized_file_operation: str | None = None
     application_transition: str | None = None
     text_entry_occurred: bool = False
@@ -87,6 +88,7 @@ class DemonstrationStep(Contract):
     fragile: bool = False
     source_event_id: str | None = None
     required_capability: str = "windows.observation"
+    application_profile_id: str | None = None
 
 
 class VariableAssignment(Contract):
@@ -112,6 +114,7 @@ class WorkflowCandidate(Contract):
     required_capabilities: list[str] = Field(default_factory=list)
     verification_requirements: list[str] = Field(default_factory=list)
     unsupported_steps: list[str] = Field(default_factory=list)
+    application_profile_ids: list[str] = Field(default_factory=list)
 
 
 class DemonstrationStopResult(Contract):

@@ -1,6 +1,7 @@
 """Explicit, bounded workflow demonstration recording."""
 
 import json
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -30,15 +31,22 @@ from mllminal.demonstration.persistence import (
     load_steps,
     load_variables,
 )
+from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.persistence import Base
 
 
 class DemonstrationService:
-    def __init__(self, database_path: Path, interaction: InteractionService) -> None:
+    def __init__(
+        self,
+        database_path: Path,
+        interaction: InteractionService,
+        profile_id_for_application: Callable[[str], str | None] | None = None,
+    ) -> None:
         self.database_path = database_path
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.interaction = interaction
+        self.profile_id_for_application = profile_id_for_application
         self.engine = create_engine(f"sqlite:///{database_path}")
         Base.metadata.create_all(self.engine)
 
@@ -225,6 +233,9 @@ class DemonstrationService:
                     fragile=request.fragile,
                     source_event_id=request.source_event_id,
                     required_capability=self._capability_for_event(request.event),
+                    application_profile_id=(
+                        request.application_profile_id or self._profile_id_for_event(request.event)
+                    ),
                 )
                 row.step_count += 1
                 row.updated_at = utc_now()
@@ -336,6 +347,13 @@ class DemonstrationService:
                     if step.event.kind.value in {"file.operation", "control.invoked"}
                 ],
                 required_capabilities=sorted({step.required_capability for step in steps}),
+                application_profile_ids=sorted(
+                    {
+                        step.application_profile_id
+                        for step in steps
+                        if step.application_profile_id is not None
+                    }
+                ),
                 verification_requirements=sorted(
                     {
                         "independent filesystem verification"
@@ -466,6 +484,11 @@ class DemonstrationService:
                     created_at=utc_now(),
                 )
             )
+
+    def _profile_id_for_event(self, event: InteractionEvent) -> str | None:
+        if self.profile_id_for_application is None or event.target is None:
+            return None
+        return self.profile_id_for_application(event.target.application)
 
     @staticmethod
     def _capability_for_event(event: Any) -> str:
