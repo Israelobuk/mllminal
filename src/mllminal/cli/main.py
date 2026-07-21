@@ -35,6 +35,11 @@ from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
 from mllminal.learning.contracts import PolicyVersion
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
+from mllminal.learning.profile_contracts import (
+    BackendOutcomeRequest,
+    ProfileExperienceRequest,
+)
+from mllminal.learning.profiles import ApplicationInteractionProfileService
 from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
@@ -191,6 +196,11 @@ def create_app(
     def interaction_service() -> InteractionService:
         return InteractionService(resolved_settings.database_path, privacy_service())
 
+    def profile_service() -> ApplicationInteractionProfileService:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        return ApplicationInteractionProfileService(repository)
+
     def demonstration_service() -> DemonstrationService:
         return DemonstrationService(resolved_settings.database_path, interaction_service())
 
@@ -253,6 +263,27 @@ def create_app(
             typer.echo("No demonstration session is available.")
             raise typer.Exit(code=1)
         return value
+
+    @learning.command("experiences")
+    def learning_experiences(profile_id: str | None = typer.Option(default=None)) -> None:
+        for item in profile_service().experiences(profile_id):
+            typer.echo(item.model_dump_json())
+
+    @learning.command("profile-summary")
+    def learning_profile_summary(profile_id: str) -> None:
+        typer.echo(json.dumps(profile_service().profile_summary(profile_id), sort_keys=True))
+
+    @learning.command("profile-experience")
+    def learning_profile_experience(payload: str) -> None:
+        request = ProfileExperienceRequest.model_validate_json(payload)
+        typer.echo(
+            profile_service()
+            .record_experience(
+                request,
+                idempotency_key=f"cli-profile-experience-{request.profile_id}-{request.experience_type}",
+            )
+            .model_dump_json()
+        )
 
     @learning.command("status")
     def learning_status() -> None:
@@ -500,7 +531,10 @@ def create_app(
     ) -> None:
         event = InteractionEvent.model_validate_json(payload)
         key = idempotency_key or f"cli-interaction-{event.id}"
-        typer.echo(interaction_service().capture(event, idempotency_key=key).model_dump_json())
+        result = interaction_service().capture(event, idempotency_key=key)
+        if result.accepted and result.event is not None:
+            profile_service().observe_interaction(result.event)
+        typer.echo(result.model_dump_json())
 
     @interaction.command("events")
     def interaction_events() -> None:
@@ -781,6 +815,65 @@ def create_app(
             ).model_dump_json()
         )
 
+    @apps.command("profiles")
+    def apps_profiles() -> None:
+        for item in profile_service().list_profiles():
+            typer.echo(item.model_dump_json())
+
+    @apps.command("profile")
+    def apps_profile(profile_id: str) -> None:
+        typer.echo(profile_service().profile(profile_id).model_dump_json())
+
+    @apps.command("inspect-active")
+    def apps_inspect_active() -> None:
+        profile = profile_service().inspect_active(observer().events())
+        if profile is not None:
+            typer.echo(profile.model_dump_json())
+
+    @apps.command("resolve-backend")
+    def apps_resolve_backend(
+        profile_id: str,
+        abstract_action: str,
+        target_type: str = "unknown",
+        available_backends: str = ",".join(
+            (
+                "native.provider",
+                "browser.bridge",
+                "windows.uia",
+                "keyboard.shortcut",
+                "local.vision",
+                "relative.pointer",
+            )
+        ),
+    ) -> None:
+        typer.echo(
+            profile_service()
+            .rank_backends(
+                profile_id,
+                abstract_action,
+                target_type,
+                [item.strip() for item in available_backends.split(",") if item.strip()],
+            )
+            .model_dump_json()
+        )
+
+    @apps.command("reliability")
+    def apps_reliability(profile_id: str) -> None:
+        for item in profile_service().reliability(profile_id):
+            typer.echo(item.model_dump_json())
+
+    @apps.command("backend-outcome")
+    def apps_backend_outcome(payload: str) -> None:
+        request = BackendOutcomeRequest.model_validate_json(payload)
+        typer.echo(
+            profile_service()
+            .record_backend_outcome(
+                request,
+                idempotency_key=f"cli-profile-outcome-{request.profile_id}-{request.backend}",
+            )
+            .model_dump_json()
+        )
+
     @apps.command("capabilities")
     def apps_capabilities(application: str) -> None:
         for item in asyncio.run(application_service().capabilities(application)):
@@ -1012,6 +1105,7 @@ def create_app(
     app.add_typer(activity, name="activity")
     app.add_typer(workflow, name="workflow")
     app.add_typer(apps, name="apps")
+    app.add_typer(apps, name="applications")
     app.add_typer(visual, name="visual")
     app.add_typer(mining, name="mining")
     app.add_typer(actions, name="actions")

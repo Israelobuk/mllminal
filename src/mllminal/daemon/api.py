@@ -38,6 +38,7 @@ from mllminal.demonstration.contracts import (
     DemonstrationVariableRequest,
 )
 from mllminal.demonstration.service import DemonstrationService
+from mllminal.device.contracts import NormalizedDeviceEvent
 from mllminal.device.observer import DeviceObserver
 from mllminal.device.windows_adapters import create_native_windows_adapters
 from mllminal.device.windows_runtime import WindowsObservationRuntime
@@ -47,6 +48,11 @@ from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
+from mllminal.learning.profile_contracts import (
+    BackendOutcomeRequest,
+    ProfileExperienceRequest,
+)
+from mllminal.learning.profiles import ApplicationInteractionProfileService
 from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.runtime_advisory import LearningRuntimeAdvisor
@@ -151,6 +157,20 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         emergency_stop_active=lambda: privacy.status().emergency_stop_active,
     )
     interaction = InteractionService(settings.database_path, privacy)
+    profiles = ApplicationInteractionProfileService(
+        learning_repository,
+        observation_allowed=lambda: (
+            privacy.status().observation_enabled
+            and not privacy.status().paused
+            and not privacy.status().incognito_active
+            and not privacy.status().emergency_stop_active
+        ),
+    )
+
+    def observe_profile_event(event: NormalizedDeviceEvent) -> None:
+        profiles.observe_device_event(event)
+
+    device_observer.subscribe(observe_profile_event)
     activity = ActivityService(settings.database_path, interaction, device_observer)
     workflow = WorkflowService(settings.database_path)
     repair = WorkflowRepairService(workflow, settings.data_dir / "workflow-repair")
@@ -170,7 +190,18 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     langgraph = LangGraphWorkflowAdapter()
     automl = LocalAutoMLService()
     assistance = ProactiveAssistanceService()
-    demonstration = DemonstrationService(settings.database_path, interaction)
+    demonstration = DemonstrationService(
+        settings.database_path,
+        interaction,
+        profile_id_for_application=lambda application: next(
+            (
+                profile.profile_id
+                for profile in profiles.list_profiles()
+                if profile.application_identity.casefold() == application.casefold()
+            ),
+            None,
+        ),
+    )
     demonstration_bridge = DeviceDemonstrationBridge(demonstration)
     device_observer.subscribe(demonstration_bridge.handle)
     hub = EventHub()
@@ -184,6 +215,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.router.add_event_handler("shutdown", device_runtime.stop)
     app.state.privacy = privacy
     app.state.interaction = interaction
+    app.state.profiles = profiles
     app.state.activity = activity
     app.state.workflow = workflow
     app.state.repair = repair
@@ -374,7 +406,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         body: InteractionEvent,
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> dict[str, Any]:
-        return interaction.capture(body, idempotency_key=idempotency_key).model_dump(mode="json")
+        result = interaction.capture(body, idempotency_key=idempotency_key)
+        if result.accepted and result.event is not None:
+            profiles.observe_interaction(result.event)
+        return result.model_dump(mode="json")
 
     @app.get("/v1/interaction/events", dependencies=protected)
     async def interaction_events() -> list[dict[str, Any]]:
@@ -481,6 +516,69 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.get("/v1/demonstrate/candidates/{candidate_id}", dependencies=protected)
     async def demonstration_candidate(candidate_id: str) -> dict[str, Any]:
         return demonstration.candidate(candidate_id).model_dump(mode="json")
+
+    @app.get("/v1/applications/profiles", dependencies=protected)
+    async def application_profiles() -> list[dict[str, Any]]:
+        return [profile.model_dump(mode="json") for profile in profiles.list_profiles()]
+
+    @app.get("/v1/applications/inspect-active", dependencies=protected)
+    async def inspect_active_application() -> dict[str, Any] | None:
+        profile = profiles.inspect_active(device_observer.events())
+        return profile.model_dump(mode="json") if profile is not None else None
+
+    @app.get("/v1/applications/profiles/{profile_id}", dependencies=protected)
+    async def application_profile(profile_id: str) -> dict[str, Any]:
+        return profiles.profile(profile_id).model_dump(mode="json")
+
+    @app.get("/v1/applications/profiles/{profile_id}/reliability", dependencies=protected)
+    async def application_profile_reliability(profile_id: str) -> list[dict[str, Any]]:
+        return [record.model_dump(mode="json") for record in profiles.reliability(profile_id)]
+
+    @app.get("/v1/applications/profiles/{profile_id}/resolve-backend", dependencies=protected)
+    async def resolve_application_backend(
+        profile_id: str,
+        abstract_action: str,
+        target_type: str = "unknown",
+        available_backend: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return profiles.rank_backends(
+            profile_id,
+            abstract_action,
+            target_type,
+            available_backend or [],
+        ).model_dump(mode="json")
+
+    @app.get("/v1/applications/profiles/{profile_id}/summary", dependencies=protected)
+    async def application_profile_summary(profile_id: str) -> dict[str, Any]:
+        return profiles.profile_summary(profile_id)
+
+    @app.post("/v1/applications/profiles/{profile_id}/backend-outcomes", dependencies=protected)
+    async def application_profile_backend_outcome(
+        profile_id: str,
+        body: BackendOutcomeRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        request = body.model_copy(update={"profile_id": profile_id})
+        return profiles.record_backend_outcome(request, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.get("/v1/learning/experiences", dependencies=protected)
+    async def learning_experiences(profile_id: str | None = None) -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in profiles.experiences(profile_id)]
+
+    @app.post("/v1/learning/profile-experiences", dependencies=protected)
+    async def learning_profile_experience(
+        body: ProfileExperienceRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return profiles.record_experience(body, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
+    @app.get("/v1/learning/profile-summary/{profile_id}", dependencies=protected)
+    async def learning_profile_summary(profile_id: str) -> dict[str, Any]:
+        return profiles.profile_summary(profile_id)
 
     @app.get("/v1/activity/summary", dependencies=protected)
     async def activity_summary() -> dict[str, Any]:
@@ -798,7 +896,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             "endpoint": provider_config.base_url,
             "streaming": True,
             "execution_mode": "Approval required",
-            "learning": "Deferred",
+            "learning": "Advisory profile learning",
             "task_count": len(store.list_tasks()),
         }
 

@@ -38,6 +38,11 @@ from mllminal.learning.contracts import (
     TrainingRun,
     utc_now,
 )
+from mllminal.learning.profile_contracts import (
+    ApplicationInteractionProfile,
+    BackendReliabilityRecord,
+    ProfileLearningExperience,
+)
 from mllminal.persistence import Base, Store
 
 
@@ -98,6 +103,49 @@ class LearningEventRow(Base):
     __tablename__ = "learning_events"
     sequence: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     event_type: Mapped[str]
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
+class ApplicationInteractionProfileRow(Base):
+    __tablename__ = "application_interaction_profiles"
+    __table_args__ = (UniqueConstraint("identity_key"),)
+
+    profile_id: Mapped[str] = mapped_column(String, primary_key=True)
+    identity_key: Mapped[str] = mapped_column(String, index=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class ProfileObservationRow(Base):
+    __tablename__ = "profile_observations"
+
+    event_id: Mapped[str] = mapped_column(String, primary_key=True)
+    profile_id: Mapped[str] = mapped_column(String, index=True)
+    created_at: Mapped[datetime]
+
+
+class BackendReliabilityRow(Base):
+    __tablename__ = "backend_reliability"
+    __table_args__ = (UniqueConstraint("profile_id", "abstract_action", "backend", "target_type"),)
+
+    record_id: Mapped[str] = mapped_column(String, primary_key=True)
+    profile_id: Mapped[str] = mapped_column(String, index=True)
+    abstract_action: Mapped[str]
+    backend: Mapped[str]
+    target_type: Mapped[str]
+    payload_json: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime]
+
+
+class ProfileLearningExperienceRow(Base):
+    __tablename__ = "profile_learning_experiences"
+    __table_args__ = (UniqueConstraint("idempotency_key"),)
+
+    experience_id: Mapped[str] = mapped_column(String, primary_key=True)
+    profile_id: Mapped[str] = mapped_column(String, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String)
     payload_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime]
 
@@ -187,6 +235,16 @@ _FORBIDDEN_KEYS = {
     "auth_error",
     "secret",
     "secrets",
+    "typed_text",
+    "password",
+    "cookie",
+    "cookies",
+    "token",
+    "tokens",
+    "recovery_code",
+    "auth_header",
+    "private_key",
+    "payment_information",
 }
 
 
@@ -550,6 +608,225 @@ class LearningRepository(Store):
                 .order_by(LearningEventRow.sequence)
             )
             return [self._event(row) for row in rows]
+
+    def get_interaction_profile(self, profile_id: str) -> ApplicationInteractionProfile:
+        with DbSession(self.engine) as database:
+            row = database.get(ApplicationInteractionProfileRow, profile_id)
+            if row is None:
+                raise KeyError(profile_id)
+            return ApplicationInteractionProfile.model_validate_json(row.payload_json)
+
+    def get_interaction_profile_by_identity(
+        self, identity_key: str
+    ) -> ApplicationInteractionProfile | None:
+        with DbSession(self.engine) as database:
+            row = database.scalar(
+                select(ApplicationInteractionProfileRow).where(
+                    ApplicationInteractionProfileRow.identity_key == identity_key
+                )
+            )
+            return (
+                ApplicationInteractionProfile.model_validate_json(row.payload_json)
+                if row is not None
+                else None
+            )
+
+    def list_interaction_profiles(self) -> list[ApplicationInteractionProfile]:
+        with DbSession(self.engine) as database:
+            rows = database.scalars(
+                select(ApplicationInteractionProfileRow).order_by(
+                    ApplicationInteractionProfileRow.updated_at
+                )
+            )
+            return [
+                ApplicationInteractionProfile.model_validate_json(row.payload_json) for row in rows
+            ]
+
+    def save_interaction_profile(
+        self, profile: ApplicationInteractionProfile, *, identity_key: str
+    ) -> ApplicationInteractionProfile:
+        payload = profile.model_dump_json()
+        _ensure_safe_payload(json.loads(payload))
+        with self.transaction() as database:
+            row = database.get(ApplicationInteractionProfileRow, profile.profile_id)
+            if row is None:
+                row = database.scalar(
+                    select(ApplicationInteractionProfileRow).where(
+                        ApplicationInteractionProfileRow.identity_key == identity_key
+                    )
+                )
+            if row is None:
+                database.add(
+                    ApplicationInteractionProfileRow(
+                        profile_id=profile.profile_id,
+                        identity_key=identity_key,
+                        payload_json=payload,
+                        created_at=profile.first_seen_at,
+                        updated_at=profile.last_seen_at,
+                    )
+                )
+            else:
+                row.payload_json = payload
+                row.updated_at = profile.last_seen_at
+            self._append_learning_event(
+                database,
+                "learning.application_profile.updated",
+                {
+                    "profile_id": profile.profile_id,
+                    "profile_version": profile.profile_version,
+                    "observation_count": profile.observation_count,
+                },
+            )
+        return profile
+
+    def profile_event_seen(self, event_id: str) -> bool:
+        with DbSession(self.engine) as database:
+            return database.get(ProfileObservationRow, event_id) is not None
+
+    def mark_profile_event(self, event_id: str, profile_id: str) -> None:
+        with self.transaction() as database:
+            if database.get(ProfileObservationRow, event_id) is None:
+                database.add(
+                    ProfileObservationRow(
+                        event_id=event_id,
+                        profile_id=profile_id,
+                        created_at=utc_now(),
+                    )
+                )
+
+    def get_backend_reliability(
+        self, profile_id: str, abstract_action: str, backend: str, target_type: str
+    ) -> BackendReliabilityRecord | None:
+        with DbSession(self.engine) as database:
+            row = database.scalar(
+                select(BackendReliabilityRow).where(
+                    BackendReliabilityRow.profile_id == profile_id,
+                    BackendReliabilityRow.abstract_action == abstract_action,
+                    BackendReliabilityRow.backend == backend,
+                    BackendReliabilityRow.target_type == target_type,
+                )
+            )
+            return (
+                BackendReliabilityRecord.model_validate_json(row.payload_json)
+                if row is not None
+                else None
+            )
+
+    def save_backend_reliability(
+        self, record: BackendReliabilityRecord
+    ) -> BackendReliabilityRecord:
+        payload = record.model_dump_json()
+        _ensure_safe_payload(json.loads(payload))
+        with self.transaction() as database:
+            row = database.scalar(
+                select(BackendReliabilityRow).where(
+                    BackendReliabilityRow.profile_id == record.profile_id,
+                    BackendReliabilityRow.abstract_action == record.abstract_action,
+                    BackendReliabilityRow.backend == record.backend,
+                    BackendReliabilityRow.target_type == record.target_type,
+                )
+            )
+            if row is None:
+                database.add(
+                    BackendReliabilityRow(
+                        record_id=record.record_id,
+                        profile_id=record.profile_id,
+                        abstract_action=record.abstract_action,
+                        backend=record.backend,
+                        target_type=record.target_type,
+                        payload_json=payload,
+                        updated_at=record.last_seen_at,
+                    )
+                )
+            else:
+                row.payload_json = payload
+                row.updated_at = record.last_seen_at
+        return record
+
+    def list_backend_reliability(
+        self, profile_id: str | None = None
+    ) -> list[BackendReliabilityRecord]:
+        with DbSession(self.engine) as database:
+            statement = select(BackendReliabilityRow).order_by(BackendReliabilityRow.updated_at)
+            if profile_id is not None:
+                statement = statement.where(BackendReliabilityRow.profile_id == profile_id)
+            return [
+                BackendReliabilityRecord.model_validate_json(row.payload_json)
+                for row in database.scalars(statement)
+            ]
+
+    def save_profile_experience(
+        self, experience: ProfileLearningExperience, *, idempotency_key: str
+    ) -> tuple[ProfileLearningExperience, bool]:
+        payload = experience.model_dump_json()
+        _ensure_safe_payload(json.loads(payload))
+        with self.transaction() as database:
+            existing = database.scalar(
+                select(ProfileLearningExperienceRow).where(
+                    ProfileLearningExperienceRow.idempotency_key == idempotency_key
+                )
+            )
+            if existing is not None:
+                return (
+                    ProfileLearningExperience.model_validate_json(existing.payload_json),
+                    False,
+                )
+            database.add(
+                ProfileLearningExperienceRow(
+                    experience_id=experience.experience_id,
+                    profile_id=experience.profile_id,
+                    idempotency_key=idempotency_key,
+                    payload_json=payload,
+                    created_at=experience.created_at,
+                )
+            )
+            self._append_learning_event(
+                database,
+                "learning.profile_experience.created",
+                {
+                    "experience_id": experience.experience_id,
+                    "profile_id": experience.profile_id,
+                    "experience_type": experience.experience_type.value,
+                    "outcome": experience.outcome.value,
+                },
+            )
+        return experience, True
+
+    def get_profile_experience_by_idempotency(
+        self, idempotency_key: str
+    ) -> ProfileLearningExperience | None:
+        with DbSession(self.engine) as database:
+            row = database.scalar(
+                select(ProfileLearningExperienceRow).where(
+                    ProfileLearningExperienceRow.idempotency_key == idempotency_key
+                )
+            )
+            return (
+                ProfileLearningExperience.model_validate_json(row.payload_json)
+                if row is not None
+                else None
+            )
+
+    def list_profile_experiences(
+        self, profile_id: str | None = None
+    ) -> list[ProfileLearningExperience]:
+        with DbSession(self.engine) as database:
+            statement = select(ProfileLearningExperienceRow).order_by(
+                ProfileLearningExperienceRow.created_at
+            )
+            if profile_id is not None:
+                statement = statement.where(ProfileLearningExperienceRow.profile_id == profile_id)
+            return [
+                ProfileLearningExperience.model_validate_json(row.payload_json)
+                for row in database.scalars(statement)
+            ]
+
+    def count_profile_experiences(self, profile_id: str | None = None) -> int:
+        with DbSession(self.engine) as database:
+            statement = select(func.count()).select_from(ProfileLearningExperienceRow)
+            if profile_id is not None:
+                statement = statement.where(ProfileLearningExperienceRow.profile_id == profile_id)
+            return int(database.scalar(statement) or 0)
 
     def create_policy_version(
         self, *, checkpoint_sha256: str | None, training_run_id: str | None = None

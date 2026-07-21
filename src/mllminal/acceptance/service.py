@@ -253,6 +253,21 @@ class ProductAcceptanceService:
             ),
             (
                 (
+                    "application.profile.persistence",
+                    "application.profile.sensitive_data_suppression",
+                    "application.profile.backend_resolution",
+                    "application.profile.reliability_learning",
+                    "application.profile.experience_idempotency",
+                ),
+                ReadinessClass.PROTOTYPE,
+                "src/mllminal/learning/profiles.py",
+                "Provider-neutral profiles learn from privacy-approved semantic observations and "
+                "verified outcomes. Capability-level acceptance is required; Excel and classic "
+                "Outlook remain optional deferred provider evidence.",
+                True,
+            ),
+            (
+                (
                     "spreadsheet.inspect",
                     "spreadsheet.export_pdf",
                     "spreadsheet.verify_output",
