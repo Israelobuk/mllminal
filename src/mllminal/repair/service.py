@@ -169,8 +169,8 @@ class WorkflowRepairService:
     def _scope(capability: str) -> str:
         if capability.startswith("filesystem."):
             return "filesystem.write"
-        if capability.startswith("excel."):
-            return "excel.write"
+        if capability.startswith("spreadsheet."):
+            return "spreadsheet.export"
         if capability.startswith("email."):
             return "email.draft"
         return "workflow.repair"

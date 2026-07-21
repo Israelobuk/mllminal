@@ -49,6 +49,7 @@ from mllminal.privacy.contracts import (
     PrivacyRuleType,
 )
 from mllminal.privacy.service import PrivacyService
+from mllminal.providers.contracts import AbstractCapability, ProviderRequest
 from mllminal.repair.contracts import RepairApprovalRequest, RepairProposalRequest
 from mllminal.repair.service import WorkflowRepairService
 from mllminal.verification.contracts import (
@@ -754,6 +755,31 @@ def create_app(
     def apps_grants() -> None:
         for item in application_service().grants():
             typer.echo(item.model_dump_json())
+
+    @apps.command("providers")
+    def apps_providers() -> None:
+        for item in asyncio.run(application_service().provider_discovery()):
+            typer.echo(item.model_dump_json())
+
+    @apps.command("resolve")
+    def apps_resolve(capability: str) -> None:
+        typer.echo(
+            asyncio.run(
+                application_service().resolve_capability(AbstractCapability(capability))
+            ).model_dump_json()
+        )
+
+    @apps.command("provider-execute")
+    def apps_provider_execute(payload: str) -> None:
+        request = ProviderRequest.model_validate_json(payload)
+        typer.echo(
+            asyncio.run(
+                application_service().execute_capability(
+                    request,
+                    idempotency_key=f"cli-provider-execute-{request.capability.value}",
+                )
+            ).model_dump_json()
+        )
 
     @apps.command("capabilities")
     def apps_capabilities(application: str) -> None:

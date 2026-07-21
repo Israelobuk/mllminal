@@ -1,5 +1,20 @@
 # Acceptance results
 
+The acceptance model is capability-specific. Missing desktop applications are environment-specific evidence limitations and do not block the provider-neutral product goal.
+
+## Current machine
+
+- spreadsheet.inspect: bundled provider implemented and available for supported OOXML files.
+- spreadsheet.export_pdf: provider discovery and manual handoff implemented; no local Excel or LibreOffice rendering evidence is claimed.
+- email.create_draft: provider discovery, browser bridge, and system compose handoff implemented; no classic-Outlook draft evidence is claimed.
+- provider selection is automatic, visible through the daemon /v1/providers and CLI apps providers surfaces.
+- browser credentials remain opaque; browser security/payment paths are blocked by contract.
+
+## Deferred provider-specific evidence
+
+No real Excel or classic Outlook acceptance test ran on this machine. Those two application-specific cases remain explicitly deferred and are not represented as passed results. They are optional provider tests, not global completion requirements.
+
+
 ## Current classification
 
 Not certified. The acceptance state machine and runbook are implemented, but no clean Windows end-to-end run is recorded. The report returns real_windows_acceptance_required: true and keeps unresolved scenario, security, and performance checks manual-required. This is an evidence record, not a passing result.
