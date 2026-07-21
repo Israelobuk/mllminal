@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "MLLminal Browser Bridge",
+  "version": "0.1.0",
+  "description": "Permissioned semantic controls for preparing local MLLminal drafts.",
+  "permissions": ["activeTab", "scripting", "nativeMessaging", "storage"],
+  "host_permissions": ["https://mail.google.com/*", "https://outlook.live.com/*", "https://www.office.com/*"],
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [{
+    "matches": ["https://mail.google.com/*", "https://outlook.live.com/*", "https://www.office.com/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }],
+  "action": {"default_title": "MLLminal active"}
+}
