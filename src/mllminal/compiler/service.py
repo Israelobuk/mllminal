@@ -60,18 +60,15 @@ class WorkflowCompilerService:
                 )
                 capability = f"unsupported.{mined_step.kind}"
             consequential = capability.startswith(
-                ("filesystem.", "excel.", "email.")
+                ("filesystem.", "spreadsheet.", "email.")
             ) and capability not in {
                 "filesystem.list",
                 "filesystem.inspect",
                 "filesystem.find_latest",
                 "filesystem.exists",
                 "filesystem.hash",
-                "excel.detect",
-                "excel.open_workbook",
-                "excel.list_sheets",
-                "excel.inspect_metadata",
-                "excel.select_sheet",
+                "spreadsheet.inspect",
+                "spreadsheet.verify_output",
                 "email.detect_client",
                 "email.verify_draft",
             }
@@ -227,7 +224,7 @@ class WorkflowCompilerService:
                     return capability
         if step.kind == "control.invoked":
             if step.application.casefold() == "excel" and "export" in action:
-                return "excel.export_pdf"
+                return "spreadsheet.export_pdf"
             if step.application.casefold() in {"email", "outlook"} and "draft" in action:
                 return "email.create_draft"
         return None
@@ -259,8 +256,8 @@ class WorkflowCompilerService:
     ) -> PermissionManifestEntry | None:
         if capability.startswith("filesystem."):
             scope = "filesystem.write" if consequential else "filesystem.read"
-        elif capability.startswith("excel."):
-            scope = "excel.write" if consequential else "excel.read"
+        elif capability.startswith("spreadsheet."):
+            scope = "spreadsheet.export" if consequential else "spreadsheet.read"
         elif capability.startswith("email."):
             scope = "email.draft"
         else:
@@ -278,7 +275,7 @@ class WorkflowCompilerService:
             return "Verify destination exists and source is absent"
         if capability == "filesystem.copy":
             return "Verify destination exists and optional hash matches"
-        if capability == "excel.export_pdf":
+        if capability == "spreadsheet.export_pdf":
             return "Verify PDF exists and is non-empty"
         if capability == "email.create_draft":
             return "Verify draft exists and remains unsent"

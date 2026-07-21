@@ -24,6 +24,14 @@ from mllminal.apps.permissions import ApplicationBridgeIdempotencyRow, Applicati
 from mllminal.apps.registry import ApplicationRegistry
 from mllminal.contracts import utc_now
 from mllminal.persistence import Base
+from mllminal.providers.contracts import (
+    AbstractCapability,
+    CapabilityResolution,
+    ProviderAvailability,
+    ProviderRequest,
+    ProviderResult,
+)
+from mllminal.providers.defaults import create_default_resolver
 
 
 class ApplicationBridgeService:
@@ -50,6 +58,10 @@ class ApplicationBridgeService:
             EmailDraftAdapter(workspace_root, self.database_path.parent / "email")
         )
         self.discovery = ApplicationDiscovery(self.registry)
+        self.provider_resolver = create_default_resolver(
+            self.database_path,
+            (workspace_root or Path.cwd()).expanduser().resolve(),
+        )
 
     async def discover(self) -> list[ApplicationAvailability]:
         values = await self.discovery.discover()
@@ -69,6 +81,54 @@ class ApplicationBridgeService:
 
     async def capabilities(self, application: str) -> list[CapabilityDefinition]:
         return list(await self.discovery.capabilities(application))
+
+    async def provider_discovery(self) -> list[ProviderAvailability]:
+        """Discover providers without requiring any desktop application."""
+
+        return await self.provider_resolver.discover()
+
+    async def resolve_capability(
+        self, capability: AbstractCapability | str, *, preferred_provider: str | None = None
+    ) -> CapabilityResolution:
+        return await self.provider_resolver.resolve(
+            capability, preferred_provider=preferred_provider
+        )
+
+    async def execute_capability(
+        self,
+        request: ProviderRequest,
+        *,
+        idempotency_key: str,
+    ) -> ProviderResult:
+        cached = self._cached(idempotency_key, "provider.execute")
+        if cached is not None:
+            return ProviderResult.model_validate(cached)
+        if self._emergency_stop_active():
+            raise PermissionError("Emergency stop active")
+        resolution = await self.resolve_capability(request.capability)
+        if resolution.provider is None:
+            return ProviderResult(
+                capability=request.capability,
+                provider="unsupported",
+                succeeded=False,
+                preview=request.preview,
+                error=resolution.explanation,
+            )
+        if not request.preview and not request.workflow_authorized:
+            raise PermissionError("Workflow authorization is required")
+        provider = self.provider_resolver.registry.get(resolution.provider)
+        try:
+            result = await provider.execute(request)
+        except Exception as error:
+            result = ProviderResult(
+                capability=request.capability,
+                provider=resolution.provider,
+                succeeded=False,
+                preview=request.preview,
+                error=str(error) or "provider_execution_failed",
+            )
+        self._save_idempotency(idempotency_key, "provider.execute", result)
+        return result
 
     def grant(self, application: str, scope: str, *, idempotency_key: str) -> ApplicationGrant:
         cached = self._cached(idempotency_key, "app.grant")

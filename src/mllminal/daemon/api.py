@@ -61,6 +61,7 @@ from mllminal.privacy.contracts import (
     PrivacyRule,
 )
 from mllminal.privacy.service import PrivacyService
+from mllminal.providers.contracts import AbstractCapability, ProviderRequest
 from mllminal.repair.contracts import RepairApprovalRequest, RepairProposalRequest
 from mllminal.repair.service import WorkflowRepairService
 from mllminal.runtime_store import RuntimeStore
@@ -607,6 +608,25 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.get("/v1/apps/grants", dependencies=protected)
     async def application_grants() -> list[dict[str, Any]]:
         return [item.model_dump(mode="json") for item in applications.grants()]
+
+    @app.get("/v1/providers", dependencies=protected)
+    async def provider_discovery() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in await applications.provider_discovery()]
+
+    @app.get("/v1/providers/resolve/{capability}", dependencies=protected)
+    async def provider_resolve(capability: str) -> dict[str, Any]:
+        return (await applications.resolve_capability(AbstractCapability(capability))).model_dump(
+            mode="json"
+        )
+
+    @app.post("/v1/providers/execute", dependencies=protected)
+    async def provider_execute(
+        body: ProviderRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return (
+            await applications.execute_capability(body, idempotency_key=idempotency_key)
+        ).model_dump(mode="json")
 
     @app.get("/v1/apps/{application}/capabilities", dependencies=protected)
     async def application_capabilities(application: str) -> list[dict[str, Any]]:

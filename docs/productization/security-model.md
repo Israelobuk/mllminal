@@ -1,3 +1,9 @@
+# Provider and browser boundary
+
+Workflow execution requests abstract capabilities and receives a selected provider plus an explanation. Native applications are optional; a missing desktop application causes provider resolution to continue to browser, bundled, portable, or manual paths.
+
+The browser bridge requires a domain-specific grant, accepts semantic operations only, and blocks authentication, payment, and account-security pages. Cookies, tokens, passwords, and arbitrary script are never read or transported. Email providers are draft-only and cannot send automatically.
+
 # Security model
 
 MLLminal is local-first and approval-controlled. Mil may interpret intent, but cannot bypass the typed workflow runtime, capability registry, permission grants, approval state, independent verification, or emergency stop.

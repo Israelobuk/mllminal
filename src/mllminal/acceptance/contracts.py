@@ -17,8 +17,10 @@ class AcceptanceStage(StrEnum):
     PREVIEWED = "previewed"
     APPROVED = "approved"
     FILESYSTEM_VERIFIED = "filesystem_verified"
-    EXCEL_VERIFIED = "excel_verified"
+    SPREADSHEET_VERIFIED = "spreadsheet_verified"
     EMAIL_DRAFT_VERIFIED = "email_draft_verified"
+    PROVIDER_RESOLVED = "provider_resolved"
+    EXCEL_VERIFIED = "excel_verified"
     DESKTOP_CLI_MATCHED = "desktop_cli_matched"
     USER_REVIEWED = "user_reviewed"
 

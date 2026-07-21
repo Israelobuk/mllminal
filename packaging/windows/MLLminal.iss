@@ -23,10 +23,26 @@ Source: "install.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "export-diagnostics.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\browser-extension\*"; DestDir: "{app}\browser-extension"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Tasks]
+Name: "lightweight"; Description: "Use lightweight mode (skip optional portable providers)"
+Name: "portableprovider"; Description: "Allow optional portable spreadsheet provider (~350 MB; needed for local PDF rendering)"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\install.ps1\" -InstallRoot \"{app}\""; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\install.ps1\" -InstallRoot \"{app}\" -Lightweight:{code:LightweightArg} -InstallOptionalProviders:{code:PortableProviderArg}"; Flags: waituntilterminated
 Filename: "notepad.exe"; Parameters: "\"{app}\README.md\""; Flags: postinstall skipifsilent
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\uninstall.ps1\" -InstallRoot \"{app}\""; Flags: waituntilterminated
+
+[Code]
+function LightweightArg(Param: String): String;
+begin
+  if WizardIsTaskSelected('lightweight') then Result := '$true' else Result := '$false';
+end;
+
+function PortableProviderArg(Param: String): String;
+begin
+  if WizardIsTaskSelected('portableprovider') then Result := '$true' else Result := '$false';
+end;
