@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from mllminal.learning.contracts import PolicyDomain, TrainingExperience
 from mllminal.learning.offline_features import TrainingFeatureEncoder
 from mllminal.learning.offline_training import OfflineTrainingConfig
@@ -36,3 +38,24 @@ def test_training_runs_in_a_short_lived_isolated_worker() -> None:
     assert result.status == "COMPLETED"
     assert result.action_labels == ("defer", "present")
     assert result.worker_pid is not None
+
+
+def test_isolated_worker_writes_a_durable_candidate_checkpoint(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "candidate.pt"
+    result = run_isolated_training(
+        [
+            _experience("one", 0.9, "present"),
+            _experience("two", 0.8, "present"),
+            _experience("three", 0.1, "defer"),
+            _experience("four", 0.2, "defer"),
+        ],
+        TrainingFeatureEncoder.for_domain(PolicyDomain.SUGGESTION_RANKING),
+        OfflineTrainingConfig(seed=11, epochs=2, hidden_size=8),
+        timeout_seconds=30,
+        checkpoint_path=checkpoint,
+    )
+
+    assert result.status == "COMPLETED"
+    assert result.checkpoint_path == str(checkpoint)
+    assert result.checkpoint_sha256 is not None
+    assert checkpoint.exists()
