@@ -1283,16 +1283,34 @@ class LearningRepository(Store):
             ]
 
     def create_policy_version(
-        self, *, checkpoint_sha256: str | None, training_run_id: str | None = None
+        self,
+        *,
+        checkpoint_sha256: str | None,
+        training_run_id: str | None = None,
+        policy_domain: PolicyDomain | None = None,
+        replay_snapshot_id: str | None = None,
+        feature_schema_version: str | None = None,
+        training_config: dict[str, int | float | str | bool] | None = None,
+        training_seed: int | None = None,
+        parent_policy_id: str | None = None,
+        lifecycle: PolicyLifecycle = PolicyLifecycle.CANDIDATE,
     ) -> PolicyVersion:
         with self.transaction() as database:
             version = int(database.scalar(select(func.max(PolicyVersionRow.version))) or 0) + 1
             policy = PolicyVersion(
                 version=version,
                 name=f"policy_v{version}",
+                lifecycle=lifecycle,
                 checkpoint_sha256=checkpoint_sha256,
                 training_run_id=training_run_id,
+                policy_domain=policy_domain,
+                replay_snapshot_id=replay_snapshot_id,
+                feature_schema_version=feature_schema_version,
+                training_config=training_config or {},
+                training_seed=training_seed,
+                parent_policy_id=parent_policy_id,
             )
+            _ensure_safe_payload(policy.model_dump(mode="json"))
             database.add(
                 PolicyVersionRow(
                     id=policy.id,
@@ -1305,7 +1323,46 @@ class LearningRepository(Store):
                 )
             )
             self._append_learning_event(
-                database, "learning.policy.created", {"policy_version_id": policy.id}
+                database,
+                "learning.policy.created",
+                {"policy_version_id": policy.id, "lifecycle": policy.lifecycle.value},
+            )
+            return policy
+
+    def update_offline_candidate(
+        self,
+        policy_version_id: str,
+        *,
+        lifecycle: PolicyLifecycle,
+        evaluation_metrics: dict[str, float] | None = None,
+        baseline_metrics: dict[str, float] | None = None,
+        safety_checks: dict[str, bool] | None = None,
+        promotion_decision_id: str | None = None,
+        rollback_reason: str | None = None,
+    ) -> PolicyVersion:
+        with self.transaction() as database:
+            row = database.get(PolicyVersionRow, policy_version_id)
+            if row is None:
+                raise KeyError(policy_version_id)
+            updates: dict[str, object] = {"lifecycle": lifecycle}
+            if evaluation_metrics is not None:
+                updates["evaluation_metrics"] = evaluation_metrics
+            if baseline_metrics is not None:
+                updates["baseline_metrics"] = baseline_metrics
+            if safety_checks is not None:
+                updates["safety_checks"] = safety_checks
+            if promotion_decision_id is not None:
+                updates["promotion_decision_id"] = promotion_decision_id
+            if rollback_reason is not None:
+                updates["rollback_reason"] = rollback_reason
+            policy = PolicyVersion.model_validate_json(row.payload_json).model_copy(update=updates)
+            _ensure_safe_payload(policy.model_dump(mode="json"))
+            row.lifecycle = policy.lifecycle.value
+            row.payload_json = policy.model_dump_json()
+            self._append_learning_event(
+                database,
+                "learning.policy.candidate.updated",
+                {"policy_version_id": policy.id, "lifecycle": policy.lifecycle.value},
             )
             return policy
 
