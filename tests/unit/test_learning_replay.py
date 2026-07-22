@@ -16,6 +16,8 @@ from mllminal.learning.contracts import (
     ExperienceRecord,
     PolicyAction,
     PolicyDecision,
+    PolicyDomain,
+    PolicyLifecycle,
     PromotionDecision,
     PromotionOutcome,
     RewardBreakdown,
@@ -302,3 +304,38 @@ def test_repository_crud_counts_and_idempotent_rollback(tmp_path: Path) -> None:
     assert changed is True
     assert repeated.id == applied.id and repeated_changed is False
     assert repository.get_promoted_policy().id == first.id
+
+
+def test_offline_candidate_provenance_survives_restart(tmp_path: Path) -> None:
+    database = tmp_path / "state.db"
+    repository = _repository(database)
+    candidate = repository.create_policy_version(
+        checkpoint_sha256="a" * 64,
+        policy_domain=PolicyDomain.SUGGESTION_RANKING,
+        replay_snapshot_id="snapshot-1",
+        feature_schema_version="training_features_v1",
+        training_config={"hidden_size": 8, "epochs": 2},
+        training_seed=7,
+        parent_policy_id="policy_v0",
+    )
+    evaluated = repository.update_offline_candidate(
+        candidate.id,
+        lifecycle=PolicyLifecycle.EVALUATED,
+        evaluation_metrics={"candidate_accuracy": 0.75},
+        baseline_metrics={"heuristic_accuracy": 0.5},
+        safety_checks={"privacy_approved": True, "no_safety_regression": True},
+    )
+
+    restarted = LearningRepository(database)
+    restored = restarted.get_policy_version(candidate.id)
+
+    assert restored == evaluated
+    assert restored.policy_domain is PolicyDomain.SUGGESTION_RANKING
+    assert restored.replay_snapshot_id == "snapshot-1"
+    assert restored.feature_schema_version == "training_features_v1"
+    assert restored.training_config == {"hidden_size": 8, "epochs": 2}
+    assert restored.training_seed == 7
+    assert restored.evaluation_metrics["candidate_accuracy"] == 0.75
+    assert restored.baseline_metrics["heuristic_accuracy"] == 0.5
+    assert restored.safety_checks["privacy_approved"] is True
+    assert restored.lifecycle is PolicyLifecycle.EVALUATED

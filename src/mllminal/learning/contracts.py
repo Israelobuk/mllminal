@@ -92,11 +92,21 @@ class RunStatus(StrEnum):
 
 
 class PolicyLifecycle(StrEnum):
-    CANDIDATE = "CANDIDATE"
+    CREATED = "CREATED"
+    SNAPSHOT_READY = "SNAPSHOT_READY"
+    TRAINING = "TRAINING"
+    TRAINED = "TRAINED"
+    EVALUATING = "EVALUATING"
+    EVALUATED = "EVALUATED"
+    ELIGIBLE_FOR_PROMOTION = "ELIGIBLE_FOR_PROMOTION"
+    PROMOTED = "PROMOTED"
     ACTIVE = "ACTIVE"
-    RETIRED = "RETIRED"
+    SUPERSEDED = "SUPERSEDED"
     ROLLED_BACK = "ROLLED_BACK"
     REJECTED = "REJECTED"
+    FAILED = "FAILED"
+    CANDIDATE = "CANDIDATE"
+    RETIRED = "RETIRED"
 
 
 class PromotionOutcome(StrEnum):
@@ -300,6 +310,17 @@ class PolicyVersion(LearningContract):
     action_space_version: Literal["actions_v1"] = ACTION_SPACE_VERSION
     checkpoint_sha256: str | None = None
     training_run_id: str | None = None
+    policy_domain: PolicyDomain | None = None
+    replay_snapshot_id: str | None = None
+    feature_schema_version: str | None = None
+    training_config: dict[str, int | float | str | bool] = Field(default_factory=dict)
+    training_seed: int | None = None
+    parent_policy_id: str | None = None
+    evaluation_metrics: dict[str, float] = Field(default_factory=dict)
+    baseline_metrics: dict[str, float] = Field(default_factory=dict)
+    safety_checks: dict[str, bool] = Field(default_factory=dict)
+    promotion_decision_id: str | None = None
+    rollback_reason: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
 
