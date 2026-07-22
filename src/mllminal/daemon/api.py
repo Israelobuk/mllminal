@@ -46,6 +46,7 @@ from mllminal.hardware.service import HardwareProbe
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
+from mllminal.learning.adaptive import AdaptiveExecutionService
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
 from mllminal.learning.profile_contracts import (
@@ -172,7 +173,12 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
 
     device_observer.subscribe(observe_profile_event)
     activity = ActivityService(settings.database_path, interaction, device_observer)
-    workflow = WorkflowService(settings.database_path)
+    adaptive = AdaptiveExecutionService(
+        learning_repository,
+        profiles,
+        emergency_stop_active=lambda: privacy.status().emergency_stop_active,
+    )
+    workflow = WorkflowService(settings.database_path, adaptive=adaptive)
     repair = WorkflowRepairService(workflow, settings.data_dir / "workflow-repair")
     acceptance = ProductAcceptanceService(settings.data_dir / "acceptance")
     applications = ApplicationBridgeService(
@@ -216,6 +222,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.privacy = privacy
     app.state.interaction = interaction
     app.state.profiles = profiles
+    app.state.adaptive = adaptive
     app.state.activity = activity
     app.state.workflow = workflow
     app.state.repair = repair
@@ -957,6 +964,57 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             workspace_root=str(settings.workspace_root.resolve()),
         )
         return [grant.model_dump(mode="json")]
+
+    @app.get("/v1/adaptive/decisions", dependencies=protected)
+    async def adaptive_decisions() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in adaptive.decisions()]
+
+    @app.get("/v1/adaptive/decision/{decision_id}", dependencies=protected)
+    async def adaptive_decision(decision_id: str) -> dict[str, Any]:
+        return adaptive.decision(decision_id).model_dump(mode="json")
+
+    @app.get("/v1/adaptive/explain/{workflow_run_id}", dependencies=protected)
+    async def adaptive_explain(workflow_run_id: str) -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in adaptive.explain(workflow_run_id)]
+
+    @app.get("/v1/adaptive/backend-ranking/{profile_id}/{abstract_action}", dependencies=protected)
+    async def adaptive_backend_ranking(
+        profile_id: str,
+        abstract_action: str,
+        target_type: str = "unknown",
+    ) -> dict[str, Any]:
+        return profiles.rank_backends(
+            profile_id,
+            abstract_action,
+            target_type,
+            (
+                "native.provider",
+                "browser.bridge",
+                "windows.uia",
+                "keyboard.shortcut",
+                "local.vision",
+                "relative.pointer",
+            ),
+        ).model_dump(mode="json")
+
+    @app.post("/v1/adaptive/evaluate", dependencies=protected)
+    async def adaptive_evaluate() -> dict[str, Any]:
+        status = learning_repository.get_settings()
+        return {
+            "mode": "offline_candidate_evaluation_only",
+            "automatic_promotion_enabled": status.automatic_promotion_enabled,
+            "active_policy_version_id": status.active_policy_version_id,
+        }
+
+    @app.get("/v1/adaptive/policy/status", dependencies=protected)
+    async def adaptive_policy_status() -> dict[str, Any]:
+        status = learning_repository.get_settings()
+        return {
+            "policy_version": "deterministic-profile-policy-v1",
+            "advisory_only": True,
+            "automatic_promotion_enabled": status.automatic_promotion_enabled,
+            "active_policy_version_id": status.active_policy_version_id,
+        }
 
     @app.get("/v1/learning/status", dependencies=protected)
     async def learning_status() -> dict[str, Any]:

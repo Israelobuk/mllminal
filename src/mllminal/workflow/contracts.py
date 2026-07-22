@@ -73,6 +73,10 @@ class WorkflowStep(Contract):
     capability: str
     arguments: dict[str, Any] = Field(default_factory=dict)
     approval_required: bool = True
+    application_profile_id: str | None = None
+    abstract_action: str | None = None
+    target_signature: str | None = None
+    backend_candidates: list[str] = Field(default_factory=list)
     rollback_capability: str | None = None
     verification: WorkflowVerification | None = None
 
