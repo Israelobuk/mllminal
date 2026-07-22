@@ -14,7 +14,13 @@ from mllminal.activity.service import ActivityService
 from mllminal.agent.ollama import OllamaClient, OllamaProviderError
 from mllminal.apps.contracts import CapabilityRequest
 from mllminal.apps.service import ApplicationBridgeService
-from mllminal.assistance.contracts import AssistanceRequest
+from mllminal.assistance.adaptive import AdaptiveSuggestionService
+from mllminal.assistance.contracts import (
+    AssistanceRequest,
+    PreferenceUpdateRequest,
+    SuggestionFeedbackRequest,
+    SuggestionProposalRequest,
+)
 from mllminal.assistance.service import ProactiveAssistanceService
 from mllminal.automl.contracts import AutoMLRequest
 from mllminal.automl.service import LocalAutoMLService
@@ -111,6 +117,8 @@ def create_app(
     actions = typer.Typer(help="Preview and explicitly approve bounded device actions.")
     acceptance = typer.Typer(help="Track the Windows product acceptance scenario.")
     assist = typer.Typer(help="Surface reviewable workflow suggestions without executing them.")
+    suggestions = typer.Typer(help="Persist and review deterministic workflow suggestions.")
+    preferences = typer.Typer(help="Manage explicit workflow suggestion preferences.")
     adapters = typer.Typer(help="Export typed workflows to optional local adapters.")
     automl = typer.Typer(help="Rank bounded local policy candidates for review.")
     adaptive = typer.Typer(help="Inspect explainable profile-guided execution decisions.")
@@ -261,6 +269,14 @@ def create_app(
 
     def assistance_service() -> ProactiveAssistanceService:
         return ProactiveAssistanceService()
+
+    def adaptive_suggestion_service() -> AdaptiveSuggestionService:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        return AdaptiveSuggestionService(
+            repository,
+            emergency_stop_active=lambda: privacy_service().status().emergency_stop_active,
+        )
 
     def langgraph_adapter() -> LangGraphWorkflowAdapter:
         return LangGraphWorkflowAdapter()
@@ -1050,6 +1066,47 @@ def create_app(
         mined = WorkflowMiningService().mine(interaction_service().events(), request.mining)
         typer.echo(assistance_service().suggest(mined, request).model_dump_json())
 
+    @suggestions.command("propose")
+    def suggestions_propose(payload: str) -> None:
+        request = SuggestionProposalRequest.model_validate_json(payload)
+        typer.echo(
+            adaptive_suggestion_service()
+            .propose(request.candidate, verification_available=request.verification_available)
+            .model_dump_json()
+        )
+
+    @suggestions.command("list")
+    def suggestions_list() -> None:
+        for suggestion in adaptive_suggestion_service().suggestions():
+            typer.echo(suggestion.model_dump_json())
+
+    @suggestions.command("feedback")
+    def suggestions_feedback(suggestion_id: str, payload: str, idempotency_key: str) -> None:
+        request = SuggestionFeedbackRequest.model_validate_json(payload)
+        typer.echo(
+            adaptive_suggestion_service()
+            .feedback(suggestion_id, request.kind, idempotency_key=idempotency_key)
+            .model_dump_json()
+        )
+
+    @suggestions.command("adapt")
+    def suggestions_adapt(suggestion_id: str) -> None:
+        typer.echo(
+            adaptive_suggestion_service().propose_adaptation(suggestion_id).model_dump_json()
+        )
+
+    @preferences.command("set")
+    def preferences_set(payload: str) -> None:
+        request = PreferenceUpdateRequest.model_validate_json(payload)
+        typer.echo(
+            adaptive_suggestion_service().set_preference(request.preference).model_dump_json()
+        )
+
+    @preferences.command("list")
+    def preferences_list() -> None:
+        for preference in adaptive_suggestion_service().preferences():
+            typer.echo(preference.model_dump_json())
+
     @adapters.command("langgraph")
     def adapter_langgraph(payload: str) -> None:
         definition = WorkflowDefinition.model_validate_json(payload)
@@ -1191,6 +1248,8 @@ def create_app(
     app.add_typer(actions, name="actions")
     app.add_typer(acceptance, name="acceptance")
     app.add_typer(assist, name="assist")
+    app.add_typer(suggestions, name="suggestions")
+    app.add_typer(preferences, name="preferences")
     app.add_typer(adapters, name="adapters")
     app.add_typer(automl, name="automl")
     adaptive.add_typer(adaptive_policy, name="policy")

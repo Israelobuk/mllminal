@@ -37,6 +37,8 @@ class DesktopSnapshot:
     workflows: list[dict[str, Any]] = field(default_factory=list)
     permissions: list[dict[str, Any]] = field(default_factory=list)
     visual: dict[str, Any] | None = None
+    suggestions: list[dict[str, Any]] = field(default_factory=list)
+    suggestion_preferences: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
 
 
@@ -87,6 +89,8 @@ class DaemonClient:
             workflows = await self.request("GET", "/v1/workflows")
             permissions = await self.request("GET", "/v1/permissions")
             visual = await self.request("GET", "/v1/visual/latest")
+            suggestions = await self.request("GET", "/v1/suggestions")
+            suggestion_preferences = await self.request("GET", "/v1/suggestion-preferences")
         except PermissionError as error:
             return DesktopSnapshot(DesktopState.AUTHENTICATION_FAILED, error=str(error))
         except (httpx.ConnectError, httpx.TimeoutException) as error:
@@ -107,6 +111,8 @@ class DaemonClient:
             workflows=_list(workflows),
             permissions=_list(permissions),
             visual=None if visual is None else _dict(visual),
+            suggestions=_list(suggestions),
+            suggestion_preferences=_list(suggestion_preferences),
         )
 
     async def ensure_session(self) -> str:
@@ -149,6 +155,16 @@ class DaemonClient:
             "POST",
             "/v1/privacy/emergency-stop",
             idempotency_key="desktop-emergency-stop",
+        )
+
+    async def suggestion_feedback(
+        self, suggestion_id: str, kind: str, *, idempotency_key: str
+    ) -> dict[str, Any] | list[dict[str, Any]]:
+        return await self.request(
+            "POST",
+            f"/v1/suggestions/{suggestion_id}/feedback",
+            {"kind": kind},
+            idempotency_key=idempotency_key,
         )
 
     async def stream_events(self, after_sequence: int = 0) -> Any:

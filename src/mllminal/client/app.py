@@ -99,6 +99,7 @@ class MLLminalDesktopApp(App[None]):
                         yield Button("Start demonstration", id="demo")
                     yield Input(placeholder="Demonstration label", id="demo-label")
                     yield Static("Latest visual verification: ?", id="verification")
+                    yield Static("Suggestions: ?\nPreferences: ?", id="suggestions")
             yield RichLog(id="terminal", highlight=False, markup=False)
             yield Static(
                 "Embedded terminal view ? mllminal tasks ? mllminal events ? "
@@ -138,6 +139,11 @@ class MLLminalDesktopApp(App[None]):
             f"Observation: {snapshot.device.get('state', '?')}\n"
             f"Privacy: {'paused' if snapshot.privacy.get('paused') else 'active'}\n"
             f"Permissions: {len(snapshot.permissions)}"
+        )
+        self.query_one("#suggestions", Static).update(
+            f"Suggestions: {len(snapshot.suggestions)}\n"
+            f"Preferences: {len(snapshot.suggestion_preferences)}\n"
+            "Suggestions remain review-only."
         )
         visual = snapshot.visual or {}
         self.query_one("#verification", Static).update(
