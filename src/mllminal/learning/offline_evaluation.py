@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 
+import torch
 from sklearn.linear_model import LogisticRegression  # type: ignore[import-untyped]
 
 from mllminal.learning.contracts import TrainingExperience
 from mllminal.learning.offline_features import TrainingFeatureEncoder
-from mllminal.learning.offline_splits import split_training_experiences
+from mllminal.learning.offline_splits import OfflineDataSplit, split_training_experiences
+from mllminal.learning.offline_training import OfflineCandidateModel
 
 
 @dataclass(frozen=True)
@@ -79,4 +81,44 @@ def _source_ids(experiences: tuple[TrainingExperience, ...]) -> tuple[str, ...]:
                 for experience in experiences
             }
         )
+    )
+
+
+@dataclass(frozen=True)
+class OfflineCandidateMetrics:
+    sample_count: int
+    accuracy: float
+    training_source_ids: tuple[str, ...]
+    evaluated_source_ids: tuple[str, ...]
+
+
+def evaluate_offline_candidate(
+    model: OfflineCandidateModel,
+    split: OfflineDataSplit,
+    encoder: TrainingFeatureEncoder,
+) -> OfflineCandidateMetrics:
+    """Score one candidate only on the already-held-out test partition."""
+
+    if model.feature_schema_version != encoder.schema_version:
+        raise ValueError("candidate feature schema does not match the encoder")
+    if not split.test:
+        raise ValueError("a held-out test partition is required")
+    labels = [experience.selected_action or "" for experience in split.test]
+    if any(label not in model.action_labels for label in labels):
+        raise ValueError("test labels are not compatible with the candidate")
+    with torch.no_grad():
+        scores = model.network(
+            torch.tensor(
+                [encoder.encode(experience) for experience in split.test], dtype=torch.float32
+            )
+        )
+    predictions = [model.action_labels[index] for index in scores.argmax(dim=1).tolist()]
+    accuracy = sum(
+        prediction == label for prediction, label in zip(predictions, labels, strict=True)
+    )
+    return OfflineCandidateMetrics(
+        sample_count=len(split.test),
+        accuracy=accuracy / len(split.test),
+        training_source_ids=_source_ids(split.train),
+        evaluated_source_ids=_source_ids(split.test),
     )
