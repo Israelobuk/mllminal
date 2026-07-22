@@ -37,6 +37,7 @@ from mllminal.learning.contracts import (
     LearningStatus,
     PolicyAction,
     PolicyDecision,
+    PolicyDomain,
     PolicyLifecycle,
     PolicyVersion,
     PromotionDecision,
@@ -44,6 +45,7 @@ from mllminal.learning.contracts import (
     ReplaySample,
     ReplaySnapshot,
     RollbackRecord,
+    TrainingExperience,
     TrainingRun,
     utc_now,
 )
@@ -225,6 +227,19 @@ class WorkflowAdaptationProposalRow(Base):
     proposal_id: Mapped[str] = mapped_column(String, primary_key=True)
     candidate_id: Mapped[str] = mapped_column(String, index=True)
     source_suggestion_id: Mapped[str] = mapped_column(String, index=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
+class TrainingExperienceRow(Base):
+    __tablename__ = "training_experiences"
+    __table_args__ = (UniqueConstraint("policy_domain", "source_record_type", "source_record_id"),)
+
+    experience_id: Mapped[str] = mapped_column(String, primary_key=True)
+    policy_domain: Mapped[str] = mapped_column(String, index=True)
+    source_record_type: Mapped[str] = mapped_column(String)
+    source_record_id: Mapped[str] = mapped_column(String)
+    eligible_for_training: Mapped[bool]
     payload_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime]
 
@@ -1170,6 +1185,56 @@ class LearningRepository(Store):
                     )
                 )
         return proposal
+
+    def save_training_experience(
+        self, experience: TrainingExperience
+    ) -> tuple[TrainingExperience, bool]:
+        payload = experience.model_dump(mode="json")
+        _ensure_safe_payload(payload)
+        with self.transaction() as database:
+            existing = database.scalar(
+                select(TrainingExperienceRow).where(
+                    TrainingExperienceRow.policy_domain == experience.policy_domain.value,
+                    TrainingExperienceRow.source_record_type == experience.source_record_type,
+                    TrainingExperienceRow.source_record_id == experience.source_record_id,
+                )
+            )
+            if existing is not None:
+                return TrainingExperience.model_validate_json(existing.payload_json), False
+            database.add(
+                TrainingExperienceRow(
+                    experience_id=experience.experience_id,
+                    policy_domain=experience.policy_domain.value,
+                    source_record_type=experience.source_record_type,
+                    source_record_id=experience.source_record_id,
+                    eligible_for_training=experience.eligible_for_training,
+                    payload_json=experience.model_dump_json(),
+                    created_at=experience.created_at,
+                )
+            )
+            self._append_learning_event(
+                database,
+                "learning.training_experience.created",
+                {
+                    "experience_id": experience.experience_id,
+                    "policy_domain": experience.policy_domain.value,
+                },
+            )
+        return experience, True
+
+    def list_training_experiences(
+        self, policy_domain: PolicyDomain | None = None
+    ) -> list[TrainingExperience]:
+        with DbSession(self.engine) as database:
+            statement = select(TrainingExperienceRow).order_by(TrainingExperienceRow.created_at)
+            if policy_domain is not None:
+                statement = statement.where(
+                    TrainingExperienceRow.policy_domain == policy_domain.value
+                )
+            return [
+                TrainingExperience.model_validate_json(row.payload_json)
+                for row in database.scalars(statement)
+            ]
 
     def save_replay_snapshot(self, snapshot: ReplaySnapshot) -> ReplaySnapshot:
         payload = snapshot.model_dump(mode="json")
