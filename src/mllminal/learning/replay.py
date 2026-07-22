@@ -21,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.orm import Session as DbSession
 
+from mllminal.learning.adaptive_contracts import AdaptiveExecutionDecision
 from mllminal.learning.contracts import (
     ACTION_SPACE_VERSION,
     FEATURE_VERSION,
@@ -146,6 +147,17 @@ class ProfileLearningExperienceRow(Base):
     experience_id: Mapped[str] = mapped_column(String, primary_key=True)
     profile_id: Mapped[str] = mapped_column(String, index=True)
     idempotency_key: Mapped[str] = mapped_column(String)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
+class AdaptiveExecutionDecisionRow(Base):
+    __tablename__ = "adaptive_execution_decisions"
+
+    decision_id: Mapped[str] = mapped_column(String, primary_key=True)
+    workflow_run_id: Mapped[str] = mapped_column(String, index=True)
+    workflow_step_id: Mapped[str] = mapped_column(String, index=True)
+    application_profile_id: Mapped[str] = mapped_column(String, index=True)
     payload_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime]
 
@@ -827,6 +839,70 @@ class LearningRepository(Store):
             if profile_id is not None:
                 statement = statement.where(ProfileLearningExperienceRow.profile_id == profile_id)
             return int(database.scalar(statement) or 0)
+
+    def save_adaptive_decision(
+        self, decision: AdaptiveExecutionDecision
+    ) -> AdaptiveExecutionDecision:
+        payload = decision.model_dump_json()
+        _ensure_safe_payload(json.loads(payload))
+        with self.transaction() as database:
+            row = database.get(AdaptiveExecutionDecisionRow, decision.decision_id)
+            if row is None:
+                database.add(
+                    AdaptiveExecutionDecisionRow(
+                        decision_id=decision.decision_id,
+                        workflow_run_id=decision.workflow_run_id,
+                        workflow_step_id=decision.workflow_step_id,
+                        application_profile_id=decision.application_profile_id,
+                        payload_json=payload,
+                        created_at=decision.created_at,
+                    )
+                )
+                self._append_learning_event(
+                    database,
+                    "learning.adaptive_decision.created",
+                    {
+                        "decision_id": decision.decision_id,
+                        "workflow_run_id": decision.workflow_run_id,
+                        "workflow_step_id": decision.workflow_step_id,
+                        "selected_backend": decision.selected_backend,
+                    },
+                )
+            else:
+                row.payload_json = payload
+                self._append_learning_event(
+                    database,
+                    "learning.adaptive_decision.updated",
+                    {
+                        "decision_id": decision.decision_id,
+                        "execution_outcome": decision.execution_outcome,
+                        "verification_outcome": decision.verification_outcome,
+                    },
+                )
+        return decision
+
+    def get_adaptive_decision(self, decision_id: str) -> AdaptiveExecutionDecision:
+        with DbSession(self.engine) as database:
+            row = database.get(AdaptiveExecutionDecisionRow, decision_id)
+            if row is None:
+                raise KeyError(decision_id)
+            return AdaptiveExecutionDecision.model_validate_json(row.payload_json)
+
+    def list_adaptive_decisions(
+        self, *, workflow_run_id: str | None = None
+    ) -> list[AdaptiveExecutionDecision]:
+        with DbSession(self.engine) as database:
+            statement = select(AdaptiveExecutionDecisionRow).order_by(
+                AdaptiveExecutionDecisionRow.created_at
+            )
+            if workflow_run_id is not None:
+                statement = statement.where(
+                    AdaptiveExecutionDecisionRow.workflow_run_id == workflow_run_id
+                )
+            return [
+                AdaptiveExecutionDecision.model_validate_json(row.payload_json)
+                for row in database.scalars(statement)
+            ]
 
     def create_policy_version(
         self, *, checkpoint_sha256: str | None, training_run_id: str | None = None

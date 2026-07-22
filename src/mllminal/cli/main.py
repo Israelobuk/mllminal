@@ -32,6 +32,7 @@ from mllminal.hardware.service import HardwareProbe
 from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
+from mllminal.learning.adaptive import AdaptiveExecutionService
 from mllminal.learning.contracts import PolicyVersion
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
@@ -112,6 +113,8 @@ def create_app(
     assist = typer.Typer(help="Surface reviewable workflow suggestions without executing them.")
     adapters = typer.Typer(help="Export typed workflows to optional local adapters.")
     automl = typer.Typer(help="Rank bounded local policy candidates for review.")
+    adaptive = typer.Typer(help="Inspect explainable profile-guided execution decisions.")
+    adaptive_policy = typer.Typer(help="Inspect advisory policy lifecycle state.")
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
     system = typer.Typer(help="Inspect local hardware and runtime recommendations.")
@@ -200,6 +203,15 @@ def create_app(
         repository = LearningRepository(resolved_settings.database_path)
         repository.initialize()
         return ApplicationInteractionProfileService(repository)
+
+    def adaptive_service() -> AdaptiveExecutionService:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        return AdaptiveExecutionService(
+            repository,
+            ApplicationInteractionProfileService(repository),
+            emergency_stop_active=lambda: privacy_service().status().emergency_stop_active,
+        )
 
     def demonstration_service() -> DemonstrationService:
         return DemonstrationService(resolved_settings.database_path, interaction_service())
@@ -780,6 +792,74 @@ def create_app(
         for item in workflow_service().events(run_id):
             typer.echo(item.model_dump_json())
 
+    @adaptive.command("decisions")
+    def adaptive_decisions() -> None:
+        for item in adaptive_service().decisions():
+            typer.echo(item.model_dump_json())
+
+    @adaptive.command("decision")
+    def adaptive_decision(decision_id: str) -> None:
+        typer.echo(adaptive_service().decision(decision_id).model_dump_json())
+
+    @adaptive.command("explain")
+    def adaptive_explain(workflow_run_id: str) -> None:
+        for item in adaptive_service().explain(workflow_run_id):
+            typer.echo(item.model_dump_json())
+
+    @adaptive.command("backend-ranking")
+    def adaptive_backend_ranking(
+        profile_id: str,
+        abstract_action: str,
+        target_type: str = "unknown",
+    ) -> None:
+        typer.echo(
+            profile_service()
+            .rank_backends(
+                profile_id,
+                abstract_action,
+                target_type,
+                (
+                    "native.provider",
+                    "browser.bridge",
+                    "windows.uia",
+                    "keyboard.shortcut",
+                    "local.vision",
+                    "relative.pointer",
+                ),
+            )
+            .model_dump_json()
+        )
+
+    @adaptive.command("evaluate")
+    def adaptive_evaluate() -> None:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        status = repository.get_settings()
+        typer.echo(
+            json.dumps(
+                {
+                    "mode": "offline_candidate_evaluation_only",
+                    "automatic_promotion_enabled": status.automatic_promotion_enabled,
+                }
+            )
+        )
+
+    @adaptive_policy.command("status")
+    def adaptive_policy_status() -> None:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        status = repository.get_settings()
+        typer.echo(
+            json.dumps(
+                {
+                    "policy_version": "deterministic-profile-policy-v1",
+                    "advisory_only": True,
+                    "automatic_promotion_enabled": status.automatic_promotion_enabled,
+                    "active_policy_version_id": status.active_policy_version_id,
+                }
+            )
+        )
+
     @apps.command("discover")
     def apps_discover() -> None:
         for item in asyncio.run(application_service().discover()):
@@ -1113,6 +1193,8 @@ def create_app(
     app.add_typer(assist, name="assist")
     app.add_typer(adapters, name="adapters")
     app.add_typer(automl, name="automl")
+    adaptive.add_typer(adaptive_policy, name="policy")
+    app.add_typer(adaptive, name="adaptive")
     app.add_typer(system, name="system")
     return app
 

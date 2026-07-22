@@ -3,7 +3,7 @@
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session as DbSession
@@ -30,20 +30,35 @@ from mllminal.workflow.persistence import (
     WorkflowRunRow,
 )
 
+if TYPE_CHECKING:
+    from mllminal.learning.adaptive import AdaptiveExecutionService
+
+
 CapabilityHandler = Callable[[dict[str, Any]], CapabilityResult]
 
 
 class WorkflowService:
-    def __init__(self, database_path: Path) -> None:
+    def __init__(
+        self,
+        database_path: Path,
+        *,
+        adaptive: "AdaptiveExecutionService | None" = None,
+    ) -> None:
         self.database_path = database_path
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.engine = create_engine(f"sqlite:///{database_path}")
         Base.metadata.create_all(self.engine)
         self._handlers: dict[str, CapabilityHandler] = {}
+        self._backend_handlers: dict[tuple[str, str], CapabilityHandler] = {}
+        self.adaptive = adaptive
 
     def register_capability(self, name: str, handler: CapabilityHandler) -> None:
         """Register a bounded local capability implementation for live runs."""
         self._handlers[name] = handler
+
+    def register_backend(self, capability: str, backend: str, handler: CapabilityHandler) -> None:
+        """Register a bounded capability implementation for a named backend."""
+        self._backend_handlers[(capability, backend)] = handler
 
     def create(self, definition: WorkflowDefinition, *, idempotency_key: str) -> WorkflowDefinition:
         cached = self._cached(idempotency_key, "workflow.create")
@@ -220,7 +235,61 @@ class WorkflowService:
         run.state = WorkflowRunState.RUNNING
         for step in definition.steps:
             run.current_step_order = step.order
+            decision = None
             handler = self._handlers.get(step.capability)
+            if self.adaptive is not None and step.application_profile_id is not None:
+                from mllminal.learning.adaptive import (
+                    AdaptiveBackendCandidate,
+                    AdaptiveExecutionRequest,
+                )
+
+                candidates = (
+                    step.backend_candidates
+                    or [
+                        backend
+                        for capability, backend in self._backend_handlers
+                        if capability == step.capability
+                    ]
+                    or ["default"]
+                )
+                decision = self.adaptive.decide(
+                    AdaptiveExecutionRequest(
+                        workflow_run_id=run.id,
+                        workflow_step_id=step.id,
+                        application_profile_id=step.application_profile_id,
+                        abstract_action=step.abstract_action or step.capability,
+                        target_signature=step.target_signature or step.capability,
+                        candidates=[AdaptiveBackendCandidate(backend=name) for name in candidates],
+                        safety_filters_applied=["workflow_permission_verified"],
+                    )
+                )
+                if decision.selected_backend is None:
+                    result = CapabilityResult(
+                        capability=step.capability,
+                        succeeded=False,
+                        error=(
+                            "clarification_required"
+                            if decision.clarification_required
+                            else "adaptive_backend_unavailable"
+                        ),
+                    )
+                    verification = VerificationResult(
+                        state=VerificationState.UNAVAILABLE,
+                        reason=decision.decision_reason,
+                    )
+                    run.step_results.append(
+                        WorkflowStepResult(
+                            step_id=step.id,
+                            state="failed",
+                            capability_result=result,
+                            verification=verification,
+                        )
+                    )
+                    run.state = WorkflowRunState.FAILED
+                    break
+                handler = self._backend_handlers.get(
+                    (step.capability, decision.selected_backend), handler
+                )
             if handler is None:
                 result = CapabilityResult(
                     capability=step.capability,
@@ -231,18 +300,16 @@ class WorkflowService:
                     state=VerificationState.UNAVAILABLE,
                     reason="No bounded capability handler is registered",
                 )
-                run.step_results.append(
-                    WorkflowStepResult(
-                        step_id=step.id,
-                        state="failed",
-                        capability_result=result,
-                        verification=verification,
-                    )
+            else:
+                result = handler(self._resolve_arguments(step, run.inputs))
+                verification = self._verify(step, result)
+            if decision is not None and self.adaptive is not None:
+                self.adaptive.record_outcome(
+                    decision.decision_id,
+                    execution_succeeded=result.succeeded,
+                    verification_passed=verification.state is VerificationState.PASSED,
+                    failure_class=result.error,
                 )
-                run.state = WorkflowRunState.FAILED
-                break
-            result = handler(self._resolve_arguments(step, run.inputs))
-            verification = self._verify(step, result)
             step_state = (
                 "succeeded"
                 if result.succeeded and verification.state is VerificationState.PASSED
