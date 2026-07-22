@@ -43,3 +43,43 @@ def test_learning_websocket_authenticates_and_replays_persisted_events(tmp_path:
 
     assert event["event_type"] == "learning.training.started"
     assert event["payload"] == {"run": "safe"}
+
+
+def test_offline_training_job_endpoint_is_authenticated_and_advisory(tmp_path: Path) -> None:
+    from mllminal.learning.contracts import TrainingExperience
+
+    client, headers = _client(tmp_path)
+    repository = client.app.state.learning_repository
+    for source_id, action in (
+        ("one", "present"),
+        ("two", "present"),
+        ("three", "defer"),
+        ("four", "defer"),
+    ):
+        repository.save_training_experience(
+            TrainingExperience(
+                policy_domain="SUGGESTION_RANKING",
+                source_record_type="suggestion_feedback",
+                source_record_id=source_id,
+                context_features={"occurrence_count": 0.5},
+                candidate_actions=("present", "defer"),
+                selected_action=action,
+                baseline_score=0.5,
+                reward=1.0,
+                reward_components={"feedback": 1.0},
+                privacy_approved=True,
+                eligible_for_training=True,
+            )
+        )
+
+    assert client.post("/v1/learning/offline/train").status_code == 401
+    response = client.post(
+        "/v1/learning/offline/train",
+        headers=headers,
+        json={"policy_domain": "SUGGESTION_RANKING", "epochs": 2, "hidden_size": 8},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["candidate"]["lifecycle"] == "TRAINED"
+    assert response.json()["candidate"]["checkpoint_sha256"]
+    assert response.json()["training_run"]["status"] == "COMPLETED"
