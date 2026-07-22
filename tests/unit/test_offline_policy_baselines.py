@@ -33,3 +33,21 @@ def test_offline_baselines_include_deterministic_and_sklearn_metrics() -> None:
     assert metrics.heuristic_accuracy >= 0.0
     assert metrics.sklearn_accuracy >= 0.0
     assert metrics.sample_count == 4
+
+
+def test_offline_baselines_evaluate_held_out_source_groups() -> None:
+    experiences = [
+        _experience(f"episode-{index}", index / 12, "present" if index % 2 else "defer")
+        for index in range(1, 13)
+    ]
+
+    metrics = evaluate_offline_baselines(
+        experiences,
+        TrainingFeatureEncoder.for_domain(PolicyDomain.SUGGESTION_RANKING),
+    )
+
+    assert metrics.sample_count == 12
+    assert metrics.train_sample_count > 0
+    assert metrics.test_sample_count > 0
+    assert set(metrics.training_source_ids).isdisjoint(metrics.evaluated_source_ids)
+    assert metrics.split_strategy == "source-record-grouped-v1"
