@@ -53,8 +53,11 @@ from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
 from mllminal.learning.adaptive import AdaptiveExecutionService
+from mllminal.learning.contracts import PolicyDomain
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
+from mllminal.learning.offline_service import OfflinePolicyTrainingService
+from mllminal.learning.offline_training import OfflineTrainingConfig
 from mllminal.learning.profile_contracts import (
     BackendOutcomeRequest,
     ProfileExperienceRequest,
@@ -115,6 +118,18 @@ class PromotionApproval(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     explicitly_approved: bool
+
+
+class OfflineTrainingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_domain: PolicyDomain
+    seed: int = 42
+    epochs: int = 20
+    hidden_size: int = 16
+    learning_rate: float = 1e-2
+    cpu_threads: int = 1
+    timeout_seconds: float = 30.0
 
 
 class EventHub:
@@ -1085,6 +1100,29 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             "training_run": result.training_run.model_dump(mode="json"),
             "candidate": result.candidate.model_dump(mode="json"),
             "checkpoint": str(result.checkpoint),
+        }
+
+    @app.post("/v1/learning/offline/train", dependencies=protected)
+    def train_offline_learning_candidate(body: OfflineTrainingRequest) -> Any:
+        config = OfflineTrainingConfig(
+            seed=body.seed,
+            epochs=body.epochs,
+            hidden_size=body.hidden_size,
+            learning_rate=body.learning_rate,
+            cpu_threads=body.cpu_threads,
+        )
+        result = OfflinePolicyTrainingService(
+            learning_repository, settings.data_dir / "learning" / "offline"
+        ).train(
+            body.policy_domain,
+            config,
+            timeout_seconds=body.timeout_seconds,
+        )
+        return {
+            "snapshot": result.snapshot.model_dump(mode="json"),
+            "training_run": result.training_run.model_dump(mode="json"),
+            "candidate": result.candidate.model_dump(mode="json"),
+            "worker": result.worker.__dict__,
         }
 
     def governance() -> CandidateGovernanceService:
