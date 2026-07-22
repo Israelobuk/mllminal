@@ -21,6 +21,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.orm import Session as DbSession
 
+from mllminal.assistance.contracts import (
+    AdaptiveWorkflowSuggestion,
+    SuggestionFeedback,
+    SuggestionRankingDecision,
+    UserWorkflowPreference,
+    WorkflowAdaptationProposal,
+)
 from mllminal.learning.adaptive_contracts import AdaptiveExecutionDecision
 from mllminal.learning.contracts import (
     ACTION_SPACE_VERSION,
@@ -158,6 +165,65 @@ class AdaptiveExecutionDecisionRow(Base):
     workflow_run_id: Mapped[str] = mapped_column(String, index=True)
     workflow_step_id: Mapped[str] = mapped_column(String, index=True)
     application_profile_id: Mapped[str] = mapped_column(String, index=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
+class AdaptiveWorkflowSuggestionRow(Base):
+    __tablename__ = "adaptive_workflow_suggestions"
+    __table_args__ = (UniqueConstraint("candidate_id", "evidence_key"),)
+
+    suggestion_id: Mapped[str] = mapped_column(String, primary_key=True)
+    candidate_id: Mapped[str] = mapped_column(String, index=True)
+    application: Mapped[str] = mapped_column(String, index=True)
+    evidence_key: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class SuggestionFeedbackRow(Base):
+    __tablename__ = "suggestion_feedback"
+
+    feedback_id: Mapped[str] = mapped_column(String, primary_key=True)
+    suggestion_id: Mapped[str] = mapped_column(String, index=True)
+    candidate_id: Mapped[str] = mapped_column(String, index=True)
+    kind: Mapped[str] = mapped_column(String)
+    idempotency_key: Mapped[str] = mapped_column(String, unique=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
+class UserWorkflowPreferenceRow(Base):
+    __tablename__ = "user_workflow_preferences"
+    __table_args__ = (UniqueConstraint("scope", "application", "candidate_id"),)
+
+    preference_id: Mapped[str] = mapped_column(String, primary_key=True)
+    scope: Mapped[str] = mapped_column(String)
+    application: Mapped[str | None] = mapped_column(String, nullable=True)
+    candidate_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class SuggestionRankingDecisionRow(Base):
+    __tablename__ = "suggestion_ranking_decisions"
+
+    decision_id: Mapped[str] = mapped_column(String, primary_key=True)
+    suggestion_id: Mapped[str] = mapped_column(String, index=True)
+    candidate_id: Mapped[str] = mapped_column(String, index=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
+class WorkflowAdaptationProposalRow(Base):
+    __tablename__ = "workflow_adaptation_proposals"
+
+    proposal_id: Mapped[str] = mapped_column(String, primary_key=True)
+    candidate_id: Mapped[str] = mapped_column(String, index=True)
+    source_suggestion_id: Mapped[str] = mapped_column(String, index=True)
     payload_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime]
 
@@ -903,6 +969,196 @@ class LearningRepository(Store):
                 AdaptiveExecutionDecision.model_validate_json(row.payload_json)
                 for row in database.scalars(statement)
             ]
+
+    def save_adaptive_suggestion(
+        self, suggestion: AdaptiveWorkflowSuggestion, *, evidence_key: str
+    ) -> tuple[AdaptiveWorkflowSuggestion, bool]:
+        payload = suggestion.model_dump(mode="json")
+        _ensure_safe_payload(payload)
+        with self.transaction() as database:
+            existing = database.scalar(
+                select(AdaptiveWorkflowSuggestionRow).where(
+                    AdaptiveWorkflowSuggestionRow.candidate_id == suggestion.candidate_id,
+                    AdaptiveWorkflowSuggestionRow.evidence_key == evidence_key,
+                )
+            )
+            if existing is not None:
+                return AdaptiveWorkflowSuggestion.model_validate_json(existing.payload_json), False
+            database.add(
+                AdaptiveWorkflowSuggestionRow(
+                    suggestion_id=suggestion.suggestion_id,
+                    candidate_id=suggestion.candidate_id,
+                    application=suggestion.application,
+                    evidence_key=evidence_key,
+                    status=suggestion.status.value,
+                    payload_json=suggestion.model_dump_json(),
+                    created_at=suggestion.created_at,
+                    updated_at=suggestion.updated_at,
+                )
+            )
+            self._append_learning_event(
+                database, "learning.suggestion.created", {"suggestion_id": suggestion.suggestion_id}
+            )
+        return suggestion, True
+
+    def update_adaptive_suggestion(
+        self, suggestion: AdaptiveWorkflowSuggestion
+    ) -> AdaptiveWorkflowSuggestion:
+        payload = suggestion.model_dump(mode="json")
+        _ensure_safe_payload(payload)
+        with self.transaction() as database:
+            row = database.get(AdaptiveWorkflowSuggestionRow, suggestion.suggestion_id)
+            if row is None:
+                raise KeyError(suggestion.suggestion_id)
+            row.status = suggestion.status.value
+            row.payload_json = suggestion.model_dump_json()
+            row.updated_at = suggestion.updated_at
+        return suggestion
+
+    def get_adaptive_suggestion(self, suggestion_id: str) -> AdaptiveWorkflowSuggestion:
+        with DbSession(self.engine) as database:
+            row = database.get(AdaptiveWorkflowSuggestionRow, suggestion_id)
+            if row is None:
+                raise KeyError(suggestion_id)
+            return AdaptiveWorkflowSuggestion.model_validate_json(row.payload_json)
+
+    def list_adaptive_suggestions(self) -> list[AdaptiveWorkflowSuggestion]:
+        with DbSession(self.engine) as database:
+            return [
+                AdaptiveWorkflowSuggestion.model_validate_json(row.payload_json)
+                for row in database.scalars(
+                    select(AdaptiveWorkflowSuggestionRow).order_by(
+                        AdaptiveWorkflowSuggestionRow.created_at.desc()
+                    )
+                )
+            ]
+
+    def save_suggestion_feedback(
+        self, feedback: SuggestionFeedback
+    ) -> tuple[SuggestionFeedback, bool]:
+        payload = feedback.model_dump(mode="json")
+        _ensure_safe_payload(payload)
+        with self.transaction() as database:
+            existing = database.scalar(
+                select(SuggestionFeedbackRow).where(
+                    SuggestionFeedbackRow.idempotency_key == feedback.idempotency_key
+                )
+            )
+            if existing is not None:
+                return SuggestionFeedback.model_validate_json(existing.payload_json), False
+            database.add(
+                SuggestionFeedbackRow(
+                    feedback_id=feedback.feedback_id,
+                    suggestion_id=feedback.suggestion_id,
+                    candidate_id=feedback.candidate_id,
+                    kind=feedback.kind.value,
+                    idempotency_key=feedback.idempotency_key,
+                    payload_json=feedback.model_dump_json(),
+                    created_at=feedback.created_at,
+                )
+            )
+            self._append_learning_event(
+                database,
+                "learning.suggestion.feedback",
+                {"suggestion_id": feedback.suggestion_id, "kind": feedback.kind.value},
+            )
+        return feedback, True
+
+    def count_suggestion_feedback(self, candidate_id: str, kind: str) -> int:
+        with DbSession(self.engine) as database:
+            return int(
+                database.scalar(
+                    select(func.count())
+                    .select_from(SuggestionFeedbackRow)
+                    .where(
+                        SuggestionFeedbackRow.candidate_id == candidate_id,
+                        SuggestionFeedbackRow.kind == kind,
+                    )
+                )
+                or 0
+            )
+
+    def save_workflow_preference(
+        self, preference: UserWorkflowPreference
+    ) -> UserWorkflowPreference:
+        payload = preference.model_dump(mode="json")
+        _ensure_safe_payload(payload)
+        with self.transaction() as database:
+            row = database.scalar(
+                select(UserWorkflowPreferenceRow).where(
+                    UserWorkflowPreferenceRow.scope == preference.scope.value,
+                    UserWorkflowPreferenceRow.application == preference.application,
+                    UserWorkflowPreferenceRow.candidate_id == preference.candidate_id,
+                )
+            )
+            if row is None:
+                database.add(
+                    UserWorkflowPreferenceRow(
+                        preference_id=preference.preference_id,
+                        scope=preference.scope.value,
+                        application=preference.application,
+                        candidate_id=preference.candidate_id,
+                        payload_json=preference.model_dump_json(),
+                        created_at=preference.created_at,
+                        updated_at=preference.updated_at,
+                    )
+                )
+            else:
+                row.payload_json = preference.model_dump_json()
+                row.updated_at = preference.updated_at
+            self._append_learning_event(
+                database,
+                "learning.suggestion.preference",
+                {"preference_id": preference.preference_id, "scope": preference.scope.value},
+            )
+        return preference
+
+    def list_workflow_preferences(self) -> list[UserWorkflowPreference]:
+        with DbSession(self.engine) as database:
+            return [
+                UserWorkflowPreference.model_validate_json(row.payload_json)
+                for row in database.scalars(
+                    select(UserWorkflowPreferenceRow).order_by(
+                        UserWorkflowPreferenceRow.updated_at.desc()
+                    )
+                )
+            ]
+
+    def save_suggestion_ranking(
+        self, decision: SuggestionRankingDecision
+    ) -> SuggestionRankingDecision:
+        payload = decision.model_dump(mode="json")
+        _ensure_safe_payload(payload)
+        with self.transaction() as database:
+            if database.get(SuggestionRankingDecisionRow, decision.decision_id) is None:
+                database.add(
+                    SuggestionRankingDecisionRow(
+                        decision_id=decision.decision_id,
+                        suggestion_id=decision.suggestion_id,
+                        candidate_id=decision.candidate_id,
+                        payload_json=decision.model_dump_json(),
+                        created_at=decision.created_at,
+                    )
+                )
+        return decision
+
+    def save_adaptation_proposal(
+        self, proposal: WorkflowAdaptationProposal
+    ) -> WorkflowAdaptationProposal:
+        payload = proposal.model_dump(mode="json")
+        _ensure_safe_payload(payload)
+        with self.transaction() as database:
+            if database.get(WorkflowAdaptationProposalRow, proposal.proposal_id) is None:
+                database.add(
+                    WorkflowAdaptationProposalRow(
+                        proposal_id=proposal.proposal_id,
+                        candidate_id=proposal.candidate_id,
+                        source_suggestion_id=proposal.source_suggestion_id,
+                        payload_json=proposal.model_dump_json(),
+                        created_at=proposal.created_at,
+                    )
+                )
+        return proposal
 
     def create_policy_version(
         self, *, checkpoint_sha256: str | None, training_run_id: str | None = None
