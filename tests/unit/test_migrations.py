@@ -11,4 +11,13 @@ def test_alembic_upgrade_creates_versioned_runtime_schema(tmp_path: Path) -> Non
     upgrade_database(database)
 
     tables = set(inspect(create_engine(f"sqlite:///{database}")).get_table_names())
-    assert {"alembic_version", "sessions", "tasks", "approvals", "events"} <= tables
+    assert {
+        "adaptive_workflow_suggestions",
+        "alembic_version",
+        "approvals",
+        "events",
+        "sessions",
+        "suggestion_feedback",
+        "user_workflow_preferences",
+        "tasks",
+    } <= tables

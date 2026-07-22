@@ -23,7 +23,13 @@ from mllminal.agent.factory import create_provider
 from mllminal.agent.runtime import MilRuntime, PendingTask, ProviderFailure
 from mllminal.apps.contracts import CapabilityRequest, CapabilityResult
 from mllminal.apps.service import ApplicationBridgeService
-from mllminal.assistance.contracts import AssistanceRequest
+from mllminal.assistance.adaptive import AdaptiveSuggestionService
+from mllminal.assistance.contracts import (
+    AssistanceRequest,
+    PreferenceUpdateRequest,
+    SuggestionFeedbackRequest,
+    SuggestionProposalRequest,
+)
 from mllminal.assistance.service import ProactiveAssistanceService
 from mllminal.automl.contracts import AutoMLRequest
 from mllminal.automl.service import LocalAutoMLService
@@ -196,6 +202,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     langgraph = LangGraphWorkflowAdapter()
     automl = LocalAutoMLService()
     assistance = ProactiveAssistanceService()
+    suggestions = AdaptiveSuggestionService(
+        learning_repository,
+        emergency_stop_active=lambda: privacy.status().emergency_stop_active,
+    )
     demonstration = DemonstrationService(
         settings.database_path,
         interaction,
@@ -236,6 +246,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.langgraph = langgraph
     app.state.automl = automl
     app.state.assistance = assistance
+    app.state.suggestions = suggestions
     app.state.demonstration = demonstration
     app.state.demonstration_bridge = demonstration_bridge
 
@@ -806,6 +817,38 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def assistance_suggest(body: AssistanceRequest) -> dict[str, Any]:
         mined = mining.mine(interaction.events(), body.mining)
         return assistance.suggest(mined, body).model_dump(mode="json")
+
+    @app.get("/v1/suggestions", dependencies=protected)
+    async def suggestion_list() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in suggestions.suggestions()]
+
+    @app.post("/v1/suggestions/propose", dependencies=protected)
+    async def suggestion_propose(body: SuggestionProposalRequest) -> dict[str, Any]:
+        return suggestions.propose(
+            body.candidate, verification_available=body.verification_available
+        ).model_dump(mode="json")
+
+    @app.post("/v1/suggestions/{suggestion_id}/feedback", dependencies=protected)
+    async def suggestion_feedback(
+        suggestion_id: str,
+        body: SuggestionFeedbackRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return suggestions.feedback(
+            suggestion_id, body.kind, idempotency_key=idempotency_key
+        ).model_dump(mode="json")
+
+    @app.get("/v1/suggestion-preferences", dependencies=protected)
+    async def suggestion_preferences() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in suggestions.preferences()]
+
+    @app.put("/v1/suggestion-preferences", dependencies=protected)
+    async def suggestion_preference(body: PreferenceUpdateRequest) -> dict[str, Any]:
+        return suggestions.set_preference(body.preference).model_dump(mode="json")
+
+    @app.post("/v1/suggestions/{suggestion_id}/adapt", dependencies=protected)
+    async def suggestion_adapt(suggestion_id: str) -> dict[str, Any]:
+        return suggestions.propose_adaptation(suggestion_id).model_dump(mode="json")
 
     @app.post("/v1/adapters/langgraph", dependencies=protected)
     async def langgraph_spec(body: WorkflowCreateRequest) -> dict[str, Any]:
