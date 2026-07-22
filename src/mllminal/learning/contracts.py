@@ -59,6 +59,16 @@ class PolicyAction(StrEnum):
     STOP_SAFELY = "STOP_SAFELY"
 
 
+class PolicyDomain(StrEnum):
+    BACKEND_RANKING = "BACKEND_RANKING"
+    SUGGESTION_RANKING = "SUGGESTION_RANKING"
+    SUGGESTION_TIMING = "SUGGESTION_TIMING"
+    CLARIFICATION_POLICY = "CLARIFICATION_POLICY"
+    VERIFICATION_RANKING = "VERIFICATION_RANKING"
+    REPAIR_RANKING = "REPAIR_RANKING"
+    ADAPTATION_RANKING = "ADAPTATION_RANKING"
+
+
 class PolicyCheckpoint(StrEnum):
     REQUEST_RECEIVED = "REQUEST_RECEIVED"
     PLAN_READY = "PLAN_READY"
@@ -185,6 +195,37 @@ class ExperienceRecord(LearningContract):
     synthetic: bool = False
     training_enabled: bool = False
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class TrainingExperience(LearningContract):
+    """Privacy-approved, minimized evidence for one advisory policy domain."""
+
+    experience_id: str = Field(default_factory=new_id)
+    policy_domain: PolicyDomain
+    source_record_type: str = Field(min_length=1, max_length=128)
+    source_record_id: str = Field(min_length=1, max_length=128)
+    context_features: dict[str, float] = Field(default_factory=dict)
+    candidate_actions: tuple[str, ...] = Field(min_length=1, max_length=32)
+    selected_action: str | None = Field(default=None, max_length=128)
+    baseline_score: float | None = None
+    policy_score: float | None = None
+    execution_outcome: str | None = Field(default=None, max_length=64)
+    verification_outcome: str | None = Field(default=None, max_length=64)
+    user_feedback: str | None = Field(default=None, max_length=64)
+    reward: float | None = None
+    reward_components: dict[str, float] = Field(default_factory=dict)
+    reward_formula_version: str = Field(default="rewards_v2", max_length=64)
+    privacy_approved: bool = False
+    eligible_for_training: bool = False
+    exclusion_reason: str | None = Field(default=None, max_length=128)
+    feature_schema_version: str = Field(default="training_features_v1", max_length=64)
+    created_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def require_privacy_for_eligible_training(self) -> Self:
+        if self.eligible_for_training and not self.privacy_approved:
+            raise ValueError("training experience must be privacy approved")
+        return self
 
 
 class ReplaySample(LearningContract):
