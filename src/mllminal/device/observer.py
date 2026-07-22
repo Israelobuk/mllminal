@@ -114,7 +114,7 @@ class DeviceObserver:
             return False
         event = normalize_signal(signal)
         fingerprint = json.dumps(
-            event.model_dump(mode="json", exclude={"event_id", "monotonic_sequence"}),
+            event.model_dump(mode="json", exclude={"event_id", "monotonic_sequence", "timestamp"}),
             sort_keys=True,
             separators=(",", ":"),
         )

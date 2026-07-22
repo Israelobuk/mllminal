@@ -5,6 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
+from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from mllminal.learning.contracts import PolicyDomain, ReplaySnapshot, TrainingExperience
 
@@ -62,3 +66,44 @@ def _digest(value: object) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def materialize_replay_snapshot(
+    experiences: list[TrainingExperience],
+    *,
+    policy_domain: PolicyDomain,
+    seed: int,
+    root: Path,
+) -> ReplaySnapshot:
+    """Write one immutable, minimized Parquet replay dataset for offline use."""
+
+    snapshot = build_replay_snapshot(experiences, policy_domain=policy_domain, seed=seed)
+    included = [
+        experience
+        for experience in experiences
+        if experience.experience_id in set(snapshot.included_experience_ids)
+    ]
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{snapshot.dataset_digest}.parquet"
+    if not path.exists():
+        table = pa.table(
+            {
+                "experience_id": [item.experience_id for item in included],
+                "policy_domain": [item.policy_domain.value for item in included],
+                "source_record_type": [item.source_record_type for item in included],
+                "source_record_id": [item.source_record_id for item in included],
+                "context_features_json": [
+                    json.dumps(item.context_features, sort_keys=True) for item in included
+                ],
+                "candidate_actions_json": [json.dumps(item.candidate_actions) for item in included],
+                "selected_action": [item.selected_action for item in included],
+                "baseline_score": [item.baseline_score for item in included],
+                "reward": [item.reward for item in included],
+                "reward_components_json": [
+                    json.dumps(item.reward_components, sort_keys=True) for item in included
+                ],
+                "reward_formula_version": [item.reward_formula_version for item in included],
+            }
+        )
+        pq.write_table(table, path, compression="zstd")  # type: ignore[no-untyped-call]
+    return snapshot.model_copy(update={"storage_path": str(path)})
