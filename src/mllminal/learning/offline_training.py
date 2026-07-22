@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
+from hashlib import sha256
+from pathlib import Path
+from typing import Any, cast
 
 import torch
 from torch import Tensor, nn
@@ -100,3 +102,69 @@ def train_offline_candidate(
     network.eval()
     model = OfflineCandidateModel(network, actions, encoder.schema_version)
     return OfflineTrainingResult(model=model, action_labels=actions, losses=tuple(losses))
+
+
+class OfflineCandidateCheckpointError(ValueError):
+    """Raised when a local offline candidate artifact is invalid or incompatible."""
+
+
+def save_offline_candidate(model: OfflineCandidateModel, path: Path) -> str:
+    """Save one CPU candidate with schema metadata and return its SHA-256 digest."""
+
+    input_layer = model.network.layers[0]
+    hidden_layer = model.network.layers[2]
+    if not isinstance(input_layer, nn.Linear) or not isinstance(hidden_layer, nn.Linear):
+        raise OfflineCandidateCheckpointError("candidate network architecture is unsupported")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {
+        "artifact_type": "offline_policy_network_v1",
+        "feature_schema_version": model.feature_schema_version,
+        "action_labels": model.action_labels,
+        "input_dimension": input_layer.in_features,
+        "hidden_size": input_layer.out_features,
+        "output_dimension": hidden_layer.out_features,
+        "state_dict": model.network.state_dict(),
+    }
+    torch.save(payload, path)
+    return sha256(path.read_bytes()).hexdigest()
+
+
+def load_offline_candidate(path: Path) -> OfflineCandidateModel:
+    """Load a local CPU candidate only when its metadata and weights are compatible."""
+
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=True)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise OfflineCandidateCheckpointError("candidate artifact could not be loaded") from error
+    if not isinstance(payload, dict) or payload.get("artifact_type") != "offline_policy_network_v1":
+        raise OfflineCandidateCheckpointError("candidate artifact metadata is invalid")
+    action_labels = payload.get("action_labels")
+    input_dimension = payload.get("input_dimension")
+    hidden_size = payload.get("hidden_size")
+    output_dimension = payload.get("output_dimension")
+    feature_schema_version = payload.get("feature_schema_version")
+    state_dict = payload.get("state_dict")
+    if (
+        not isinstance(action_labels, tuple)
+        or not all(isinstance(label, str) for label in action_labels)
+        or not isinstance(input_dimension, int)
+        or not isinstance(hidden_size, int)
+        or not isinstance(output_dimension, int)
+        or not isinstance(feature_schema_version, str)
+        or not isinstance(state_dict, dict)
+        or output_dimension != len(action_labels)
+    ):
+        raise OfflineCandidateCheckpointError("candidate artifact fields are invalid")
+    network = OfflinePolicyNetwork(input_dimension, output_dimension, hidden_size).cpu()
+    try:
+        network.load_state_dict(state_dict, strict=True)
+    except (RuntimeError, TypeError) as error:
+        raise OfflineCandidateCheckpointError(
+            "candidate artifact weights are incompatible"
+        ) from error
+    network.eval()
+    return OfflineCandidateModel(
+        network=network,
+        action_labels=action_labels,
+        feature_schema_version=feature_schema_version,
+    )
