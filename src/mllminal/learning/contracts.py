@@ -228,6 +228,27 @@ class TrainingExperience(LearningContract):
         return self
 
 
+class ReplaySnapshot(LearningContract):
+    """Immutable metadata for one deterministic local replay dataset."""
+
+    snapshot_id: str = Field(default_factory=new_id)
+    policy_domain: PolicyDomain
+    feature_schema_version: str = Field(default="training_features_v1", max_length=64)
+    source_window_start: datetime | None = None
+    source_window_end: datetime | None = None
+    experience_count: int = Field(ge=0)
+    included_experience_ids: tuple[str, ...] = ()
+    excluded_experience_count: int = Field(default=0, ge=0)
+    exclusion_reasons: dict[str, int] = Field(default_factory=dict)
+    dataset_digest: str = Field(min_length=64, max_length=64)
+    split_digest: str = Field(min_length=64, max_length=64)
+    random_seed: int = 42
+    storage_format: Literal["PARQUET"] = "PARQUET"
+    storage_path: str | None = None
+    status: Literal["SNAPSHOT_READY"] = "SNAPSHOT_READY"
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class ReplaySample(LearningContract):
     id: str = Field(default_factory=new_id)
     replay_entry_id: int = Field(default=0, ge=0)

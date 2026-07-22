@@ -42,6 +42,7 @@ from mllminal.learning.contracts import (
     PromotionDecision,
     PromotionOutcome,
     ReplaySample,
+    ReplaySnapshot,
     RollbackRecord,
     TrainingRun,
     utc_now,
@@ -224,6 +225,16 @@ class WorkflowAdaptationProposalRow(Base):
     proposal_id: Mapped[str] = mapped_column(String, primary_key=True)
     candidate_id: Mapped[str] = mapped_column(String, index=True)
     source_suggestion_id: Mapped[str] = mapped_column(String, index=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
+class ReplaySnapshotRow(Base):
+    __tablename__ = "replay_snapshots"
+
+    snapshot_id: Mapped[str] = mapped_column(String, primary_key=True)
+    policy_domain: Mapped[str] = mapped_column(String, index=True)
+    dataset_digest: Mapped[str] = mapped_column(String, unique=True)
     payload_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime]
 
@@ -1159,6 +1170,52 @@ class LearningRepository(Store):
                     )
                 )
         return proposal
+
+    def save_replay_snapshot(self, snapshot: ReplaySnapshot) -> ReplaySnapshot:
+        payload = snapshot.model_dump(mode="json")
+        _ensure_safe_payload(payload)
+        with self.transaction() as database:
+            existing = database.get(ReplaySnapshotRow, snapshot.snapshot_id)
+            if existing is not None:
+                if existing.payload_json != snapshot.model_dump_json():
+                    raise ValueError("replay snapshot is immutable")
+                return ReplaySnapshot.model_validate_json(existing.payload_json)
+            duplicate = database.scalar(
+                select(ReplaySnapshotRow).where(
+                    ReplaySnapshotRow.dataset_digest == snapshot.dataset_digest
+                )
+            )
+            if duplicate is not None:
+                return ReplaySnapshot.model_validate_json(duplicate.payload_json)
+            database.add(
+                ReplaySnapshotRow(
+                    snapshot_id=snapshot.snapshot_id,
+                    policy_domain=snapshot.policy_domain.value,
+                    dataset_digest=snapshot.dataset_digest,
+                    payload_json=snapshot.model_dump_json(),
+                    created_at=snapshot.created_at,
+                )
+            )
+            self._append_learning_event(
+                database, "learning.replay_snapshot.created", {"snapshot_id": snapshot.snapshot_id}
+            )
+        return snapshot
+
+    def get_replay_snapshot(self, snapshot_id: str) -> ReplaySnapshot:
+        with DbSession(self.engine) as database:
+            row = database.get(ReplaySnapshotRow, snapshot_id)
+            if row is None:
+                raise KeyError(snapshot_id)
+            return ReplaySnapshot.model_validate_json(row.payload_json)
+
+    def list_replay_snapshots(self) -> list[ReplaySnapshot]:
+        with DbSession(self.engine) as database:
+            return [
+                ReplaySnapshot.model_validate_json(row.payload_json)
+                for row in database.scalars(
+                    select(ReplaySnapshotRow).order_by(ReplaySnapshotRow.created_at)
+                )
+            ]
 
     def create_policy_version(
         self, *, checkpoint_sha256: str | None, training_run_id: str | None = None
