@@ -53,6 +53,10 @@ def test_passing_evaluation_persists_typed_report_and_completion_event(tmp_path:
     assert result.report.candidate_policy_id == candidate.id
     assert result.metrics.action_accuracy == 1.0
     assert repository.get_evaluation_report(result.report.id) == result.report
+    assert (
+        repository.get_policy_version(candidate.id).lifecycle
+        is PolicyLifecycle.ELIGIBLE_FOR_PROMOTION
+    )
     assert repository.list_events()[-1].event_type == "learning.evaluation.completed"
 
 

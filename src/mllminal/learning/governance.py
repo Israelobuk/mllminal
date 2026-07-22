@@ -62,14 +62,34 @@ class CandidateGovernanceService:
             rejection_reasons=metrics.rejection_reasons,
         )
         self.repository.save_evaluation_report(report)
-        self.repository.append_event(
-            "learning.evaluation.completed",
-            {"evaluation_report_id": report.id, "candidate_policy_id": candidate_policy_id},
+        self.repository.update_offline_candidate(
+            candidate_policy_id,
+            lifecycle=(
+                PolicyLifecycle.ELIGIBLE_FOR_PROMOTION
+                if report.passed
+                else PolicyLifecycle.EVALUATED
+            ),
+            evaluation_metrics={
+                "action_accuracy": report.action_accuracy,
+                "reward_weighted_accuracy": report.reward_weighted_accuracy,
+                "average_predicted_reward": report.average_predicted_reward,
+            },
+            baseline_metrics={
+                "reward_weighted_accuracy": report.baseline_reward_weighted_accuracy,
+            },
+            safety_checks={
+                "no_invalid_actions": report.invalid_action_rate == 0.0,
+                "no_safety_regression": report.regression_pass_rate == 1.0,
+            },
         )
         if not report.passed:
             self.repository.reject_policy(
                 candidate_policy_id, reason=",".join(metrics.rejection_reasons)
             )
+        self.repository.append_event(
+            "learning.evaluation.completed",
+            {"evaluation_report_id": report.id, "candidate_policy_id": candidate_policy_id},
+        )
         return GovernedEvaluation(report=report, metrics=metrics)
 
     def promote(
