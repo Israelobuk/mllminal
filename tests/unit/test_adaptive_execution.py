@@ -7,6 +7,7 @@ from mllminal.learning.adaptive import (
     AdaptiveExecutionRequest,
     AdaptiveExecutionService,
 )
+from mllminal.learning.contracts import PolicyDomain
 from mllminal.learning.profile_contracts import ApplicationInteractionProfile
 from mllminal.learning.profiles import ApplicationInteractionProfileService
 from mllminal.learning.replay import LearningRepository
@@ -177,3 +178,53 @@ def test_adaptive_requests_reject_sensitive_target_material(tmp_path: Path) -> N
                 update={"target_signature": "password:do-not-store"}
             )
         )
+
+
+def test_adaptive_outcomes_create_minimized_backend_training_experience(tmp_path: Path) -> None:
+    service, profile = _adaptive(tmp_path / "learning.db")
+
+    decision = service.decide(_request(profile, "run-collector"))
+    service.record_outcome(
+        decision.decision_id,
+        execution_succeeded=True,
+        verification_passed=True,
+    )
+
+    experiences = service.repository.list_training_experiences(
+        policy_domain=PolicyDomain.BACKEND_RANKING
+    )
+    assert len(experiences) == 1
+    experience = experiences[0]
+    assert experience.source_record_type == "adaptive_execution"
+    assert experience.source_record_id == decision.decision_id
+    assert experience.selected_action == "windows.uia"
+    assert experience.eligible_for_training is True
+    assert experience.reward == 1.0
+    assert "target_signature" not in experience.context_features
+    assert all("open-button" not in str(value) for value in experience.context_features.values())
+
+    service.record_outcome(
+        decision.decision_id,
+        execution_succeeded=True,
+        verification_passed=True,
+    )
+    assert len(service.repository.list_training_experiences(PolicyDomain.BACKEND_RANKING)) == 1
+
+
+def test_emergency_adaptive_evidence_is_persisted_but_not_training_eligible(tmp_path: Path) -> None:
+    service, profile = _adaptive(
+        tmp_path / "emergency-learning.db", emergency_stop_active=lambda: True
+    )
+
+    decision = service.decide(_request(profile, "run-emergency"))
+    updated = service.record_outcome(
+        decision.decision_id,
+        execution_succeeded=False,
+        verification_passed=False,
+    )
+
+    assert updated.selected_backend is None
+    experience = service.repository.list_training_experiences(PolicyDomain.BACKEND_RANKING)[0]
+    assert experience.eligible_for_training is False
+    assert experience.context_features["emergency_stop"] == 1.0
+    assert all("open-button" not in str(value) for value in experience.context_features.values())
