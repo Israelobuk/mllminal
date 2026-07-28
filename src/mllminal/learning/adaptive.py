@@ -8,6 +8,7 @@ from mllminal.learning.adaptive_contracts import (
     AdaptiveExecutionRequest,
     RejectedBackend,
 )
+from mllminal.learning.offline_collection import training_experience_from_adaptive_decision
 from mllminal.learning.profile_contracts import (
     ApplicationInteractionProfile,
     BackendOutcomeRequest,
@@ -128,12 +129,15 @@ class AdaptiveExecutionService:
     ) -> AdaptiveExecutionDecision:
         decision = self.decision(decision_id)
         if decision.selected_backend is None:
-            return decision.model_copy(
+            updated = decision.model_copy(
                 update={
                     "execution_outcome": "not_executed",
                     "verification_outcome": "not_run",
                 }
             )
+            saved = self.repository.save_adaptive_decision(updated)
+            self._save_training_experience(saved)
+            return saved
         outcome = (
             ProfileOutcome.VERIFIED
             if execution_succeeded and verification_passed
@@ -176,7 +180,14 @@ class AdaptiveExecutionService:
                 "reward_signal_id": experience.experience_id if experience else None,
             }
         )
-        return self.repository.save_adaptive_decision(updated)
+        saved = self.repository.save_adaptive_decision(updated)
+        self._save_training_experience(saved)
+        return saved
+
+    def _save_training_experience(self, decision: AdaptiveExecutionDecision) -> None:
+        self.repository.save_training_experience(
+            training_experience_from_adaptive_decision(decision)
+        )
 
     def decision(self, decision_id: str) -> AdaptiveExecutionDecision:
         return self.repository.get_adaptive_decision(decision_id)
