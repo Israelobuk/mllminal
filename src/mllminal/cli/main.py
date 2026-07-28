@@ -39,9 +39,11 @@ from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
 from mllminal.learning.adaptive import AdaptiveExecutionService
-from mllminal.learning.contracts import PolicyVersion
+from mllminal.learning.contracts import PolicyDomain, PolicyVersion
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
+from mllminal.learning.offline_service import OfflinePolicyTrainingService
+from mllminal.learning.offline_training import OfflineTrainingConfig
 from mllminal.learning.profile_contracts import (
     BackendOutcomeRequest,
     ProfileExperienceRequest,
@@ -408,6 +410,32 @@ def create_app(
             typer.echo("No previous promoted policy is available for rollback.")
             raise typer.Exit(code=1) from None
         typer.echo(f"Rolled back to: {record.to_policy_version_id}")
+
+    @learning.command("offline-train")
+    def offline_train_learning(
+        policy_domain: PolicyDomain,
+        epochs: int = typer.Option(20, min=1, max=100),
+        hidden_size: int = typer.Option(16, min=1, max=128),
+    ) -> None:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        result = OfflinePolicyTrainingService(
+            repository, resolved_settings.data_dir / "learning" / "offline"
+        ).train(
+            policy_domain,
+            OfflineTrainingConfig(
+                seed=repository.get_settings().seed,
+                epochs=epochs,
+                hidden_size=hidden_size,
+            ),
+            timeout_seconds=30,
+        )
+        typer.echo(f"Training run: {result.training_run.id}")
+        typer.echo(f"Candidate policy: {result.candidate.name}")
+        typer.echo(f"Candidate lifecycle: {result.candidate.lifecycle.value}")
+        typer.echo("Automatic promotion: Disabled")
+        if result.worker.status != "COMPLETED":
+            raise typer.Exit(code=1)
 
     @learning.command("train")
     def train_learning() -> None:
