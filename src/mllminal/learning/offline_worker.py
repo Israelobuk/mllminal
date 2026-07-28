@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty
@@ -35,6 +37,7 @@ def run_isolated_training(
     *,
     timeout_seconds: float,
     checkpoint_path: Path | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> TrainingWorkerResult:
     """Train in one spawned process and return only safe summary metadata."""
 
@@ -46,11 +49,20 @@ def run_isolated_training(
         daemon=False,
     )
     process.start()
-    process.join(timeout_seconds)
-    if process.is_alive():
-        process.terminate()
-        process.join()
-        return TrainingWorkerResult(status="TIMED_OUT", failure_reason="training_timeout")
+    deadline = time.monotonic() + timeout_seconds
+    while process.is_alive():
+        remaining = max(0.0, deadline - time.monotonic())
+        process.join(min(0.05, remaining))
+        if not process.is_alive():
+            break
+        if cancel_requested is not None and cancel_requested():
+            process.terminate()
+            process.join()
+            return TrainingWorkerResult(status="CANCELLED", failure_reason="training_cancelled")
+        if time.monotonic() >= deadline:
+            process.terminate()
+            process.join()
+            return TrainingWorkerResult(status="TIMED_OUT", failure_reason="training_timeout")
     try:
         result = result_queue.get(timeout=1)
     except Empty:
