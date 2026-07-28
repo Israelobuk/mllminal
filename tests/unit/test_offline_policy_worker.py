@@ -59,3 +59,21 @@ def test_isolated_worker_writes_a_durable_candidate_checkpoint(tmp_path: Path) -
     assert result.checkpoint_path == str(checkpoint)
     assert result.checkpoint_sha256 is not None
     assert checkpoint.exists()
+
+
+def test_isolated_worker_can_be_cancelled_before_completion() -> None:
+    result = run_isolated_training(
+        [
+            _experience("one", 0.9, "present"),
+            _experience("two", 0.8, "present"),
+            _experience("three", 0.1, "defer"),
+            _experience("four", 0.2, "defer"),
+        ],
+        TrainingFeatureEncoder.for_domain(PolicyDomain.SUGGESTION_RANKING),
+        OfflineTrainingConfig(seed=11, epochs=5000, hidden_size=8),
+        timeout_seconds=30,
+        cancel_requested=lambda: True,
+    )
+
+    assert result.status == "CANCELLED"
+    assert result.failure_reason == "training_cancelled"
