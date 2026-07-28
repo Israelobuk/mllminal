@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -62,6 +63,7 @@ class OfflinePolicyTrainingService:
         config: OfflineTrainingConfig,
         *,
         timeout_seconds: float,
+        cancel_requested: Callable[[], bool] | None = None,
     ) -> OfflineTrainingJobResult:
         """Create a snapshot, run isolated CPU training, and durably record its candidate."""
 
@@ -97,11 +99,14 @@ class OfflinePolicyTrainingService:
             config,
             timeout_seconds=timeout_seconds,
             checkpoint_path=checkpoint,
+            cancel_requested=cancel_requested,
         )
         if worker.status != "COMPLETED" or worker.checkpoint_sha256 is None:
             failed = run.model_copy(
                 update={
-                    "status": RunStatus.FAILED,
+                    "status": RunStatus.CANCELLED
+                    if worker.status == "CANCELLED"
+                    else RunStatus.FAILED,
                     "failure_reason": worker.failure_reason or "offline_training_failed",
                     "completed_at": utc_now(),
                 }
