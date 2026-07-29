@@ -9,6 +9,7 @@ from mllminal.learning.adaptive_contracts import (
     RejectedBackend,
 )
 from mllminal.learning.backend_runtime import BackendPolicyRuntime, BackendPolicyStatus
+from mllminal.learning.drift import BehavioralDriftDetector, PolicyDriftReport
 from mllminal.learning.metrics import AdaptiveOutcomeMetrics, summarize_backend_outcomes
 from mllminal.learning.offline_collection import training_experience_from_adaptive_decision
 from mllminal.learning.profile_contracts import (
@@ -350,6 +351,9 @@ class AdaptiveExecutionService:
 
     def decision(self, decision_id: str) -> AdaptiveExecutionDecision:
         return self.repository.get_adaptive_decision(decision_id)
+
+    def drift_report(self) -> PolicyDriftReport:
+        return BehavioralDriftDetector().assess(self.decisions())
 
     def outcome_metrics(self) -> AdaptiveOutcomeMetrics:
         return summarize_backend_outcomes(self.decisions())

@@ -1036,6 +1036,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def adaptive_decisions() -> list[dict[str, Any]]:
         return [item.model_dump(mode="json") for item in adaptive.decisions()]
 
+    @app.get("/v1/adaptive/drift", dependencies=protected)
+    async def adaptive_drift() -> dict[str, Any]:
+        return adaptive.drift_report().model_dump(mode="json")
+
     @app.get("/v1/adaptive/metrics", dependencies=protected)
     async def adaptive_metrics() -> dict[str, Any]:
         return adaptive.outcome_metrics().model_dump(mode="json")
