@@ -40,6 +40,9 @@ def test_backpressure_duplicates_ordering_and_persist_before_publish(tmp_path: P
     assert published[0] == events[0]
     assert observer.status.dropped_events == 1
     assert observer.status.duplicate_events == 1
+    observer.stop()
+    observer.stop()
+    assert observer.status.state == "STOPPED"
 
 
 def test_adapter_failure_isolated_and_restart_is_durable(tmp_path: Path) -> None:
