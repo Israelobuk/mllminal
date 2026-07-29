@@ -39,6 +39,7 @@ class DesktopSnapshot:
     visual: dict[str, Any] | None = None
     suggestions: list[dict[str, Any]] = field(default_factory=list)
     suggestion_preferences: list[dict[str, Any]] = field(default_factory=list)
+    active_policy: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
 
 
@@ -91,6 +92,7 @@ class DaemonClient:
             visual = await self.request("GET", "/v1/visual/latest")
             suggestions = await self.request("GET", "/v1/suggestions")
             suggestion_preferences = await self.request("GET", "/v1/suggestion-preferences")
+            active_policy = await self.request("GET", "/v1/adaptive/policy/status")
         except PermissionError as error:
             return DesktopSnapshot(DesktopState.AUTHENTICATION_FAILED, error=str(error))
         except (httpx.ConnectError, httpx.TimeoutException) as error:
@@ -113,6 +115,7 @@ class DaemonClient:
             visual=None if visual is None else _dict(visual),
             suggestions=_list(suggestions),
             suggestion_preferences=_list(suggestion_preferences),
+            active_policy=_dict(active_policy),
         )
 
     async def ensure_session(self) -> str:

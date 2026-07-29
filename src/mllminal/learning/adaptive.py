@@ -8,6 +8,7 @@ from mllminal.learning.adaptive_contracts import (
     AdaptiveExecutionRequest,
     RejectedBackend,
 )
+from mllminal.learning.backend_runtime import BackendPolicyRuntime, BackendPolicyStatus
 from mllminal.learning.offline_collection import training_experience_from_adaptive_decision
 from mllminal.learning.profile_contracts import (
     ApplicationInteractionProfile,
@@ -31,10 +32,14 @@ class AdaptiveExecutionService:
         profiles: ApplicationInteractionProfileService,
         *,
         emergency_stop_active: Callable[[], bool] | None = None,
+        policy_runtime: BackendPolicyRuntime | None = None,
     ) -> None:
         self.repository = repository
         self.profiles = profiles
         self.emergency_stop_active = emergency_stop_active or (lambda: False)
+        self.policy_runtime = policy_runtime or BackendPolicyRuntime(
+            repository, repository.database_path.parent / "learning" / "checkpoints"
+        )
 
     def decide(self, request: AdaptiveExecutionRequest) -> AdaptiveExecutionDecision:
         request = AdaptiveExecutionRequest.model_validate(request.model_dump())
@@ -67,7 +72,7 @@ class AdaptiveExecutionService:
             if record.abstract_action == request.abstract_action
             and record.target_type == self._target_type(request.target_signature)
         }
-        ranked = sorted(
+        deterministic_ranked = sorted(
             eligible,
             key=lambda candidate: self._rank_key(
                 candidate, records.get(candidate.backend), profile, request.target_signature
@@ -78,8 +83,41 @@ class AdaptiveExecutionService:
             candidate.backend: self._snapshot(
                 candidate, records.get(candidate.backend), profile, request.target_signature
             )
-            for candidate in ranked
+            for candidate in deterministic_ranked
         }
+        advisory_result = (
+            self.policy_runtime.evaluate(request, eligible, profile, records)
+            if eligible and not emergency
+            else self.policy_runtime.status()
+        )
+        if isinstance(advisory_result, BackendPolicyStatus):
+            advisory_scores: dict[str, float] = {}
+            advisory_policy = advisory_result.as_dict()
+        else:
+            advisory_scores = advisory_result.scores
+            advisory_policy = advisory_result.provenance.as_dict()
+        advisory_used = bool(advisory_scores)
+        weight = self.policy_runtime.advisory_weight if advisory_used else 0.0
+        hierarchy = {backend: -index for index, backend in enumerate(INTERACTION_BACKEND_HIERARCHY)}
+        deterministic_scores = {
+            backend: float(snapshot["score"]) for backend, snapshot in snapshots.items()
+        }
+        combined_scores = {
+            candidate.backend: ((1.0 - weight) * deterministic_scores[candidate.backend])
+            + (weight * advisory_scores.get(candidate.backend, 0.5))
+            for candidate in deterministic_ranked
+        }
+        ranked = sorted(
+            deterministic_ranked,
+            key=lambda candidate: (
+                combined_scores[candidate.backend],
+                hierarchy.get(candidate.backend, -len(hierarchy)),
+                candidate.backend,
+            ),
+            reverse=True,
+        )
+        advisory_policy["used_in_ranking"] = advisory_used
+        advisory_policy["effective_weight"] = weight
         selected = ranked[0].backend if ranked else None
         clarification = self._clarification_required(
             ranked, snapshots, profile, request.target_signature
@@ -97,11 +135,19 @@ class AdaptiveExecutionService:
         else:
             snapshot = snapshots[selected]
             verified_successes = snapshot["verification_passes"]
-            reason = (
-                f"Selected {selected} using deterministic profile evidence: reliability "
-                f"{snapshot['reliability']:.2f}, verified successes {verified_successes}, "
-                f"and fragility {snapshot['fragility']:.2f}."
-            )
+            if advisory_used:
+                reason = (
+                    f"Selected {selected} after deterministic safety filtering; deterministic "
+                    f"score {deterministic_scores[selected]:.2f}, advisory score "
+                    f"{advisory_scores.get(selected, 0.5):.2f}, combined score "
+                    f"{combined_scores[selected]:.2f}. Advisory weight is bounded at {weight:.2f}."
+                )
+            else:
+                reason = (
+                    f"Selected {selected} using deterministic profile evidence: reliability "
+                    f"{snapshot['reliability']:.2f}, verified successes {verified_successes}, "
+                    f"and fragility {snapshot['fragility']:.2f}."
+                )
         decision = AdaptiveExecutionDecision(
             workflow_run_id=request.workflow_run_id,
             workflow_step_id=request.workflow_step_id,
@@ -112,6 +158,10 @@ class AdaptiveExecutionService:
             rejected_backends=rejected,
             selected_backend=selected,
             reliability_snapshot=snapshots,
+            deterministic_scores=deterministic_scores,
+            advisory_scores=advisory_scores,
+            combined_scores=combined_scores,
+            advisory_policy=advisory_policy,
             safety_filters_applied=filters,
             policy_version=request.policy_version,
             decision_reason=reason,
@@ -188,6 +238,15 @@ class AdaptiveExecutionService:
         self.repository.save_training_experience(
             training_experience_from_adaptive_decision(decision)
         )
+
+    def policy_status(self) -> dict[str, object]:
+        status = self.policy_runtime.status().as_dict()
+        settings = self.repository.get_settings()
+        status["automatic_promotion_enabled"] = settings.automatic_promotion_enabled
+        status["automatic_retraining_enabled"] = False
+        status["active_policy_version_id"] = settings.active_policy_version_id
+        status["policy_version"] = "active-advisory-backend-ranking-v1"
+        return status
 
     def decision(self, decision_id: str) -> AdaptiveExecutionDecision:
         return self.repository.get_adaptive_decision(decision_id)

@@ -53,6 +53,7 @@ from mllminal.interaction.contracts import InteractionEvent
 from mllminal.interaction.service import InteractionService
 from mllminal.langgraph.adapter import LangGraphWorkflowAdapter
 from mllminal.learning.adaptive import AdaptiveExecutionService
+from mllminal.learning.backend_runtime import BackendPolicyRuntime
 from mllminal.learning.contracts import PolicyDomain
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
@@ -198,6 +199,9 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         learning_repository,
         profiles,
         emergency_stop_active=lambda: privacy.status().emergency_stop_active,
+        policy_runtime=BackendPolicyRuntime(
+            learning_repository, settings.data_dir / "learning" / "checkpoints"
+        ),
     )
     workflow = WorkflowService(settings.database_path, adaptive=adaptive)
     repair = WorkflowRepairService(workflow, settings.data_dir / "workflow-repair")
@@ -1066,13 +1070,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
 
     @app.get("/v1/adaptive/policy/status", dependencies=protected)
     async def adaptive_policy_status() -> dict[str, Any]:
-        status = learning_repository.get_settings()
-        return {
-            "policy_version": "deterministic-profile-policy-v1",
-            "advisory_only": True,
-            "automatic_promotion_enabled": status.automatic_promotion_enabled,
-            "active_policy_version_id": status.active_policy_version_id,
-        }
+        return adaptive.policy_status()
 
     @app.get("/v1/learning/status", dependencies=protected)
     async def learning_status() -> dict[str, Any]:
