@@ -32,6 +32,48 @@ _CAPABILITY_ACTIONS = {
     "delete": "filesystem.delete_to_recycle_bin",
     "create_folder": "filesystem.create_folder",
 }
+_READ_ONLY_CAPABILITIES = {
+    "filesystem.list",
+    "filesystem.inspect",
+    "filesystem.find_latest",
+    "filesystem.exists",
+    "filesystem.hash",
+    "file.locate",
+    "spreadsheet.inspect",
+    "spreadsheet.verify_output",
+    "email.detect_client",
+    "email.verify_draft",
+    "application.launch",
+    "application.focus",
+    "application.inspect_state",
+    "window.find",
+    "window.focus",
+    "control.find",
+    "control.read_state",
+    "field.verify",
+    "dialog.detect",
+    "browser.inspect_dom",
+    "browser.extract_structured",
+    "state.wait",
+    "state.verify",
+    "result.capture",
+}
+_CONSEQUENTIAL_CAPABILITY_PREFIXES = (
+    "filesystem.",
+    "file.",
+    "spreadsheet.",
+    "email.",
+    "document.",
+    "draft.",
+    "field.",
+    "control.",
+    "keyboard.",
+    "pointer.",
+    "menu.",
+    "dialog.",
+    "browser.",
+    "table.",
+)
 
 
 class WorkflowCompilerService:
@@ -59,19 +101,7 @@ class WorkflowCompilerService:
                     )
                 )
                 capability = f"unsupported.{mined_step.kind}"
-            consequential = capability.startswith(
-                ("filesystem.", "spreadsheet.", "email.")
-            ) and capability not in {
-                "filesystem.list",
-                "filesystem.inspect",
-                "filesystem.find_latest",
-                "filesystem.exists",
-                "filesystem.hash",
-                "spreadsheet.inspect",
-                "spreadsheet.verify_output",
-                "email.detect_client",
-                "email.verify_draft",
-            }
+            consequential = self._is_consequential(capability)
             approval_required = consequential
             arguments = self._arguments(capability, inferred, constants, index)
             rollback = (
@@ -218,16 +248,28 @@ class WorkflowCompilerService:
     @staticmethod
     def _capability(step: MinedStep) -> str | None:
         action = (step.action_type or "").casefold().replace(" ", "_")
+        if "export" in action:
+            return "document.export"
+        if "draft" in action:
+            return "draft.create"
         if step.kind == "file.operation":
             for key, capability in _CAPABILITY_ACTIONS.items():
                 if key in action:
                     return capability
         if step.kind == "control.invoked":
-            if step.application.casefold() == "excel" and "export" in action:
-                return "spreadsheet.export_pdf"
-            if step.application.casefold() in {"email", "outlook"} and "draft" in action:
-                return "email.create_draft"
+            if any(token in action for token in ("select", "choose")):
+                return "control.select"
+            if any(token in action for token in ("set", "type", "enter", "fill")):
+                return "field.set"
+            if any(token in action for token in ("click", "invoke", "press", "open")):
+                return "control.invoke"
         return None
+
+    @staticmethod
+    def _is_consequential(capability: str) -> bool:
+        return capability.startswith(_CONSEQUENTIAL_CAPABILITY_PREFIXES) and (
+            capability not in _READ_ONLY_CAPABILITIES
+        )
 
     @staticmethod
     def _arguments(
@@ -254,12 +296,31 @@ class WorkflowCompilerService:
     def _permission(
         capability: str, consequential: bool, approval_required: bool
     ) -> PermissionManifestEntry | None:
-        if capability.startswith("filesystem."):
+        if capability.startswith(("filesystem.", "file.")):
             scope = "filesystem.write" if consequential else "filesystem.read"
         elif capability.startswith("spreadsheet."):
             scope = "spreadsheet.export" if consequential else "spreadsheet.read"
         elif capability.startswith("email."):
             scope = "email.draft"
+        elif capability.startswith("document."):
+            scope = "document.write" if consequential else "document.read"
+        elif capability.startswith("draft."):
+            scope = "draft.write" if consequential else "draft.read"
+        elif capability.startswith(
+            (
+                "application.",
+                "window.",
+                "control.",
+                "field.",
+                "keyboard.",
+                "pointer.",
+                "menu.",
+                "dialog.",
+                "browser.",
+                "table.",
+            )
+        ):
+            scope = "application.write" if consequential else "application.read"
         else:
             return None
         return PermissionManifestEntry(
@@ -277,7 +338,11 @@ class WorkflowCompilerService:
             return "Verify destination exists and optional hash matches"
         if capability == "spreadsheet.export_pdf":
             return "Verify PDF exists and is non-empty"
+        if capability == "document.export":
+            return "Verify exported artifact exists and is non-empty"
         if capability == "email.create_draft":
+            return "Verify draft exists and remains unsent"
+        if capability == "draft.create":
             return "Verify draft exists and remains unsent"
         if capability.startswith("unsupported."):
             return "Unavailable until a bounded adapter is selected"
@@ -298,7 +363,7 @@ class WorkflowCompilerService:
         if any(item.name == "reporting_date" for item in inferred):
             questions.append("Confirm the reporting date format and timezone before each run.")
         if any(
-            step.kind == "control.invoked" and "email" in step.application.casefold()
+            step.kind == "control.invoked" and "draft" in (step.action_type or "").casefold()
             for step in candidates[0].steps
         ):
             questions.append(
