@@ -48,11 +48,13 @@ from mllminal.learning.offline_training import OfflineTrainingConfig
 from mllminal.learning.profile_contracts import (
     BackendOutcomeRequest,
     ProfileExperienceRequest,
+    VerificationRankingRequest,
 )
 from mllminal.learning.profiles import ApplicationInteractionProfileService
 from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
+from mllminal.learning.verification_runtime import VerificationRankingService
 from mllminal.mining.contracts import MiningRequest
 from mllminal.mining.service import WorkflowMiningService
 from mllminal.privacy.contracts import (
@@ -214,6 +216,13 @@ def create_app(
         repository = LearningRepository(resolved_settings.database_path)
         repository.initialize()
         return ApplicationInteractionProfileService(repository)
+
+    def verification_ranking_service() -> VerificationRankingService:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        return VerificationRankingService(
+            repository, resolved_settings.data_dir / "learning" / "checkpoints"
+        )
 
     def adaptive_service() -> AdaptiveExecutionService:
         repository = LearningRepository(resolved_settings.database_path)
@@ -874,6 +883,23 @@ def create_app(
             )
             .model_dump_json()
         )
+
+    @adaptive.command("verification-ranking")
+    def adaptive_verification_ranking(payload: str) -> None:
+        request = VerificationRankingRequest.model_validate_json(payload)
+        typer.echo(
+            verification_ranking_service()
+            .rank(
+                request.candidates,
+                profile_id=request.profile_id,
+                context_features=request.context_features,
+            )
+            .model_dump_json()
+        )
+
+    @adaptive.command("verification-policy-status")
+    def adaptive_verification_policy_status() -> None:
+        typer.echo(json.dumps(verification_ranking_service().policy_status(), sort_keys=True))
 
     @adaptive.command("evaluate")
     def adaptive_evaluate() -> None:

@@ -110,6 +110,38 @@ class ProfileExperienceRequest(Contract):
     provenance: dict[str, Any] = Field(default_factory=dict)
 
 
+class VerificationMethodCandidate(Contract):
+    """A bounded, independently eligible verification method to rank."""
+
+    method: str = Field(min_length=1, max_length=128)
+    deterministic_score: float = Field(ge=0.0, le=1.0)
+    available: bool = True
+    eligible: bool = True
+
+
+class VerificationRankingDecision(Contract):
+    """Durable score provenance; the verifier remains the authority."""
+
+    id: str = Field(default_factory=new_id)
+    profile_id: str | None = None
+    selected_method: str | None = None
+    ordered_methods: list[str] = Field(default_factory=list, max_length=32)
+    deterministic_scores: dict[str, float] = Field(default_factory=dict)
+    advisory_scores: dict[str, float] = Field(default_factory=dict)
+    combined_scores: dict[str, float] = Field(default_factory=dict)
+    advisory_policy: dict[str, Any] = Field(default_factory=dict)
+    explanation: list[str] = Field(default_factory=list, max_length=32)
+    verification_authoritative: bool = True
+    model_can_only_rank: bool = True
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class VerificationRankingRequest(Contract):
+    profile_id: str | None = None
+    candidates: list[VerificationMethodCandidate] = Field(default_factory=list, max_length=32)
+    context_features: dict[str, float] = Field(default_factory=dict)
+
+
 class BackendResolution(Contract):
     profile_id: str
     abstract_action: str

@@ -143,6 +143,8 @@ class MLLminalDesktopApp(App[None]):
             f"Permissions: {len(snapshot.permissions)}\n"
             "Policy: "
             + ("active" if snapshot.active_policy.get("active") else "deterministic fallback")
+            + "\nVerification policy: "
+            + ("active" if snapshot.verification_policy.get("active") else "deterministic fallback")
         )
         self.query_one("#suggestions", Static).update(
             f"Suggestions: {len(snapshot.suggestions)}\n"

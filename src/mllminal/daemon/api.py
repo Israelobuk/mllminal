@@ -62,12 +62,14 @@ from mllminal.learning.offline_training import OfflineTrainingConfig
 from mllminal.learning.profile_contracts import (
     BackendOutcomeRequest,
     ProfileExperienceRequest,
+    VerificationRankingRequest,
 )
 from mllminal.learning.profiles import ApplicationInteractionProfileService
 from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.runtime_advisory import LearningRuntimeAdvisor
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
+from mllminal.learning.verification_runtime import VerificationRankingService
 from mllminal.mining.contracts import MiningRequest
 from mllminal.mining.service import WorkflowMiningService
 from mllminal.privacy.contracts import (
@@ -217,6 +219,9 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         emergency_stop_active=lambda: privacy.status().emergency_stop_active,
     )
     visual = LocalVisualVerificationService(settings.data_dir / "visual")
+    verification_ranking = VerificationRankingService(
+        learning_repository, settings.data_dir / "learning" / "checkpoints"
+    )
     vision_runtime = LocalVisionRuntime(settings.data_dir / "vision", privacy, visual)
     mining = WorkflowMiningService()
     compiler = WorkflowCompilerService()
@@ -263,6 +268,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.applications = applications
     app.state.acceptance = acceptance
     app.state.visual = visual
+    app.state.verification_ranking = verification_ranking
     app.state.vision_runtime = vision_runtime
     app.state.mining = mining
     app.state.compiler = compiler
@@ -1043,6 +1049,18 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.get("/v1/adaptive/metrics", dependencies=protected)
     async def adaptive_metrics() -> dict[str, Any]:
         return adaptive.outcome_metrics().model_dump(mode="json")
+
+    @app.post("/v1/adaptive/verification-ranking", dependencies=protected)
+    async def adaptive_verification_ranking(body: VerificationRankingRequest) -> dict[str, Any]:
+        return verification_ranking.rank(
+            body.candidates,
+            profile_id=body.profile_id,
+            context_features=body.context_features,
+        ).model_dump(mode="json")
+
+    @app.get("/v1/adaptive/verification-ranking/status", dependencies=protected)
+    async def adaptive_verification_ranking_status() -> dict[str, Any]:
+        return verification_ranking.policy_status()
 
     @app.get("/v1/adaptive/decision/{decision_id}", dependencies=protected)
     async def adaptive_decision(decision_id: str) -> dict[str, Any]:
