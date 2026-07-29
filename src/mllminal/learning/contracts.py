@@ -325,6 +325,60 @@ class PolicyVersion(LearningContract):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class ActivePolicyStatus(StrEnum):
+    INACTIVE = "INACTIVE"
+    SHADOW = "SHADOW"
+    ACTIVE = "ACTIVE"
+    DEGRADED = "DEGRADED"
+    CIRCUIT_OPEN = "CIRCUIT_OPEN"
+    ROLLED_BACK = "ROLLED_BACK"
+    SUPERSEDED = "SUPERSEDED"
+    INVALID = "INVALID"
+
+
+class FallbackPolicy(StrEnum):
+    DETERMINISTIC = "DETERMINISTIC"
+
+
+class CircuitBreakerConfig(LearningContract):
+    failure_threshold: int = Field(default=3, ge=1, le=100)
+    latency_budget_ms: int = Field(default=50, ge=1, le=10_000)
+    rolling_window: int = Field(default=100, ge=1, le=10_000)
+
+
+class ActivePolicyBinding(LearningContract):
+    """Durable domain-scoped binding independent from candidate promotion."""
+
+    binding_id: str = Field(default_factory=new_id)
+    policy_domain: PolicyDomain
+    candidate_id: str
+    policy_version: int = Field(ge=1)
+    artifact_path: str = Field(min_length=1, max_length=512)
+    artifact_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    feature_schema_version: str = Field(min_length=1, max_length=64)
+    action_schema_version: str = Field(min_length=1, max_length=64)
+    runtime_version: str = Field(default="runtime_v1", min_length=1, max_length=64)
+    advisory_weight: float = Field(default=0.2, ge=0.0, le=0.5)
+    confidence_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
+    latency_budget_ms: int = Field(default=50, ge=1, le=10_000)
+    circuit_breaker_config: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
+    activated_at: datetime | None = None
+    activated_by: str | None = Field(default=None, max_length=128)
+    previous_binding_id: str | None = None
+    fallback_policy: FallbackPolicy = FallbackPolicy.DETERMINISTIC
+    status: ActivePolicyStatus = ActivePolicyStatus.INACTIVE
+    status_reason: str | None = Field(default=None, max_length=256)
+    last_loaded_at: datetime | None = None
+    last_inference_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_failure_at: datetime | None = None
+    consecutive_failure_count: int = Field(default=0, ge=0)
+    rolling_failure_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    rollback_target_id: str | None = None
+    idempotency_key: str | None = Field(default=None, max_length=256)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class PromotionDecision(LearningContract):
     id: str = Field(default_factory=new_id)
     policy_version_id: str

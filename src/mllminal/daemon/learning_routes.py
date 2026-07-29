@@ -10,7 +10,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from mllminal.contracts import ErrorEnvelope
-from mllminal.learning.contracts import PolicyDomain
+from mllminal.learning.active_policy_registry import (
+    ActivePolicyRegistry,
+    ActivePolicyValidationError,
+)
+from mllminal.learning.contracts import ActivePolicyStatus, PolicyDomain
 from mllminal.learning.evaluation import EvaluationCase
 from mllminal.learning.governance import CandidateGovernanceService, PromotionApprovalError
 from mllminal.learning.offline_jobs import OfflineTrainingJobManager
@@ -25,6 +29,18 @@ class ReplaySnapshotRequest(BaseModel):
     seed: int = 42
 
 
+class ActivePolicyEnableRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str
+    activated_by: str = "daemon_operator"
+    feature_schema_version: str | None = None
+    action_schema_version: str | None = None
+    advisory_weight: float = 0.2
+    confidence_threshold: float = 0.65
+    latency_budget_ms: int = 50
+
+
 class PromotionApproval(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -33,6 +49,8 @@ class PromotionApproval(BaseModel):
 
 def register_learning_routes(app: FastAPI, settings: Any, token: str) -> None:
     repository = app.state.learning_repository
+    registry = ActivePolicyRegistry(repository, settings.data_dir / "learning" / "checkpoints")
+    app.state.active_policy_registry = registry
     jobs = OfflineTrainingJobManager(repository, settings.data_dir / "learning" / "offline")
     app.state.offline_jobs = jobs
 
@@ -82,6 +100,72 @@ def register_learning_routes(app: FastAPI, settings: Any, token: str) -> None:
         return cast(
             dict[str, Any], repository.get_replay_snapshot(snapshot_id).model_dump(mode="json")
         )
+
+    @app.get("/v1/learning/policies/active", dependencies=[Depends(authorize)])
+    async def active_policy_bindings() -> list[dict[str, Any]]:
+        return [binding.model_dump(mode="json") for binding in registry.list()]
+
+    @app.get("/v1/learning/policies/active/{domain}", dependencies=[Depends(authorize)])
+    async def active_policy_binding(domain: PolicyDomain) -> dict[str, Any]:
+        binding = registry.active(domain)
+        if binding is None:
+            raise KeyError(domain.value)
+        return binding.model_dump(mode="json")
+
+    @app.post(
+        "/v1/learning/policies/active/{domain}/enable",
+        dependencies=[Depends(authorize)],
+        response_model=None,
+    )
+    async def enable_active_policy(
+        domain: PolicyDomain,
+        body: ActivePolicyEnableRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any] | JSONResponse:
+        candidate = repository.get_policy_version(body.candidate_id)
+        if candidate.policy_domain is not domain:
+            return error(
+                "policy_domain_mismatch", "Candidate policy domain does not match the route", 422
+            )
+        try:
+            binding = registry.activate(
+                body.candidate_id,
+                activated_by=body.activated_by,
+                idempotency_key=idempotency_key,
+                mode=ActivePolicyStatus.ACTIVE,
+                feature_schema_version=body.feature_schema_version,
+                action_schema_version=body.action_schema_version,
+                advisory_weight=body.advisory_weight,
+                confidence_threshold=body.confidence_threshold,
+                latency_budget_ms=body.latency_budget_ms,
+            )
+        except ActivePolicyValidationError as exception:
+            return error("active_policy_invalid", str(exception), 422)
+        return binding.model_dump(mode="json")
+
+    @app.post(
+        "/v1/learning/policies/active/{domain}/disable",
+        dependencies=[Depends(authorize)],
+        response_model=None,
+    )
+    async def disable_active_policy(
+        domain: PolicyDomain,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any] | JSONResponse:
+        binding = registry.disable(
+            domain, reason="operator disabled active policy", idempotency_key=idempotency_key
+        )
+        return binding.model_dump(mode="json")
+
+    @app.post("/v1/learning/policies/active/{domain}/rollback", dependencies=[Depends(authorize)])
+    async def rollback_active_policy(
+        domain: PolicyDomain,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        binding = registry.rollback(
+            domain, reason="operator rolled back active policy", idempotency_key=idempotency_key
+        )
+        return binding.model_dump(mode="json")
 
     @app.get("/v1/learning/policies/{policy_id}", dependencies=[Depends(authorize)])
     async def get_policy(policy_id: str) -> dict[str, Any]:

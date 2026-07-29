@@ -83,3 +83,49 @@ def test_offline_training_job_endpoint_is_authenticated_and_advisory(tmp_path: P
     assert response.json()["candidate"]["lifecycle"] == "TRAINED"
     assert response.json()["candidate"]["checkpoint_sha256"]
     assert response.json()["training_run"]["status"] == "COMPLETED"
+
+
+def test_active_policy_bindings_are_authenticated_domain_scoped_and_disableable(
+    tmp_path: Path,
+) -> None:
+    client, headers = _client(tmp_path)
+    repository = client.app.state.learning_repository
+    candidate = repository.create_policy_version(
+        checkpoint_sha256="a" * 64,
+        policy_domain="SUGGESTION_RANKING",
+        feature_schema_version="training_features_v1",
+    )
+    artifact = tmp_path / "data" / "learning" / "checkpoints" / f"{candidate.name}.pt"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(b"artifact")
+    import hashlib
+
+    repository.update_policy_checkpoint(candidate.id, hashlib.sha256(b"artifact").hexdigest())
+
+    assert client.get("/v1/learning/policies/active").status_code == 401
+    assert client.get("/v1/learning/policies/active", headers=headers).json() == []
+    enabled = client.post(
+        "/v1/learning/policies/active/SUGGESTION_RANKING/enable",
+        headers={**headers, "Idempotency-Key": "enable-suggestion"},
+        json={"candidate_id": candidate.id, "activated_by": "operator"},
+    )
+
+    assert enabled.status_code == 200
+    assert enabled.json()["status"] == "ACTIVE"
+    assert (
+        client.get("/v1/learning/policies/active/SUGGESTION_RANKING", headers=headers).json()[
+            "candidate_id"
+        ]
+        == candidate.id
+    )
+
+    disabled = client.post(
+        "/v1/learning/policies/active/SUGGESTION_RANKING/disable",
+        headers={**headers, "Idempotency-Key": "disable-suggestion"},
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["status"] == "INACTIVE"
+    assert (
+        client.get("/v1/learning/policies/active/SUGGESTION_RANKING", headers=headers).status_code
+        == 404
+    )

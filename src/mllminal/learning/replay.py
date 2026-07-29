@@ -32,6 +32,8 @@ from mllminal.learning.adaptive_contracts import AdaptiveExecutionDecision
 from mllminal.learning.contracts import (
     ACTION_SPACE_VERSION,
     FEATURE_VERSION,
+    ActivePolicyBinding,
+    ActivePolicyStatus,
     EvaluationReport,
     ExperienceRecord,
     LearningStatus,
@@ -287,6 +289,17 @@ Index(
     unique=True,
     sqlite_where=PolicyVersionRow.promoted.is_(True),
 )
+
+
+class ActivePolicyBindingRow(Base):
+    __tablename__ = "active_policy_bindings"
+
+    binding_id: Mapped[str] = mapped_column(String, primary_key=True)
+    policy_domain: Mapped[str] = mapped_column(String, index=True)
+    status: Mapped[str] = mapped_column(String, index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
 
 
 class PromotionRecordRow(Base):
@@ -1388,6 +1401,222 @@ class LearningRepository(Store):
                     select(PolicyVersionRow).order_by(PolicyVersionRow.version)
                 )
             ]
+
+    def save_active_policy_binding(
+        self, binding: ActivePolicyBinding
+    ) -> tuple[ActivePolicyBinding, bool]:
+        payload = binding.model_dump_json()
+        _ensure_safe_payload(json.loads(payload))
+        with self.transaction() as database:
+            if binding.idempotency_key is not None:
+                existing = database.scalar(
+                    select(ActivePolicyBindingRow).where(
+                        ActivePolicyBindingRow.idempotency_key == binding.idempotency_key
+                    )
+                )
+                if existing is not None:
+                    return ActivePolicyBinding.model_validate_json(existing.payload_json), False
+            row = database.get(ActivePolicyBindingRow, binding.binding_id)
+            if row is None:
+                database.add(
+                    ActivePolicyBindingRow(
+                        binding_id=binding.binding_id,
+                        policy_domain=binding.policy_domain.value,
+                        status=binding.status.value,
+                        idempotency_key=binding.idempotency_key,
+                        payload_json=payload,
+                        created_at=binding.created_at,
+                    )
+                )
+            else:
+                row.policy_domain = binding.policy_domain.value
+                row.status = binding.status.value
+                row.idempotency_key = binding.idempotency_key
+                row.payload_json = payload
+            self._append_learning_event(
+                database,
+                "learning.active_policy_binding.updated",
+                {
+                    "binding_id": binding.binding_id,
+                    "policy_domain": binding.policy_domain.value,
+                    "status": binding.status.value,
+                },
+            )
+        return binding, True
+
+    def activate_active_policy_binding(
+        self, binding: ActivePolicyBinding
+    ) -> tuple[ActivePolicyBinding, bool]:
+        payload = binding.model_dump_json()
+        _ensure_safe_payload(json.loads(payload))
+        with self.transaction() as database:
+            if binding.idempotency_key is not None:
+                existing = database.scalar(
+                    select(ActivePolicyBindingRow).where(
+                        ActivePolicyBindingRow.idempotency_key == binding.idempotency_key
+                    )
+                )
+                if existing is not None:
+                    return ActivePolicyBinding.model_validate_json(existing.payload_json), False
+            current = database.scalar(
+                select(ActivePolicyBindingRow).where(
+                    ActivePolicyBindingRow.policy_domain == binding.policy_domain.value,
+                    ActivePolicyBindingRow.status == ActivePolicyStatus.ACTIVE.value,
+                )
+            )
+            if current is not None:
+                current_binding = ActivePolicyBinding.model_validate_json(
+                    current.payload_json
+                ).model_copy(
+                    update={
+                        "status": ActivePolicyStatus.SUPERSEDED,
+                        "status_reason": "replaced by explicit activation",
+                    }
+                )
+                current.status = current_binding.status.value
+                current.payload_json = current_binding.model_dump_json()
+                binding = binding.model_copy(update={"previous_binding_id": current.binding_id})
+                payload = binding.model_dump_json()
+            database.add(
+                ActivePolicyBindingRow(
+                    binding_id=binding.binding_id,
+                    policy_domain=binding.policy_domain.value,
+                    status=binding.status.value,
+                    idempotency_key=binding.idempotency_key,
+                    payload_json=payload,
+                    created_at=binding.created_at,
+                )
+            )
+            self._append_learning_event(
+                database,
+                "learning.active_policy_binding.activated",
+                {
+                    "binding_id": binding.binding_id,
+                    "policy_domain": binding.policy_domain.value,
+                    "status": binding.status.value,
+                },
+            )
+        return binding, True
+
+    def get_active_policy_binding(self, binding_id: str) -> ActivePolicyBinding:
+        with DbSession(self.engine) as database:
+            row = database.get(ActivePolicyBindingRow, binding_id)
+            if row is None:
+                raise KeyError(binding_id)
+            return ActivePolicyBinding.model_validate_json(row.payload_json)
+
+    def list_active_policy_bindings(
+        self, policy_domain: PolicyDomain | None = None
+    ) -> list[ActivePolicyBinding]:
+        with DbSession(self.engine) as database:
+            statement = select(ActivePolicyBindingRow).order_by(ActivePolicyBindingRow.created_at)
+            if policy_domain is not None:
+                statement = statement.where(
+                    ActivePolicyBindingRow.policy_domain == policy_domain.value
+                )
+            return [
+                ActivePolicyBinding.model_validate_json(row.payload_json)
+                for row in database.scalars(statement)
+            ]
+
+    def get_active_policy_binding_for_domain(
+        self, policy_domain: PolicyDomain
+    ) -> ActivePolicyBinding | None:
+        with DbSession(self.engine) as database:
+            row = database.scalar(
+                select(ActivePolicyBindingRow).where(
+                    ActivePolicyBindingRow.policy_domain == policy_domain.value,
+                    ActivePolicyBindingRow.status == ActivePolicyStatus.ACTIVE.value,
+                )
+            )
+            return (
+                ActivePolicyBinding.model_validate_json(row.payload_json)
+                if row is not None
+                else None
+            )
+
+    def disable_active_policy_binding(
+        self, policy_domain: PolicyDomain, *, reason: str, idempotency_key: str
+    ) -> tuple[ActivePolicyBinding, bool]:
+        binding = self.get_active_policy_binding_for_domain(policy_domain)
+        if binding is None:
+            raise KeyError(policy_domain.value)
+        if binding.idempotency_key == idempotency_key:
+            return binding, False
+        return self.save_active_policy_binding(
+            binding.model_copy(
+                update={
+                    "status": ActivePolicyStatus.INACTIVE,
+                    "status_reason": reason,
+                    "idempotency_key": idempotency_key,
+                }
+            )
+        )
+
+    def rollback_active_policy_binding(
+        self, policy_domain: PolicyDomain, *, reason: str, idempotency_key: str
+    ) -> tuple[ActivePolicyBinding, bool]:
+        with self.transaction() as database:
+            existing = database.scalar(
+                select(ActivePolicyBindingRow).where(
+                    ActivePolicyBindingRow.idempotency_key == idempotency_key
+                )
+            )
+            if existing is not None:
+                existing_binding = ActivePolicyBinding.model_validate_json(existing.payload_json)
+                if existing_binding.rollback_target_id is not None:
+                    target_row = database.get(
+                        ActivePolicyBindingRow, existing_binding.rollback_target_id
+                    )
+                    if target_row is not None:
+                        return ActivePolicyBinding.model_validate_json(
+                            target_row.payload_json
+                        ), False
+                return existing_binding, False
+            current_row = database.scalar(
+                select(ActivePolicyBindingRow).where(
+                    ActivePolicyBindingRow.policy_domain == policy_domain.value,
+                    ActivePolicyBindingRow.status == ActivePolicyStatus.ACTIVE.value,
+                )
+            )
+            if current_row is None:
+                raise KeyError(policy_domain.value)
+            current = ActivePolicyBinding.model_validate_json(current_row.payload_json)
+            if current.idempotency_key == idempotency_key:
+                return current, False
+            if current.previous_binding_id is None:
+                raise KeyError("rollback_target")
+            target_row = database.get(ActivePolicyBindingRow, current.previous_binding_id)
+            if target_row is None:
+                raise KeyError(current.previous_binding_id)
+            target = ActivePolicyBinding.model_validate_json(target_row.payload_json)
+            current = current.model_copy(
+                update={
+                    "status": ActivePolicyStatus.ROLLED_BACK,
+                    "status_reason": reason,
+                    "idempotency_key": idempotency_key,
+                    "rollback_target_id": target.binding_id,
+                }
+            )
+            target = target.model_copy(
+                update={"status": ActivePolicyStatus.ACTIVE, "status_reason": reason}
+            )
+            current_row.status = current.status.value
+            current_row.idempotency_key = current.idempotency_key
+            current_row.payload_json = current.model_dump_json()
+            target_row.status = target.status.value
+            target_row.idempotency_key = target.idempotency_key
+            target_row.payload_json = target.model_dump_json()
+            self._append_learning_event(
+                database,
+                "learning.active_policy_binding.rolled_back",
+                {
+                    "from_binding_id": current.binding_id,
+                    "to_binding_id": target.binding_id,
+                    "policy_domain": policy_domain.value,
+                },
+            )
+        return target, True
 
     def get_promoted_policy(self) -> PolicyVersion:
         with DbSession(self.engine) as database:
