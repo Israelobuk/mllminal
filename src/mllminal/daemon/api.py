@@ -202,6 +202,11 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         policy_runtime=BackendPolicyRuntime(
             learning_repository, settings.data_dir / "learning" / "checkpoints"
         ),
+        shadow_policy_runtime=BackendPolicyRuntime(
+            learning_repository,
+            settings.data_dir / "learning" / "checkpoints",
+            shadow_mode=True,
+        ),
     )
     workflow = WorkflowService(settings.database_path, adaptive=adaptive)
     repair = WorkflowRepairService(workflow, settings.data_dir / "workflow-repair")

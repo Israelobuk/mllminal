@@ -33,6 +33,7 @@ class AdaptiveExecutionService:
         *,
         emergency_stop_active: Callable[[], bool] | None = None,
         policy_runtime: BackendPolicyRuntime | None = None,
+        shadow_policy_runtime: BackendPolicyRuntime | None = None,
     ) -> None:
         self.repository = repository
         self.profiles = profiles
@@ -40,6 +41,8 @@ class AdaptiveExecutionService:
         self.policy_runtime = policy_runtime or BackendPolicyRuntime(
             repository, repository.database_path.parent / "learning" / "checkpoints"
         )
+
+        self.shadow_policy_runtime = shadow_policy_runtime
 
     def decide(self, request: AdaptiveExecutionRequest) -> AdaptiveExecutionDecision:
         request = AdaptiveExecutionRequest.model_validate(request.model_dump())
@@ -118,10 +121,59 @@ class AdaptiveExecutionService:
         )
         advisory_policy["used_in_ranking"] = advisory_used
         advisory_policy["effective_weight"] = weight
+        shadow_advisory_scores: dict[str, float] = {}
+        shadow_policy: dict[str, object] = {}
+        shadow_weight = 0.0
+        if self.shadow_policy_runtime is not None:
+            shadow_result = (
+                self.shadow_policy_runtime.evaluate(request, eligible, profile, records)
+                if eligible and not emergency
+                else self.shadow_policy_runtime.status()
+            )
+            if isinstance(shadow_result, BackendPolicyStatus):
+                shadow_policy = shadow_result.as_dict()
+            else:
+                shadow_advisory_scores = shadow_result.scores
+                shadow_policy = shadow_result.provenance.as_dict()
+            shadow_weight = (
+                self.shadow_policy_runtime.advisory_weight if shadow_advisory_scores else 0.0
+            )
+            shadow_policy["used_in_ranking"] = False
+            shadow_policy["evaluation_only"] = True
+            shadow_policy["effective_weight"] = shadow_weight
+
+        shadow_combined_scores = {
+            candidate.backend: ((1.0 - shadow_weight) * deterministic_scores[candidate.backend])
+            + (shadow_weight * shadow_advisory_scores.get(candidate.backend, 0.5))
+            for candidate in deterministic_ranked
+        }
+        shadow_ranked = sorted(
+            deterministic_ranked,
+            key=lambda candidate: (
+                shadow_combined_scores[candidate.backend],
+                hierarchy.get(candidate.backend, -len(hierarchy)),
+                candidate.backend,
+            ),
+            reverse=True,
+        )
+        shadow_selected_backend = (
+            shadow_ranked[0].backend if shadow_advisory_scores and shadow_ranked else None
+        )
         selected = ranked[0].backend if ranked else None
         clarification = self._clarification_required(
             ranked, snapshots, profile, request.target_signature
         )
+        shadow_rank_changed = (
+            shadow_selected_backend is not None
+            and selected is not None
+            and shadow_selected_backend != selected
+        )
+        shadow_explanation = None
+        if shadow_selected_backend is not None:
+            shadow_explanation = (
+                f"Shadow evaluation would select {shadow_selected_backend}; "
+                f"live selection remains {selected or 'none'}."
+            )
         if clarification:
             selected = None
         if selected is None:
@@ -164,8 +216,14 @@ class AdaptiveExecutionService:
             advisory_policy=advisory_policy,
             safety_filters_applied=filters,
             policy_version=request.policy_version,
-            decision_reason=reason,
+            decision_reason=reason + (f" {shadow_explanation}" if shadow_explanation else ""),
             clarification_required=clarification,
+            shadow_advisory_scores=shadow_advisory_scores,
+            shadow_combined_scores=shadow_combined_scores,
+            shadow_policy=shadow_policy,
+            shadow_selected_backend=shadow_selected_backend,
+            shadow_rank_changed=shadow_rank_changed,
+            shadow_explanation=shadow_explanation,
         )
         return self.repository.save_adaptive_decision(decision)
 

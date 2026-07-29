@@ -8,7 +8,7 @@ from typing import Any
 
 from mllminal.learning.active_policy_registry import ActivePolicyRegistry
 from mllminal.learning.adaptive_contracts import AdaptiveBackendCandidate, AdaptiveExecutionRequest
-from mllminal.learning.contracts import PolicyDomain
+from mllminal.learning.contracts import ActivePolicyStatus, PolicyDomain
 from mllminal.learning.offline_features import FEATURE_SCHEMA_VERSION, TrainingFeatureEncoder
 from mllminal.learning.offline_training import OfflineCandidateModel
 from mllminal.learning.profile_contracts import (
@@ -38,6 +38,7 @@ class BackendPolicyStatus:
     artifact_digest: str | None = None
     feature_schema_version: str | None = None
     schema_valid: bool = False
+    shadow: bool = False
     circuit_open: bool = False
     consecutive_failures: int = 0
     failure_threshold: int = FAILURE_THRESHOLD
@@ -67,6 +68,7 @@ class BackendPolicyRuntime:
         advisory_weight: float = ADVISORY_WEIGHT,
         failure_threshold: int = FAILURE_THRESHOLD,
         max_inference_seconds: float = MAX_INFERENCE_SECONDS,
+        shadow_mode: bool = False,
     ) -> None:
         if not 0.0 <= advisory_weight <= 0.5:
             raise ValueError("advisory weight must be between 0 and 0.5")
@@ -75,6 +77,7 @@ class BackendPolicyRuntime:
         self.advisory_weight = advisory_weight
         self.failure_threshold = max(1, failure_threshold)
         self.max_inference_seconds = max(0.001, max_inference_seconds)
+        self.shadow_mode = shadow_mode
         self._consecutive_failures = 0
         self._last_fallback_reason: str | None = None
         encoder = TrainingFeatureEncoder.for_domain(PolicyDomain.BACKEND_RANKING)
@@ -86,6 +89,7 @@ class BackendPolicyRuntime:
             expected_input_dimension=encoder.dimension,
             max_rows=MAX_CANDIDATES,
             max_inference_seconds=self.max_inference_seconds,
+            allow_shadow=shadow_mode,
         )
 
     def status(self) -> BackendPolicyStatus:
@@ -113,6 +117,7 @@ class BackendPolicyRuntime:
                 artifact_digest=adapter_status.artifact_digest,
                 feature_schema_version=adapter_status.feature_schema_version,
                 schema_valid=adapter_status.schema_valid,
+                shadow=adapter_status.shadow,
             )
 
     def evaluate(
@@ -166,7 +171,8 @@ class BackendPolicyRuntime:
         binding = loaded.binding
         policy = self.repository.get_policy_version(binding.candidate_id)
         status = self._status(
-            active=True,
+            active=binding.status is ActivePolicyStatus.ACTIVE,
+            shadow=binding.status is ActivePolicyStatus.SHADOW,
             policy_id=policy.id,
             policy_name=policy.name,
             binding_id=binding.binding_id,

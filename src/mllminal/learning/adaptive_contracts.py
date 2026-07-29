@@ -60,6 +60,12 @@ class AdaptiveExecutionDecision(Contract):
     deterministic_scores: dict[str, float] = Field(default_factory=dict)
     advisory_scores: dict[str, float] = Field(default_factory=dict)
     combined_scores: dict[str, float] = Field(default_factory=dict)
+    shadow_advisory_scores: dict[str, float] = Field(default_factory=dict)
+    shadow_combined_scores: dict[str, float] = Field(default_factory=dict)
+    shadow_policy: dict[str, Any] = Field(default_factory=dict)
+    shadow_selected_backend: str | None = None
+    shadow_rank_changed: bool = False
+    shadow_explanation: str | None = None
     advisory_policy: dict[str, Any] = Field(default_factory=dict)
     safety_filters_applied: list[str] = Field(default_factory=list)
     policy_version: str
