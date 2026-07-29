@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import torch
 
@@ -175,3 +176,29 @@ def test_rollback_to_policy_v0_disables_runtime_without_promoting_or_retraining(
     assert runtime.status().active is False
     assert service.repository.get_promoted_policy().id == fallback.id
     assert service.repository.get_policy_version(active.id).lifecycle.value == "ROLLED_BACK"
+
+
+def test_low_confidence_advisory_abstains_and_opens_runtime_circuit(
+    tmp_path: Path,
+) -> None:
+    service, runtime, profile = _runtime(tmp_path)
+    with patch.object(
+        runtime.adapter,
+        "infer",
+        return_value=((0.55, 0.54), (0.55, 0.54), (0.55, 0.54)),
+    ):
+        first = service.decide(_request(profile))
+        second = service.decide(
+            _request(profile).model_copy(update={"workflow_run_id": "low-confidence-2"})
+        )
+        third = service.decide(
+            _request(profile).model_copy(update={"workflow_run_id": "low-confidence-3"})
+        )
+
+    assert first.advisory_scores == {}
+    assert first.advisory_policy["last_fallback_reason"] == "advisory confidence below threshold"
+    assert first.advisory_policy["confidence_threshold"] == 0.65
+    assert first.selected_backend == "windows.uia"
+    assert second.advisory_scores == {}
+    assert third.advisory_policy["circuit_open"] is True
+    assert runtime.repository.get_promoted_policy().lifecycle.value == "ACTIVE"

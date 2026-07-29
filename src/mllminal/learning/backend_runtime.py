@@ -38,6 +38,7 @@ class BackendPolicyStatus:
     artifact_digest: str | None = None
     feature_schema_version: str | None = None
     schema_valid: bool = False
+    confidence_threshold: float = 0.65
     shadow: bool = False
     circuit_open: bool = False
     consecutive_failures: int = 0
@@ -78,6 +79,7 @@ class BackendPolicyRuntime:
         self.failure_threshold = max(1, failure_threshold)
         self.max_inference_seconds = max(0.001, max_inference_seconds)
         self.shadow_mode = shadow_mode
+        self.confidence_threshold = 0.65
         self._consecutive_failures = 0
         self._last_fallback_reason: str | None = None
         encoder = TrainingFeatureEncoder.for_domain(PolicyDomain.BACKEND_RANKING)
@@ -148,6 +150,8 @@ class BackendPolicyRuntime:
                 for index, candidate in enumerate(candidates)
                 if candidate.backend in labels
             }
+            if result and max(result.values()) < policy_status.confidence_threshold:
+                raise ValueError("advisory confidence below threshold")
             self._consecutive_failures = 0
             self._last_fallback_reason = None
             return BackendAdvisoryResult(result, policy_status)
@@ -169,6 +173,8 @@ class BackendPolicyRuntime:
     def _load(self) -> tuple[OfflineCandidateModel, BackendPolicyStatus]:
         loaded = self.adapter.load()
         binding = loaded.binding
+        self.failure_threshold = binding.circuit_breaker_config.failure_threshold
+        self.confidence_threshold = binding.confidence_threshold
         policy = self.repository.get_policy_version(binding.candidate_id)
         status = self._status(
             active=binding.status is ActivePolicyStatus.ACTIVE,
@@ -178,6 +184,7 @@ class BackendPolicyRuntime:
             binding_id=binding.binding_id,
             artifact_digest=binding.artifact_digest,
             feature_schema_version=binding.feature_schema_version,
+            confidence_threshold=binding.confidence_threshold,
             schema_valid=True,
         )
         return loaded.model, status
@@ -189,6 +196,7 @@ class BackendPolicyRuntime:
             circuit_open=self._consecutive_failures >= self.failure_threshold,
             consecutive_failures=self._consecutive_failures,
             last_fallback_reason=self._last_fallback_reason,
+            confidence_threshold=overrides.pop("confidence_threshold", self.confidence_threshold),
             **overrides,
         )
 
