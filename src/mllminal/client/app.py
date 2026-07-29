@@ -87,7 +87,9 @@ class MLLminalDesktopApp(App[None]):
                     yield Static(
                         "Tasks: ?\nWorkflows: ?\nApprovals: ?\nVerification: ?", id="shared-state"
                     )
-                    yield Static("Observation: ?\nPrivacy: ?\nPermissions: ?", id="privacy-state")
+                    yield Static(
+                        "Observation: ?\nPrivacy: ?\nPermissions: ?\nPolicy: ?", id="privacy-state"
+                    )
                     with Horizontal():
                         yield Button("Pause observation", id="pause")
                         yield Button("Emergency stop", id="emergency", variant="error")
@@ -138,7 +140,9 @@ class MLLminalDesktopApp(App[None]):
         self.query_one("#privacy-state", Static).update(
             f"Observation: {snapshot.device.get('state', '?')}\n"
             f"Privacy: {'paused' if snapshot.privacy.get('paused') else 'active'}\n"
-            f"Permissions: {len(snapshot.permissions)}"
+            f"Permissions: {len(snapshot.permissions)}\n"
+            "Policy: "
+            + ("active" if snapshot.active_policy.get("active") else "deterministic fallback")
         )
         self.query_one("#suggestions", Static).update(
             f"Suggestions: {len(snapshot.suggestions)}\n"

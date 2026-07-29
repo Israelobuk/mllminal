@@ -82,6 +82,14 @@ class TrainingFeatureEncoder:
         )
         return values
 
+    def encode_mapping(self, context_features: dict[str, float]) -> tuple[float, ...]:
+        unknown = set(context_features) - set(self.feature_names)
+        if unknown:
+            raise ValueError(f"feature names are not allowed: {sorted(unknown)}")
+        return tuple(
+            self._normalize(context_features.get(name, 0.0)) for name in self.feature_names
+        )
+
     @staticmethod
     def _normalize(value: float) -> float:
         if not isfinite(value):

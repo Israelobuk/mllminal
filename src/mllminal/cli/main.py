@@ -891,19 +891,7 @@ def create_app(
 
     @adaptive_policy.command("status")
     def adaptive_policy_status() -> None:
-        repository = LearningRepository(resolved_settings.database_path)
-        repository.initialize()
-        status = repository.get_settings()
-        typer.echo(
-            json.dumps(
-                {
-                    "policy_version": "deterministic-profile-policy-v1",
-                    "advisory_only": True,
-                    "automatic_promotion_enabled": status.automatic_promotion_enabled,
-                    "active_policy_version_id": status.active_policy_version_id,
-                }
-            )
-        )
+        typer.echo(json.dumps(adaptive_service().policy_status(), sort_keys=True))
 
     @apps.command("discover")
     def apps_discover() -> None:
