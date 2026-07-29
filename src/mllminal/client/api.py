@@ -204,3 +204,124 @@ def _dict(value: object) -> dict[str, Any]:
 
 def _list(value: object) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+class LearningDaemonClient(DaemonClient):
+    async def learning_experiences(self, profile_id: str | None = None) -> list[dict[str, Any]]:
+        path = "/v1/learning/experiences"
+        if profile_id is not None:
+            path += f"?profile_id={profile_id}"
+        return _list(await self.request("GET", path))
+
+    async def learning_experience(self, experience_id: str) -> dict[str, Any]:
+        return _dict(await self.request("GET", f"/v1/learning/experiences/{experience_id}"))
+
+    async def learning_status(self) -> dict[str, Any]:
+        return _dict(await self.request("GET", "/v1/learning/status"))
+
+    async def learning_runs(self) -> list[dict[str, Any]]:
+        return _list(await self.request("GET", "/v1/learning/runs"))
+
+    async def learning_run(self, run_id: str) -> dict[str, Any]:
+        return _dict(await self.request("GET", f"/v1/learning/runs/{run_id}"))
+
+    async def learning_policies(self) -> list[dict[str, Any]]:
+        return _list(await self.request("GET", "/v1/learning/policies"))
+
+    async def offline_train(
+        self, payload: dict[str, Any], *, idempotency_key: str
+    ) -> dict[str, Any]:
+        return _dict(
+            await self.request(
+                "POST", "/v1/learning/offline/train", payload, idempotency_key=idempotency_key
+            )
+        )
+
+    async def replay_create(
+        self, payload: dict[str, Any], *, idempotency_key: str
+    ) -> dict[str, Any]:
+        return _dict(
+            await self.request(
+                "POST",
+                "/v1/learning/replay/snapshots",
+                payload,
+                idempotency_key=idempotency_key,
+            )
+        )
+
+    async def replay_snapshots(self) -> list[dict[str, Any]]:
+        return _list(await self.request("GET", "/v1/learning/replay/snapshots"))
+
+    async def replay_snapshot(self, snapshot_id: str) -> dict[str, Any]:
+        return _dict(await self.request("GET", f"/v1/learning/replay/snapshots/{snapshot_id}"))
+
+    async def policy_status(self, policy_id: str) -> dict[str, Any]:
+        policies = await self.learning_policies()
+        for policy in policies:
+            if policy.get("id") == policy_id or policy.get("name") == policy_id:
+                return policy
+        raise KeyError(policy_id)
+
+    async def policy_evaluate(self, candidate_id: str, *, idempotency_key: str) -> dict[str, Any]:
+        return _dict(
+            await self.request(
+                "POST",
+                f"/v1/learning/policies/{candidate_id}/evaluate",
+                idempotency_key=idempotency_key,
+            )
+        )
+
+    async def policy_compare(self, candidate_id: str) -> dict[str, Any]:
+        return _dict(await self.request("GET", f"/v1/learning/policies/{candidate_id}/compare"))
+
+    async def policy_promote(self, candidate_id: str, *, idempotency_key: str) -> dict[str, Any]:
+        return _dict(
+            await self.request(
+                "POST",
+                f"/v1/learning/policies/{candidate_id}/promote",
+                {"explicitly_approved": True},
+                idempotency_key=idempotency_key,
+            )
+        )
+
+    async def policy_rollback(self, policy_id: str, *, idempotency_key: str) -> dict[str, Any]:
+        return _dict(
+            await self.request(
+                "POST",
+                f"/v1/learning/policies/{policy_id}/rollback",
+                idempotency_key=idempotency_key,
+            )
+        )
+
+    async def active_policy(self, domain: str) -> dict[str, Any]:
+        return _dict(await self.request("GET", f"/v1/learning/active?domain={domain}"))
+
+    async def worker_status(self, job_id: str) -> dict[str, Any]:
+        return _dict(await self.request("GET", f"/v1/learning/workers/{job_id}"))
+
+    async def worker_cancel(self, job_id: str, *, idempotency_key: str) -> dict[str, Any]:
+        return _dict(
+            await self.request(
+                "POST",
+                f"/v1/learning/workers/{job_id}/cancel",
+                idempotency_key=idempotency_key,
+            )
+        )
+
+
+class DaemonClientError(RuntimeError):
+    """A structured error returned by the authenticated daemon."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        self.detail = detail or {}

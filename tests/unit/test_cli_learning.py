@@ -55,3 +55,73 @@ def test_learning_offline_train_reports_an_unpromoted_candidate(tmp_path) -> Non
     assert result.exit_code == 0
     assert "Candidate lifecycle: TRAINED" in result.stdout
     assert "Automatic promotion: Disabled" in result.stdout
+
+
+def test_learning_policy_train_uses_authenticated_daemon_and_safe_output(tmp_path) -> None:
+    class FakeDaemonClient:
+        def __init__(self, _settings) -> None:
+            self.calls = []
+
+        async def offline_train(self, payload, *, idempotency_key):
+            self.calls.append((payload, idempotency_key))
+            return {
+                "snapshot": {
+                    "snapshot_id": "snapshot-1",
+                    "policy_domain": "SUGGESTION_RANKING",
+                },
+                "training_run": {"id": "run-1", "status": "COMPLETED"},
+                "candidate": {
+                    "id": "candidate-1",
+                    "lifecycle": "TRAINED",
+                    "name": "policy_v1",
+                },
+                "worker": {"status": "COMPLETED", "worker_pid": 1234},
+            }
+
+    clients = []
+
+    def factory(settings):
+        client = FakeDaemonClient(settings)
+        clients.append(client)
+        return client
+
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=factory,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "learning",
+            "policy",
+            "train",
+            "--domain",
+            "SUGGESTION_RANKING",
+            "--epochs",
+            "2",
+            "--hidden-size",
+            "8",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Worker job ID: 1234" in result.stdout
+    assert "Training run ID: run-1" in result.stdout
+    assert "Candidate policy ID: candidate-1" in result.stdout
+    assert "snapshot-1" in result.stdout
+    assert "source_record_id" not in result.stdout
+    assert clients[0].calls == [
+        (
+            {
+                "policy_domain": "SUGGESTION_RANKING",
+                "epochs": 2,
+                "hidden_size": 8,
+                "seed": 42,
+                "learning_rate": 0.01,
+                "cpu_threads": 1,
+                "timeout_seconds": 30.0,
+            },
+            "cli-learning-policy-train-SUGGESTION_RANKING",
+        )
+    ]

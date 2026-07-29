@@ -24,6 +24,7 @@ from mllminal.assistance.contracts import (
 from mllminal.assistance.service import ProactiveAssistanceService
 from mllminal.automl.contracts import AutoMLRequest
 from mllminal.automl.service import LocalAutoMLService
+from mllminal.client.api import LearningDaemonClient
 from mllminal.compiler.contracts import CompilerRequest
 from mllminal.compiler.service import WorkflowCompilerService
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
@@ -1285,5 +1286,33 @@ def create_app(
     app.add_typer(system, name="system")
     return app
 
+
+app = create_app()
+
+
+_create_local_app = create_app
+
+
+def _create_app_with_learning(
+    settings: Settings | None = None,
+    *,
+    model_probe: ModelProbe | None = None,
+    daemon_client_factory: Callable[[Settings], LearningDaemonClient] | None = None,
+) -> typer.Typer:
+    from mllminal.cli.learning_commands import register_learning_commands
+    from mllminal.client.api import LearningDaemonClient
+
+    resolved = settings or Settings()
+    value = _create_local_app(resolved, model_probe=model_probe)
+    factory = daemon_client_factory or LearningDaemonClient
+    learning = next(
+        group.typer_instance for group in value.registered_groups if group.name == "learning"
+    )
+    assert learning is not None
+    register_learning_commands(learning, resolved, factory)
+    return value
+
+
+create_app = _create_app_with_learning
 
 app = create_app()
