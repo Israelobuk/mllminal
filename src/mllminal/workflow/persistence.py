@@ -47,3 +47,37 @@ class WorkflowIdempotencyRow(Base):
     operation: Mapped[str]
     result_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime]
+
+
+class WorkflowExecutionRow(Base):
+    __tablename__ = "workflow_executions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String, index=True)
+    state: Mapped[str]
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class WorkflowStepAttemptRow(Base):
+    __tablename__ = "workflow_step_attempts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    execution_id: Mapped[str] = mapped_column(String, index=True)
+    step_id: Mapped[str] = mapped_column(String, index=True)
+    attempt_number: Mapped[int] = mapped_column(Integer)
+    state: Mapped[str]
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
+class WorkflowCheckpointRow(Base):
+    __tablename__ = "workflow_checkpoints"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    execution_id: Mapped[str] = mapped_column(String, index=True)
+    step_id: Mapped[str] = mapped_column(String, index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
