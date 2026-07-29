@@ -46,3 +46,17 @@ Only a final user_reviewed record with verified evidence may move the run to pas
 ## Readiness report
 
 mllminal acceptance report returns scenario state, security checks, performance measurements, the no-automatic-send invariant, and the per-capability Production-capable/Beta/Prototype/Fixture-only/Deferred classification.
+
+## Cross-application recovery baseline
+
+PRs #84 through #94 add the provider-neutral cross-application runtime baseline: typed DAG
+bindings, durable attempts and checkpoints, restart-safe resume, explicit application
+transitions, bounded retry and idempotency, independent verification, typed rollback plans,
+authenticated daemon/CLI/desktop state, and filesystem/spreadsheet, document/PDF,
+email-draft, and file-intake acceptance workflows. The merged Windows CI job and local suite
+are green; the current local run recorded 242 passing tests with four existing warnings.
+
+This is repository-level evidence, not a clean-machine certification. Excel, classic
+Outlook, browser-account, and performance measurements remain provider-specific manual
+evidence. See cross-application-recovery.md and windows-recovery-audit.md for the recovery
+procedure and exit criteria.
