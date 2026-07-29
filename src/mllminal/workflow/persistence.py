@@ -81,3 +81,14 @@ class WorkflowCheckpointRow(Base):
     sequence: Mapped[int] = mapped_column(Integer)
     payload_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime]
+
+
+class WorkflowRollbackPlanRow(Base):
+    __tablename__ = "workflow_rollback_plans"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    run_id: Mapped[str] = mapped_column(String, index=True)
+    state: Mapped[str]
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]

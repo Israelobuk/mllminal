@@ -21,6 +21,9 @@ from mllminal.workflow.contracts import (
     WorkflowExecution,
     WorkflowExecutionState,
     WorkflowInputType,
+    WorkflowRollbackPlan,
+    WorkflowRollbackPlanState,
+    WorkflowRollbackStep,
     WorkflowRun,
     WorkflowRunEvent,
     WorkflowRunRequest,
@@ -35,6 +38,7 @@ from mllminal.workflow.persistence import (
     WorkflowDefinitionRow,
     WorkflowExecutionRow,
     WorkflowIdempotencyRow,
+    WorkflowRollbackPlanRow,
     WorkflowRunEventRow,
     WorkflowRunRow,
     WorkflowStepAttemptRow,
@@ -293,6 +297,113 @@ class WorkflowService:
                 .order_by(WorkflowCheckpointRow.sequence)
             )
             return [WorkflowCheckpoint.model_validate_json(row.payload_json) for row in rows]
+
+    def propose_rollback(self, run_id: str, *, reason: str) -> WorkflowRollbackPlan:
+        run = self.run_record(run_id)
+        definition = self.definition(run.workflow_id)
+        succeeded = {item.step_id for item in run.step_results if item.state == "succeeded"}
+        attempts = {item.step_id: item for item in self.attempts(run.id)}
+        rollback_steps: list[WorkflowRollbackStep] = []
+        unavailable = False
+        for step in reversed(definition.steps):
+            if step.id not in succeeded:
+                continue
+            attempt = attempts.get(step.id)
+            if step.rollback_capability is None or attempt is None:
+                unavailable = True
+                continue
+            rollback_steps.append(
+                WorkflowRollbackStep(
+                    step_id=step.id,
+                    source_attempt_id=attempt.id,
+                    capability=step.rollback_capability,
+                )
+            )
+        plan = WorkflowRollbackPlan(
+            run_id=run.id,
+            state=(
+                WorkflowRollbackPlanState.UNAVAILABLE
+                if unavailable
+                else WorkflowRollbackPlanState.PROPOSED
+            ),
+            reason=reason,
+            steps=rollback_steps,
+        )
+        self._persist_rollback_plan(plan)
+        return plan
+
+    def rollback_plan(self, plan_id: str) -> WorkflowRollbackPlan:
+        with DbSession(self.engine) as database:
+            row = database.get(WorkflowRollbackPlanRow, plan_id)
+            if row is None:
+                raise KeyError(plan_id)
+            return WorkflowRollbackPlan.model_validate_json(row.payload_json)
+
+    def approve_rollback(
+        self, plan_id: str, *, approved: bool, idempotency_key: str
+    ) -> WorkflowRollbackPlan:
+        cached = self._cached(idempotency_key, "workflow.rollback.approve")
+        if cached is not None:
+            return WorkflowRollbackPlan.model_validate(cached)
+        plan = self.rollback_plan(plan_id)
+        if plan.state is not WorkflowRollbackPlanState.PROPOSED:
+            raise RuntimeError("Rollback plan is not pending approval")
+        if not approved:
+            plan = plan.model_copy(update={"state": WorkflowRollbackPlanState.REJECTED})
+        elif not plan.steps:
+            raise PermissionError("Rollback approval requires typed rollback steps")
+        else:
+            plan = plan.model_copy(
+                update={
+                    "state": WorkflowRollbackPlanState.APPROVED,
+                    "approved_at": utc_now(),
+                }
+            )
+        self._persist_rollback_plan(plan)
+        self._save_idempotency(idempotency_key, "workflow.rollback.approve", plan)
+        return plan
+
+    def execute_rollback(self, plan_id: str, *, idempotency_key: str) -> WorkflowRun:
+        cached = self._cached(idempotency_key, "workflow.rollback.execute")
+        if cached is not None:
+            return WorkflowRun.model_validate(cached)
+        plan = self.rollback_plan(plan_id)
+        if plan.state is not WorkflowRollbackPlanState.APPROVED:
+            raise PermissionError("Rollback approval is required before execution")
+        run = self.run_record(plan.run_id)
+        definition = self.definition(run.workflow_id)
+        rollback_failed = False
+        for rollback_step in plan.steps:
+            handler = self._handlers.get(rollback_step.capability)
+            if handler is None:
+                rollback_failed = True
+                break
+            step = next(item for item in definition.steps if item.id == rollback_step.step_id)
+            result = handler(self._resolve_arguments(step, run.inputs, run.step_results))
+            if not result.succeeded:
+                rollback_failed = True
+                break
+        run.rollback_state = "partial" if rollback_failed else "complete"
+        if not rollback_failed:
+            run.state = WorkflowRunState.ROLLED_BACK
+        plan = plan.model_copy(
+            update={
+                "state": (
+                    WorkflowRollbackPlanState.FAILED
+                    if rollback_failed
+                    else WorkflowRollbackPlanState.EXECUTED
+                ),
+                "executed_at": utc_now(),
+            }
+        )
+        self._persist_rollback_plan(plan)
+        self._persist_run(
+            run,
+            event_type="rollback.completed",
+            event_payload={"plan_id": plan.id, "state": plan.state.value},
+        )
+        self._save_idempotency(idempotency_key, "workflow.rollback.execute", run)
+        return run
 
     def events(self, run_id: str) -> list[WorkflowRunEvent]:
         with DbSession(self.engine) as database:
@@ -903,6 +1014,26 @@ class WorkflowService:
                 }
             )
         )
+
+    def _persist_rollback_plan(self, plan: WorkflowRollbackPlan) -> None:
+        updated_at = plan.executed_at or plan.approved_at or plan.created_at
+        with DbSession(self.engine) as database, database.begin():
+            row = database.get(WorkflowRollbackPlanRow, plan.id)
+            if row is None:
+                database.add(
+                    WorkflowRollbackPlanRow(
+                        id=plan.id,
+                        run_id=plan.run_id,
+                        state=plan.state.value,
+                        payload_json=plan.model_dump_json(),
+                        created_at=plan.created_at,
+                        updated_at=updated_at,
+                    )
+                )
+            else:
+                row.state = plan.state.value
+                row.payload_json = plan.model_dump_json()
+                row.updated_at = updated_at
 
     def _persist_run(
         self,
