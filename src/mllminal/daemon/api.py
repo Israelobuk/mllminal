@@ -1306,3 +1306,19 @@ def _pending_payload(pending: PendingTask) -> dict[str, Any]:
         "plan": pending.plan.model_dump(mode="json"),
         "approval": pending.approval.model_dump(mode="json"),
     }
+
+
+_create_core_app = create_app
+
+
+def _create_app_with_learning_routes(
+    settings: Settings, store: RuntimeStore, token: str
+) -> FastAPI:
+    from mllminal.daemon.learning_routes import register_learning_routes
+
+    app = _create_core_app(settings, store, token)
+    register_learning_routes(app, settings, token)
+    return app
+
+
+create_app = _create_app_with_learning_routes
