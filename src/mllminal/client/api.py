@@ -35,6 +35,7 @@ class DesktopSnapshot:
     privacy: dict[str, Any] = field(default_factory=dict)
     tasks: list[dict[str, Any]] = field(default_factory=list)
     workflows: list[dict[str, Any]] = field(default_factory=list)
+    workflow_runs: list[dict[str, Any]] = field(default_factory=list)
     permissions: list[dict[str, Any]] = field(default_factory=list)
     visual: dict[str, Any] | None = None
     suggestions: list[dict[str, Any]] = field(default_factory=list)
@@ -90,6 +91,7 @@ class DaemonClient:
             privacy = await self.request("GET", "/v1/privacy/status")
             tasks = await self.request("GET", "/v1/tasks")
             workflows = await self.request("GET", "/v1/workflows")
+            workflow_runs = await self.request("GET", "/v1/workflow-runs")
             permissions = await self.request("GET", "/v1/permissions")
             visual = await self.request("GET", "/v1/visual/latest")
             suggestions = await self.request("GET", "/v1/suggestions")
@@ -117,6 +119,7 @@ class DaemonClient:
             privacy=privacy_dict,
             tasks=task_list,
             workflows=_list(workflows),
+            workflow_runs=_list(workflow_runs),
             permissions=_list(permissions),
             visual=None if visual is None else _dict(visual),
             suggestions=_list(suggestions),
@@ -136,6 +139,31 @@ class DaemonClient:
         )
         self.session_id = _dict(result)["id"]
         return self.session_id
+
+    async def workflow_runs(self) -> list[dict[str, Any]]:
+        return _list(await self.request("GET", "/v1/workflow-runs"))
+
+    async def workflow_execution(self, run_id: str) -> dict[str, Any]:
+        return _dict(await self.request("GET", f"/v1/workflow-runs/{run_id}/execution"))
+
+    async def resume_workflow(self, run_id: str) -> dict[str, Any]:
+        return _dict(
+            await self.request(
+                "POST",
+                f"/v1/workflow-runs/{run_id}/resume",
+                idempotency_key=f"desktop-workflow-resume-{run_id}",
+            )
+        )
+
+    async def stream_workflow_events(self, run_id: str, after_sequence: int = 0) -> Any:
+        query = urlencode({"after_sequence": after_sequence})
+        websocket_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
+        async with connect(
+            f"{websocket_url}/v1/workflow-runs/{run_id}/events/stream?{query}"
+        ) as socket:
+            await socket.send(json.dumps({"type": "authenticate", "token": self._token()}))
+            async for message in socket:
+                yield json.loads(message)
 
     async def chat(self, content: str) -> dict[str, Any] | list[dict[str, Any]]:
         session_id = await self.ensure_session()

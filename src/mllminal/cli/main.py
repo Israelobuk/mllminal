@@ -824,6 +824,60 @@ def create_app(
             .model_dump_json()
         )
 
+    @workflow.command("resume")
+    def workflow_resume(run_id: str) -> None:
+        typer.echo(
+            workflow_service()
+            .resume(run_id, idempotency_key=f"cli-workflow-resume-{run_id}")
+            .model_dump_json()
+        )
+
+    @workflow.command("execution")
+    def workflow_execution(run_id: str) -> None:
+        typer.echo(workflow_service().execution(run_id).model_dump_json())
+
+    @workflow.command("attempts")
+    def workflow_attempts(run_id: str) -> None:
+        typer.echo(
+            json.dumps(
+                [item.model_dump(mode="json") for item in workflow_service().attempts(run_id)]
+            )
+        )
+
+    @workflow.command("checkpoints")
+    def workflow_checkpoints(run_id: str) -> None:
+        typer.echo(
+            json.dumps(
+                [item.model_dump(mode="json") for item in workflow_service().checkpoints(run_id)]
+            )
+        )
+
+    @workflow.command("rollback-plan")
+    def workflow_rollback_plan(run_id: str, reason: str = "operator requested rollback") -> None:
+        typer.echo(workflow_service().propose_rollback(run_id, reason=reason).model_dump_json())
+
+    @workflow.command("rollback-approve")
+    def workflow_rollback_approve(
+        plan_id: str, approved: bool = typer.Option(..., "--approved")
+    ) -> None:
+        typer.echo(
+            workflow_service()
+            .approve_rollback(
+                plan_id,
+                approved=approved,
+                idempotency_key=f"cli-workflow-rollback-approve-{plan_id}",
+            )
+            .model_dump_json()
+        )
+
+    @workflow.command("rollback-execute")
+    def workflow_rollback_execute(plan_id: str) -> None:
+        typer.echo(
+            workflow_service()
+            .execute_rollback(plan_id, idempotency_key=f"cli-workflow-rollback-execute-{plan_id}")
+            .model_dump_json()
+        )
+
     @workflow.command("rollback")
     def workflow_rollback(run_id: str) -> None:
         typer.echo(
