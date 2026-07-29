@@ -94,6 +94,7 @@ class WorkflowApplicationRequirement(Contract):
     application_kind: str
     required_capabilities: list[str] = Field(min_length=1)
     provider_hint: str | None = None
+    provider_candidates: list[str] = Field(default_factory=list)
 
 
 class WorkflowBinding(Contract):
@@ -102,6 +103,15 @@ class WorkflowBinding(Contract):
     source_step_id: str
     source_field: str
     target_type: WorkflowInputType
+
+
+class WorkflowTransition(Contract):
+    """An explicit bounded transition between two application surfaces."""
+
+    from_application_id: str
+    to_application_id: str
+    capability: str = "application.transition"
+    approval_required: bool = True
 
 
 class WorkflowStep(Contract):
@@ -129,6 +139,7 @@ class WorkflowDefinition(Contract):
     parent_workflow_id: str | None = None
     inputs: list[WorkflowInput] = Field(default_factory=list)
     permissions: list[WorkflowPermission] = Field(default_factory=list)
+    transitions: list[WorkflowTransition] = Field(default_factory=list)
     steps: list[WorkflowStep] = Field(min_length=1)
     created_at: datetime = Field(default_factory=utc_now)
 
@@ -164,6 +175,23 @@ class WorkflowDefinition(Contract):
             for binding in step.input_bindings.values():
                 if binding.source_step_id not in step.depends_on:
                     raise ValueError(f"workflow binding source must be a dependency: {step.id}")
+
+        application_ids = {
+            step.application.application_id for step in self.steps if step.application is not None
+        }
+        transition_keys: set[tuple[str, str]] = set()
+        for transition in self.transitions:
+            key = (transition.from_application_id, transition.to_application_id)
+            if transition.from_application_id == transition.to_application_id:
+                raise ValueError("workflow application transitions must change application")
+            if key in transition_keys:
+                raise ValueError("workflow application transitions must be unique")
+            if (
+                not {transition.from_application_id, transition.to_application_id}
+                <= application_ids
+            ):
+                raise ValueError("workflow transition applications must be used by workflow steps")
+            transition_keys.add(key)
 
         dependencies = {step.id: set(step.depends_on) for step in self.steps}
         visited: set[str] = set()
