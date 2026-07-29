@@ -145,6 +145,10 @@ class MLLminalDesktopApp(App[None]):
             + ("active" if snapshot.active_policy.get("active") else "deterministic fallback")
             + "\nVerification policy: "
             + ("active" if snapshot.verification_policy.get("active") else "deterministic fallback")
+            + "\nLive runtime domains: "
+            + str(len(snapshot.active_policies.get("live_runtime_domains", [])))
+            + "\nShadow-only domains: "
+            + str(len(snapshot.active_policies.get("shadow_only_domains", [])))
         )
         self.query_one("#suggestions", Static).update(
             f"Suggestions: {len(snapshot.suggestions)}\n"
