@@ -82,6 +82,10 @@ class SuggestionRankingDecision(Contract):
     suggestion_id: str
     candidate_id: str
     ranking_score: float
+    deterministic_ranking_score: float | None = None
+    advisory_score: float | None = None
+    combined_ranking_score: float | None = None
+    advisory_policy: dict[str, object] = Field(default_factory=dict)
     ranking_components: dict[str, float] = Field(default_factory=dict)
     explanation: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
@@ -113,6 +117,10 @@ class AdaptiveWorkflowSuggestion(Contract):
     approval_preserved: Literal[True] = True
     prior_rejection_count: int = Field(default=0, ge=0)
     ranking_score: float
+    deterministic_ranking_score: float | None = None
+    advisory_score: float | None = None
+    combined_ranking_score: float | None = None
+    advisory_policy: dict[str, object] = Field(default_factory=dict)
     ranking_components: dict[str, float] = Field(default_factory=dict)
     ranking_explanation: list[str] = Field(default_factory=list)
     eligibility_reasons: list[str] = Field(default_factory=list)
