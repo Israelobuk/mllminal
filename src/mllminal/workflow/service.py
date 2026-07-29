@@ -1,5 +1,6 @@
 """Approval-governed typed workflow runtime with deterministic verification."""
 
+import hashlib
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -14,21 +15,29 @@ from mllminal.workflow.contracts import (
     CapabilityResult,
     VerificationResult,
     VerificationState,
+    WorkflowCheckpoint,
     WorkflowDefinition,
     WorkflowDefinitionState,
+    WorkflowExecution,
+    WorkflowExecutionState,
     WorkflowInputType,
     WorkflowRun,
     WorkflowRunEvent,
     WorkflowRunRequest,
     WorkflowRunState,
     WorkflowStep,
+    WorkflowStepAttempt,
+    WorkflowStepAttemptState,
     WorkflowStepResult,
 )
 from mllminal.workflow.persistence import (
+    WorkflowCheckpointRow,
     WorkflowDefinitionRow,
+    WorkflowExecutionRow,
     WorkflowIdempotencyRow,
     WorkflowRunEventRow,
     WorkflowRunRow,
+    WorkflowStepAttemptRow,
 )
 
 if TYPE_CHECKING:
@@ -224,6 +233,31 @@ class WorkflowService:
                 raise KeyError(run_id)
             return WorkflowRun.model_validate_json(row.payload_json)
 
+    def execution(self, execution_id: str) -> WorkflowExecution:
+        with DbSession(self.engine) as database:
+            row = database.get(WorkflowExecutionRow, execution_id)
+            if row is None:
+                raise KeyError(execution_id)
+            return WorkflowExecution.model_validate_json(row.payload_json)
+
+    def attempts(self, execution_id: str) -> list[WorkflowStepAttempt]:
+        with DbSession(self.engine) as database:
+            rows = database.scalars(
+                select(WorkflowStepAttemptRow)
+                .where(WorkflowStepAttemptRow.execution_id == execution_id)
+                .order_by(WorkflowStepAttemptRow.attempt_number)
+            )
+            return [WorkflowStepAttempt.model_validate_json(row.payload_json) for row in rows]
+
+    def checkpoints(self, execution_id: str) -> list[WorkflowCheckpoint]:
+        with DbSession(self.engine) as database:
+            rows = database.scalars(
+                select(WorkflowCheckpointRow)
+                .where(WorkflowCheckpointRow.execution_id == execution_id)
+                .order_by(WorkflowCheckpointRow.sequence)
+            )
+            return [WorkflowCheckpoint.model_validate_json(row.payload_json) for row in rows]
+
     def events(self, run_id: str) -> list[WorkflowRunEvent]:
         with DbSession(self.engine) as database:
             rows = database.scalars(
@@ -235,8 +269,29 @@ class WorkflowService:
 
     def _execute(self, run: WorkflowRun, definition: WorkflowDefinition) -> WorkflowRun:
         run.state = WorkflowRunState.RUNNING
+        execution = WorkflowExecution(
+            id=run.id,
+            workflow_id=run.workflow_id,
+            workflow_version=run.workflow_version,
+            state=WorkflowExecutionState.RUNNING,
+        )
+        self._persist_execution(execution)
         for step in self._execution_steps(definition):
             run.current_step_order = step.order
+            attempt = WorkflowStepAttempt(
+                execution_id=run.id,
+                step_id=step.id,
+                attempt_number=1,
+                state=WorkflowStepAttemptState.RUNNING,
+                provider_id=(
+                    step.application.provider_hint
+                    if step.application is not None and step.application.provider_hint is not None
+                    else step.capability
+                ),
+                idempotency_key=f"{run.id}:{step.id}:1",
+                started_at=utc_now(),
+            )
+            self._persist_attempt(attempt)
             decision = None
             handler = self._handlers.get(step.capability)
             if self.adaptive is not None and step.application_profile_id is not None:
@@ -279,6 +334,14 @@ class WorkflowService:
                         state=VerificationState.UNAVAILABLE,
                         reason=decision.decision_reason,
                     )
+                    attempt = attempt.model_copy(
+                        update={
+                            "state": WorkflowStepAttemptState.FAILED,
+                            "error_code": result.error,
+                            "finished_at": utc_now(),
+                        }
+                    )
+                    self._persist_attempt(attempt)
                     run.step_results.append(
                         WorkflowStepResult(
                             step_id=step.id,
@@ -292,6 +355,9 @@ class WorkflowService:
                 handler = self._backend_handlers.get(
                     (step.capability, decision.selected_backend), handler
                 )
+                attempt = attempt.model_copy(update={"provider_id": decision.selected_backend})
+                self._persist_attempt(attempt)
+            resolved_arguments: dict[str, Any] = {}
             if handler is None:
                 result = CapabilityResult(
                     capability=step.capability,
@@ -303,7 +369,8 @@ class WorkflowService:
                     reason="No bounded capability handler is registered",
                 )
             else:
-                result = handler(self._resolve_arguments(step, run.inputs, run.step_results))
+                resolved_arguments = self._resolve_arguments(step, run.inputs, run.step_results)
+                result = handler(resolved_arguments)
                 verification = self._verify(step, result)
             if decision is not None and self.adaptive is not None:
                 self.adaptive.record_outcome(
@@ -317,6 +384,33 @@ class WorkflowService:
                 if result.succeeded and verification.state is VerificationState.PASSED
                 else "failed"
             )
+            checkpoint: WorkflowCheckpoint | None = None
+            if step_state == "succeeded":
+                checkpoint = WorkflowCheckpoint(
+                    execution_id=run.id,
+                    step_id=step.id,
+                    attempt_id=attempt.id,
+                    sequence=self._next_checkpoint_sequence(run.id),
+                    state=WorkflowStepAttemptState.SUCCEEDED,
+                    input_digest=self._digest(resolved_arguments),
+                    output_digest=self._digest(result.output),
+                    verified=True,
+                    verified_effects={"verified": True},
+                )
+                self._persist_checkpoint(checkpoint)
+            attempt = attempt.model_copy(
+                update={
+                    "state": (
+                        WorkflowStepAttemptState.SUCCEEDED
+                        if step_state == "succeeded"
+                        else WorkflowStepAttemptState.FAILED
+                    ),
+                    "checkpoint_id": checkpoint.id if checkpoint is not None else None,
+                    "error_code": result.error,
+                    "finished_at": utc_now(),
+                }
+            )
+            self._persist_attempt(attempt)
             run.step_results.append(
                 WorkflowStepResult(
                     step_id=step.id,
@@ -332,6 +426,32 @@ class WorkflowService:
             run.state = WorkflowRunState.SUCCEEDED
             run.current_step_order = len(definition.steps)
         run.updated_at = utc_now()
+        self._persist_execution(
+            execution.model_copy(
+                update={
+                    "state": self._execution_state(run.state),
+                    "current_step_id": (
+                        None
+                        if run.state is WorkflowRunState.SUCCEEDED
+                        else next(
+                            (
+                                step.id
+                                for step in self._execution_steps(definition)
+                                if step.order == run.current_step_order
+                            ),
+                            None,
+                        )
+                    ),
+                    "completed_step_ids": [
+                        item.step_id for item in run.step_results if item.state == "succeeded"
+                    ],
+                    "last_checkpoint_id": (
+                        self.checkpoints(run.id)[-1].id if self.checkpoints(run.id) else None
+                    ),
+                    "updated_at": run.updated_at,
+                }
+            )
+        )
         return run
 
     @staticmethod
@@ -492,6 +612,105 @@ class WorkflowService:
     def _definition_from_row(row: WorkflowDefinitionRow) -> WorkflowDefinition:
         return WorkflowDefinition.model_validate_json(row.payload_json)
 
+    @staticmethod
+    def _execution_state(state: WorkflowRunState) -> WorkflowExecutionState:
+        return {
+            WorkflowRunState.PREVIEW: WorkflowExecutionState.CREATED,
+            WorkflowRunState.PENDING_APPROVAL: WorkflowExecutionState.PAUSED,
+            WorkflowRunState.RUNNING: WorkflowExecutionState.RUNNING,
+            WorkflowRunState.SUCCEEDED: WorkflowExecutionState.SUCCEEDED,
+            WorkflowRunState.FAILED: WorkflowExecutionState.FAILED,
+            WorkflowRunState.ROLLED_BACK: WorkflowExecutionState.ROLLED_BACK,
+            WorkflowRunState.CANCELLED: WorkflowExecutionState.CANCELLED,
+        }[state]
+
+    @staticmethod
+    def _digest(value: Any) -> str:
+        payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+        return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _next_checkpoint_sequence(self, execution_id: str) -> int:
+        return len(self.checkpoints(execution_id)) + 1
+
+    def _persist_execution(self, execution: WorkflowExecution) -> None:
+        with DbSession(self.engine) as database, database.begin():
+            row = database.get(WorkflowExecutionRow, execution.id)
+            if row is None:
+                database.add(
+                    WorkflowExecutionRow(
+                        id=execution.id,
+                        workflow_id=execution.workflow_id,
+                        state=execution.state.value,
+                        payload_json=execution.model_dump_json(),
+                        created_at=execution.created_at,
+                        updated_at=execution.updated_at,
+                    )
+                )
+            else:
+                row.state = execution.state.value
+                row.payload_json = execution.model_dump_json()
+                row.updated_at = execution.updated_at
+
+    def _persist_attempt(self, attempt: WorkflowStepAttempt) -> None:
+        created_at = attempt.started_at or utc_now()
+        with DbSession(self.engine) as database, database.begin():
+            row = database.get(WorkflowStepAttemptRow, attempt.id)
+            if row is None:
+                database.add(
+                    WorkflowStepAttemptRow(
+                        id=attempt.id,
+                        execution_id=attempt.execution_id,
+                        step_id=attempt.step_id,
+                        attempt_number=attempt.attempt_number,
+                        state=attempt.state.value,
+                        payload_json=attempt.model_dump_json(),
+                        created_at=created_at,
+                    )
+                )
+            else:
+                row.state = attempt.state.value
+                row.payload_json = attempt.model_dump_json()
+
+    def _persist_checkpoint(self, checkpoint: WorkflowCheckpoint) -> None:
+        with DbSession(self.engine) as database, database.begin():
+            if database.get(WorkflowCheckpointRow, checkpoint.id) is not None:
+                return
+            database.add(
+                WorkflowCheckpointRow(
+                    id=checkpoint.id,
+                    execution_id=checkpoint.execution_id,
+                    step_id=checkpoint.step_id,
+                    sequence=checkpoint.sequence,
+                    payload_json=checkpoint.model_dump_json(),
+                    created_at=checkpoint.created_at,
+                )
+            )
+
+    def _sync_execution(self, run: WorkflowRun) -> None:
+        try:
+            execution = self.execution(run.id)
+        except KeyError:
+            execution = WorkflowExecution(
+                id=run.id,
+                workflow_id=run.workflow_id,
+                workflow_version=run.workflow_version,
+            )
+        checkpoints = self.checkpoints(run.id)
+        self._persist_execution(
+            execution.model_copy(
+                update={
+                    "state": self._execution_state(run.state),
+                    "current_step_id": run.pending_approval_step_id,
+                    "completed_step_ids": [
+                        item.step_id for item in run.step_results if item.state == "succeeded"
+                    ],
+                    "last_checkpoint_id": checkpoints[-1].id if checkpoints else None,
+                    "input_digest": self._digest(run.inputs),
+                    "updated_at": run.updated_at,
+                }
+            )
+        )
+
     def _persist_run(self, run: WorkflowRun, *, event_type: str) -> None:
         event = WorkflowRunEvent(run_id=run.id, event_type=event_type, payload=run.model_dump())
         with DbSession(self.engine) as database, database.begin():
@@ -520,6 +739,7 @@ class WorkflowService:
                     created_at=event.created_at,
                 )
             )
+        self._sync_execution(run)
 
     def _save_idempotency(self, key: str, operation: str, result: Any) -> None:
         with DbSession(self.engine) as database, database.begin():
