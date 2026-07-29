@@ -4,6 +4,7 @@ from mllminal.assistance.contracts import (
     SuggestionFeedbackKind,
     UserWorkflowPreference,
 )
+from mllminal.assistance.suggestion_runtime import SuggestionAdvisoryResult
 from mllminal.contracts import utc_now
 from mllminal.learning.replay import LearningRepository
 from mllminal.mining.contracts import MinedStep, WorkflowCandidate
@@ -91,3 +92,41 @@ def test_emergency_stop_and_missing_verification_keep_suggestions_advisory(tmp_p
     assert {"emergency_stop_active", "independent_verification_required"} <= set(
         suggestion.eligibility_reasons
     )
+
+
+class _AdvisoryRuntime:
+    advisory_weight = 0.2
+
+    def evaluate(self, *_args, **_kwargs) -> SuggestionAdvisoryResult:
+        return SuggestionAdvisoryResult(
+            score=0.95,
+            provenance={"active": True, "policy_domain": "SUGGESTION_RANKING"},
+        )
+
+
+def test_active_suggestion_policy_adjusts_score_without_changing_eligibility(tmp_path) -> None:
+    repository = LearningRepository(tmp_path / "learning.db")
+    repository.initialize()
+    service = AdaptiveSuggestionService(repository, policy_runtime=_AdvisoryRuntime())
+
+    suggestion = service.propose(_candidate(), verification_available=True)
+
+    assert suggestion.status.value == "eligible"
+    assert suggestion.deterministic_ranking_score is not None
+    assert suggestion.advisory_score == 0.95
+    assert suggestion.combined_ranking_score == suggestion.ranking_score
+    assert suggestion.ranking_score > suggestion.deterministic_ranking_score
+    assert suggestion.advisory_policy["active"] is True
+    assert suggestion.advisory_policy["used_in_ranking"] is True
+
+
+def test_active_suggestion_policy_cannot_make_unverified_candidate_eligible(tmp_path) -> None:
+    repository = LearningRepository(tmp_path / "learning.db")
+    repository.initialize()
+    service = AdaptiveSuggestionService(repository, policy_runtime=_AdvisoryRuntime())
+
+    suggestion = service.propose(_candidate(), verification_available=False)
+
+    assert suggestion.status.value == "pending"
+    assert suggestion.advisory_score is None
+    assert "independent_verification_required" in suggestion.eligibility_reasons

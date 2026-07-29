@@ -14,8 +14,10 @@ from mllminal.assistance.contracts import (
     UserWorkflowPreference,
     WorkflowAdaptationProposal,
 )
+from mllminal.assistance.suggestion_runtime import SuggestionPolicyRuntime
 from mllminal.contracts import utc_now
 from mllminal.learning.replay import LearningRepository
+from mllminal.learning.runtime_adapter import RuntimePolicyUnavailable
 from mllminal.mining.contracts import WorkflowCandidate
 
 
@@ -27,9 +29,13 @@ class AdaptiveSuggestionService:
         repository: LearningRepository,
         *,
         emergency_stop_active: Callable[[], bool] = lambda: False,
+        policy_runtime: SuggestionPolicyRuntime | None = None,
     ) -> None:
         self.repository = repository
         self.emergency_stop_active = emergency_stop_active
+        self.policy_runtime = policy_runtime or SuggestionPolicyRuntime(
+            repository, repository.database_path.parent / "learning" / "checkpoints"
+        )
 
     def propose(
         self, candidate: WorkflowCandidate, *, verification_available: bool
@@ -62,6 +68,35 @@ class AdaptiveSuggestionService:
             reasons.append("emergency_stop_active")
         if preference is not None and not preference.enabled:
             reasons.append("disabled_by_preference")
+        deterministic_score = round(sum(components.values()) / len(components), 6)
+        advisory_score: float | None = None
+        advisory_policy: dict[str, object] = {}
+        if eligible:
+            try:
+                advisory = self.policy_runtime.evaluate(
+                    candidate,
+                    verification_available=verification_available,
+                    rejection_count=rejections,
+                )
+                advisory_score = advisory.score
+                advisory_policy = advisory.provenance
+                advisory_policy["used_in_ranking"] = True
+            except (RuntimePolicyUnavailable, OSError, RuntimeError, TypeError, ValueError):
+                advisory_policy = {
+                    "active": False,
+                    "used_in_ranking": False,
+                    "fallback_reason": "suggestion advisory unavailable",
+                }
+        weight = self.policy_runtime.advisory_weight if advisory_score is not None else 0.0
+        combined_score = round(
+            ((1.0 - weight) * deterministic_score) + (weight * (advisory_score or 0.5)),
+            6,
+        )
+        explanation = self._explanation(candidate, preference, rejections)
+        if advisory_score is not None:
+            explanation.append(
+                f"Applied bounded advisory score {advisory_score:.2f} at weight {weight:.2f}."
+            )
         suggestion = AdaptiveWorkflowSuggestion(
             candidate_id=candidate.id,
             application=candidate.application,
@@ -73,9 +108,13 @@ class AdaptiveSuggestionService:
             verification_availability=verification_available,
             emergency_stop_active=stopped,
             prior_rejection_count=rejections,
-            ranking_score=round(sum(components.values()) / len(components), 6),
+            ranking_score=combined_score,
+            deterministic_ranking_score=deterministic_score,
+            advisory_score=advisory_score,
+            combined_ranking_score=combined_score,
+            advisory_policy=advisory_policy,
             ranking_components=components,
-            ranking_explanation=self._explanation(candidate, preference, rejections),
+            ranking_explanation=explanation,
             eligibility_reasons=reasons,
             status=SuggestionStatus.ELIGIBLE if eligible else SuggestionStatus.PENDING,
         )
