@@ -40,6 +40,7 @@ class DesktopSnapshot:
     suggestions: list[dict[str, Any]] = field(default_factory=list)
     suggestion_preferences: list[dict[str, Any]] = field(default_factory=list)
     active_policy: dict[str, Any] = field(default_factory=dict)
+    verification_policy: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
 
 
@@ -93,6 +94,9 @@ class DaemonClient:
             suggestions = await self.request("GET", "/v1/suggestions")
             suggestion_preferences = await self.request("GET", "/v1/suggestion-preferences")
             active_policy = await self.request("GET", "/v1/adaptive/policy/status")
+            verification_policy = await self.request(
+                "GET", "/v1/adaptive/verification-ranking/status"
+            )
         except PermissionError as error:
             return DesktopSnapshot(DesktopState.AUTHENTICATION_FAILED, error=str(error))
         except (httpx.ConnectError, httpx.TimeoutException) as error:
@@ -116,6 +120,7 @@ class DaemonClient:
             suggestions=_list(suggestions),
             suggestion_preferences=_list(suggestion_preferences),
             active_policy=_dict(active_policy),
+            verification_policy=_dict(verification_policy),
         )
 
     async def ensure_session(self) -> str:
@@ -334,6 +339,12 @@ class LearningDaemonClient(DaemonClient):
                 idempotency_key=idempotency_key,
             )
         )
+
+    async def verification_ranking(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return _dict(await self.request("POST", "/v1/adaptive/verification-ranking", payload))
+
+    async def verification_policy_status(self) -> dict[str, Any]:
+        return _dict(await self.request("GET", "/v1/adaptive/verification-ranking/status"))
 
     async def worker_status(self, job_id: str) -> dict[str, Any]:
         return _dict(await self.request("GET", f"/v1/learning/workers/{job_id}"))

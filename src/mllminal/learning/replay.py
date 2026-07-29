@@ -55,6 +55,7 @@ from mllminal.learning.profile_contracts import (
     ApplicationInteractionProfile,
     BackendReliabilityRecord,
     ProfileLearningExperience,
+    VerificationRankingDecision,
 )
 from mllminal.persistence import Base, Store
 
@@ -129,6 +130,15 @@ class ApplicationInteractionProfileRow(Base):
     payload_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
+
+
+class VerificationRankingDecisionRow(Base):
+    __tablename__ = "verification_ranking_decisions"
+
+    decision_id: Mapped[str] = mapped_column(String, primary_key=True)
+    profile_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime]
 
 
 class ProfileObservationRow(Base):
@@ -923,6 +933,37 @@ class LearningRepository(Store):
                 if row is not None
                 else None
             )
+
+    def save_verification_ranking(
+        self, decision: VerificationRankingDecision
+    ) -> VerificationRankingDecision:
+        with self.transaction() as database:
+            existing = database.get(VerificationRankingDecisionRow, decision.id)
+            if existing is not None:
+                return VerificationRankingDecision.model_validate_json(existing.payload_json)
+            database.add(
+                VerificationRankingDecisionRow(
+                    decision_id=decision.id,
+                    profile_id=decision.profile_id,
+                    payload_json=decision.model_dump_json(),
+                    created_at=decision.created_at,
+                )
+            )
+        return decision
+
+    def list_verification_rankings(
+        self, profile_id: str | None = None
+    ) -> list[VerificationRankingDecision]:
+        with DbSession(self.engine) as database:
+            statement = select(VerificationRankingDecisionRow).order_by(
+                VerificationRankingDecisionRow.created_at
+            )
+            if profile_id is not None:
+                statement = statement.where(VerificationRankingDecisionRow.profile_id == profile_id)
+            return [
+                VerificationRankingDecision.model_validate_json(row.payload_json)
+                for row in database.scalars(statement)
+            ]
 
     def list_profile_experiences(
         self, profile_id: str | None = None
