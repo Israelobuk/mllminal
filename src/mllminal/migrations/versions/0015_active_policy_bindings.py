@@ -30,9 +30,7 @@ def upgrade() -> None:
             "active_policy_bindings",
             ["policy_domain"],
         )
-        op.create_index(
-            "ix_active_policy_bindings_status", "active_policy_bindings", ["status"]
-        )
+        op.create_index("ix_active_policy_bindings_status", "active_policy_bindings", ["status"])
 
 
 def downgrade() -> None:
