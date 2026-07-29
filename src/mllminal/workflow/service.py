@@ -138,6 +138,7 @@ class WorkflowService:
             inputs=inputs,
         )
         execution_steps = self._execution_steps(definition)
+        event_type = "run.created"
         if request.preview:
             run.step_results = [self._preview_result(step) for step in execution_steps]
             run.current_step_order = len(execution_steps)
@@ -147,9 +148,27 @@ class WorkflowService:
             run.pending_approval_step_id = first.id
             run.current_step_order = first.order
         else:
+            self._persist_run(run, event_type="run.started")
             run = self._execute(run, definition)
-        self._persist_run(run, event_type="run.created")
+            event_type = "run.completed"
+        self._persist_run(run, event_type=event_type)
         self._save_idempotency(idempotency_key, "workflow.run", run)
+        return run
+
+    def resume(self, run_id: str, *, idempotency_key: str) -> WorkflowRun:
+        cached = self._cached(idempotency_key, "workflow.resume")
+        if cached is not None:
+            return WorkflowRun.model_validate(cached)
+        run = self.run_record(run_id)
+        if run.preview or run.state not in {WorkflowRunState.RUNNING, WorkflowRunState.FAILED}:
+            raise RuntimeError("Only interrupted or failed live runs can be resumed")
+        definition = self.definition(run.workflow_id)
+        if definition.state is not WorkflowDefinitionState.ACTIVE:
+            raise PermissionError("Only active workflows may be resumed")
+        run.pending_approval_step_id = None
+        run = self._execute(run, definition, resume=True)
+        self._persist_run(run, event_type="run.resumed")
+        self._save_idempotency(idempotency_key, "workflow.resume", run)
         return run
 
     def approve(
@@ -267,7 +286,13 @@ class WorkflowService:
             )
             return [WorkflowRunEvent.model_validate_json(row.payload_json) for row in rows]
 
-    def _execute(self, run: WorkflowRun, definition: WorkflowDefinition) -> WorkflowRun:
+    def _execute(
+        self,
+        run: WorkflowRun,
+        definition: WorkflowDefinition,
+        *,
+        resume: bool = False,
+    ) -> WorkflowRun:
         run.state = WorkflowRunState.RUNNING
         execution = WorkflowExecution(
             id=run.id,
@@ -276,19 +301,44 @@ class WorkflowService:
             state=WorkflowExecutionState.RUNNING,
         )
         self._persist_execution(execution)
+        if resume:
+            run.step_results = [item for item in run.step_results if item.state == "succeeded"]
+            completed_step_ids = {item.step_id for item in run.step_results}
+            for restored_checkpoint in self.checkpoints(run.id):
+                if (
+                    restored_checkpoint.verified
+                    and restored_checkpoint.resumable
+                    and restored_checkpoint.step_id not in completed_step_ids
+                ):
+                    run.step_results.append(
+                        WorkflowStepResult(
+                            step_id=restored_checkpoint.step_id,
+                            state="succeeded",
+                            verification=VerificationResult(
+                                state=VerificationState.PASSED,
+                                reason="Restored from durable checkpoint",
+                            ),
+                        )
+                    )
+                    completed_step_ids.add(restored_checkpoint.step_id)
         for step in self._execution_steps(definition):
+            if resume and any(
+                item.step_id == step.id and item.state == "succeeded" for item in run.step_results
+            ):
+                continue
             run.current_step_order = step.order
+            attempt_number = self._next_attempt_number(run.id, step.id)
             attempt = WorkflowStepAttempt(
                 execution_id=run.id,
                 step_id=step.id,
-                attempt_number=1,
+                attempt_number=attempt_number,
                 state=WorkflowStepAttemptState.RUNNING,
                 provider_id=(
                     step.application.provider_hint
                     if step.application is not None and step.application.provider_hint is not None
                     else step.capability
                 ),
-                idempotency_key=f"{run.id}:{step.id}:1",
+                idempotency_key=f"{run.id}:{step.id}:{attempt_number}",
                 started_at=utc_now(),
             )
             self._persist_attempt(attempt)
@@ -350,6 +400,7 @@ class WorkflowService:
                             verification=verification,
                         )
                     )
+                    self._persist_run(run, event_type="step.failed")
                     run.state = WorkflowRunState.FAILED
                     break
                 handler = self._backend_handlers.get(
@@ -418,6 +469,10 @@ class WorkflowService:
                     capability_result=result,
                     verification=verification,
                 )
+            )
+            self._persist_run(
+                run,
+                event_type="step.completed" if step_state == "succeeded" else "step.failed",
             )
             if step_state == "failed":
                 run.state = WorkflowRunState.FAILED
@@ -628,6 +683,16 @@ class WorkflowService:
     def _digest(value: Any) -> str:
         payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
         return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _next_attempt_number(self, execution_id: str, step_id: str) -> int:
+        with DbSession(self.engine) as database:
+            rows = database.scalars(
+                select(WorkflowStepAttemptRow).where(
+                    WorkflowStepAttemptRow.execution_id == execution_id,
+                    WorkflowStepAttemptRow.step_id == step_id,
+                )
+            )
+            return len(list(rows)) + 1
 
     def _next_checkpoint_sequence(self, execution_id: str) -> int:
         return len(self.checkpoints(execution_id)) + 1
