@@ -114,6 +114,13 @@ class WorkflowTransition(Contract):
     approval_required: bool = True
 
 
+class WorkflowRetryPolicy(Contract):
+    """Bounded retry policy for provider failures with known transient causes."""
+
+    max_attempts: int = Field(default=1, ge=1, le=3)
+    retryable_errors: list[str] = Field(default_factory=list)
+
+
 class WorkflowStep(Contract):
     id: str = Field(default_factory=new_id)
     order: int = Field(ge=1)
@@ -127,6 +134,7 @@ class WorkflowStep(Contract):
     backend_candidates: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
     input_bindings: dict[str, WorkflowBinding] = Field(default_factory=dict)
+    retry_policy: WorkflowRetryPolicy = Field(default_factory=WorkflowRetryPolicy)
     rollback_capability: str | None = None
     verification: WorkflowVerification | None = None
 
@@ -272,6 +280,7 @@ class WorkflowStepAttempt(Contract):
     state: WorkflowStepAttemptState = WorkflowStepAttemptState.PENDING
     provider_id: str
     idempotency_key: str
+    effect_idempotency_key: str | None = None
     checkpoint_id: str | None = None
     error_code: str | None = None
     started_at: datetime | None = None

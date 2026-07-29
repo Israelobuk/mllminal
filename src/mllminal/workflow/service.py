@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 
 
 CapabilityHandler = Callable[[dict[str, Any]], CapabilityResult]
+VerificationHandler = Callable[[CapabilityResult], VerificationResult]
 
 
 class WorkflowService:
@@ -61,6 +62,7 @@ class WorkflowService:
         self._handlers: dict[str, CapabilityHandler] = {}
         self._backend_handlers: dict[tuple[str, str], CapabilityHandler] = {}
         self._transition_handlers: dict[tuple[str, str], CapabilityHandler] = {}
+        self._verifiers: dict[str, VerificationHandler] = {}
         self.adaptive = adaptive
 
     def register_capability(self, name: str, handler: CapabilityHandler) -> None:
@@ -76,6 +78,10 @@ class WorkflowService:
     ) -> None:
         """Register a bounded handler for one explicit application transition."""
         self._transition_handlers[(from_application, to_application)] = handler
+
+    def register_verifier(self, capability: str, verifier: VerificationHandler) -> None:
+        """Register an independent local verifier for a capability result."""
+        self._verifiers[capability] = verifier
 
     def create(self, definition: WorkflowDefinition, *, idempotency_key: str) -> WorkflowDefinition:
         cached = self._cached(idempotency_key, "workflow.create")
@@ -396,175 +402,38 @@ class WorkflowService:
                     run.state = WorkflowRunState.FAILED
                     break
             run.current_step_order = step.order
-            attempt_number = self._next_attempt_number(run.id, step.id)
-            attempt = WorkflowStepAttempt(
-                execution_id=run.id,
-                step_id=step.id,
-                attempt_number=attempt_number,
-                state=WorkflowStepAttemptState.RUNNING,
-                provider_id=(
-                    step.application.provider_hint
-                    if step.application is not None and step.application.provider_hint is not None
-                    else step.capability
-                ),
-                idempotency_key=f"{run.id}:{step.id}:{attempt_number}",
-                started_at=utc_now(),
-            )
-            self._persist_attempt(attempt)
-            decision = None
-            handler = self._handlers.get(step.capability)
-            if self.adaptive is None:
-                provider_candidates: list[str] = []
-                if step.application is not None:
-                    if step.application.provider_hint is not None:
-                        provider_candidates.append(step.application.provider_hint)
-                    provider_candidates.extend(step.application.provider_candidates)
-                provider_candidates.extend(step.backend_candidates)
-                for provider in dict.fromkeys(provider_candidates):
-                    candidate_handler = self._backend_handlers.get((step.capability, provider))
-                    if candidate_handler is not None:
-                        handler = candidate_handler
-                        attempt = attempt.model_copy(update={"provider_id": provider})
-                        self._persist_attempt(attempt)
-                        break
-            if self.adaptive is not None and step.application_profile_id is not None:
-                from mllminal.learning.adaptive import (
-                    AdaptiveBackendCandidate,
-                    AdaptiveExecutionRequest,
-                )
-
-                candidates = (
-                    step.backend_candidates
-                    or [
-                        backend
-                        for capability, backend in self._backend_handlers
-                        if capability == step.capability
-                    ]
-                    or ["default"]
-                )
-                decision = self.adaptive.decide(
-                    AdaptiveExecutionRequest(
-                        workflow_run_id=run.id,
-                        workflow_step_id=step.id,
-                        application_profile_id=step.application_profile_id,
-                        abstract_action=step.abstract_action or step.capability,
-                        target_signature=step.target_signature or step.capability,
-                        candidates=[AdaptiveBackendCandidate(backend=name) for name in candidates],
-                        safety_filters_applied=["workflow_permission_verified"],
-                    )
-                )
-                if decision.selected_backend is None:
-                    result = CapabilityResult(
-                        capability=step.capability,
-                        succeeded=False,
-                        error=(
-                            "clarification_required"
-                            if decision.clarification_required
-                            else "adaptive_backend_unavailable"
-                        ),
-                    )
-                    verification = VerificationResult(
-                        state=VerificationState.UNAVAILABLE,
-                        reason=decision.decision_reason,
-                    )
-                    attempt = attempt.model_copy(
-                        update={
-                            "state": WorkflowStepAttemptState.FAILED,
-                            "error_code": result.error,
-                            "finished_at": utc_now(),
-                        }
-                    )
-                    self._persist_attempt(attempt)
-                    run.step_results.append(
-                        WorkflowStepResult(
-                            step_id=step.id,
-                            state="failed",
-                            capability_result=result,
-                            verification=verification,
-                        )
-                    )
-                    self._persist_run(run, event_type="step.failed")
-                    run.state = WorkflowRunState.FAILED
-                    break
-                handler = self._backend_handlers.get(
-                    (step.capability, decision.selected_backend), handler
-                )
-                attempt = attempt.model_copy(update={"provider_id": decision.selected_backend})
-                self._persist_attempt(attempt)
-            resolved_arguments: dict[str, Any] = {}
-            if handler is None:
-                result = CapabilityResult(
-                    capability=step.capability,
-                    succeeded=False,
-                    error="capability_not_registered",
-                )
-                verification = VerificationResult(
-                    state=VerificationState.UNAVAILABLE,
-                    reason="No bounded capability handler is registered",
-                )
-            else:
-                resolved_arguments = self._resolve_arguments(step, run.inputs, run.step_results)
-                result = handler(resolved_arguments)
-                verification = self._verify(step, result)
-            if decision is not None and self.adaptive is not None:
-                self.adaptive.record_outcome(
-                    decision.decision_id,
-                    execution_succeeded=result.succeeded,
-                    verification_passed=verification.state is VerificationState.PASSED,
-                    failure_class=result.error,
-                )
-            step_state = (
-                "succeeded"
-                if result.succeeded and verification.state is VerificationState.PASSED
-                else "failed"
-            )
-            checkpoint: WorkflowCheckpoint | None = None
-            if step_state == "succeeded":
-                checkpoint = WorkflowCheckpoint(
-                    execution_id=run.id,
-                    step_id=step.id,
-                    attempt_id=attempt.id,
-                    sequence=self._next_checkpoint_sequence(run.id),
-                    state=WorkflowStepAttemptState.SUCCEEDED,
-                    input_digest=self._digest(resolved_arguments),
-                    output_digest=self._digest(result.output),
-                    verified=True,
-                    verified_effects={"verified": True},
-                )
-                self._persist_checkpoint(checkpoint)
-            attempt = attempt.model_copy(
-                update={
-                    "state": (
-                        WorkflowStepAttemptState.SUCCEEDED
-                        if step_state == "succeeded"
-                        else WorkflowStepAttemptState.FAILED
+            start_attempt = self._next_attempt_number(run.id, step.id) if resume else 1
+            max_attempt = max(start_attempt, step.retry_policy.max_attempts)
+            final_result: WorkflowStepResult | None = None
+            for attempt_number in range(start_attempt, max_attempt + 1):
+                final_result = self._execute_step_attempt(run, step, attempt_number)
+                run.step_results.append(final_result)
+                self._persist_run(
+                    run,
+                    event_type=(
+                        "step.completed" if final_result.state == "succeeded" else "step.failed"
                     ),
-                    "checkpoint_id": checkpoint.id if checkpoint is not None else None,
-                    "error_code": result.error,
-                    "finished_at": utc_now(),
-                }
-            )
-            self._persist_attempt(attempt)
-            run.step_results.append(
-                WorkflowStepResult(
-                    step_id=step.id,
-                    state=step_state,
-                    capability_result=result,
-                    verification=verification,
                 )
-            )
+                if final_result.state == "succeeded":
+                    break
+                error = (
+                    final_result.capability_result.error
+                    if final_result.capability_result is not None
+                    else None
+                )
+                if error not in step.retry_policy.retryable_errors:
+                    break
+                if attempt_number < max_attempt:
+                    run.step_results.pop()
             previous_application_id = current_application_id
-            self._persist_run(
-                run,
-                event_type="step.completed" if step_state == "succeeded" else "step.failed",
-            )
-            if step_state == "failed":
+            if final_result is None or final_result.state == "failed":
                 run.state = WorkflowRunState.FAILED
                 break
         else:
             run.state = WorkflowRunState.SUCCEEDED
             run.current_step_order = len(definition.steps)
         run.updated_at = utc_now()
+        checkpoints = self.checkpoints(run.id)
         self._persist_execution(
             execution.model_copy(
                 update={
@@ -584,14 +453,181 @@ class WorkflowService:
                     "completed_step_ids": [
                         item.step_id for item in run.step_results if item.state == "succeeded"
                     ],
-                    "last_checkpoint_id": (
-                        self.checkpoints(run.id)[-1].id if self.checkpoints(run.id) else None
-                    ),
+                    "last_checkpoint_id": checkpoints[-1].id if checkpoints else None,
                     "updated_at": run.updated_at,
                 }
             )
         )
         return run
+
+    def _execute_step_attempt(
+        self, run: WorkflowRun, step: WorkflowStep, attempt_number: int
+    ) -> WorkflowStepResult:
+        effect_idempotency_key = f"{run.id}:{step.id}"
+        attempt = WorkflowStepAttempt(
+            execution_id=run.id,
+            step_id=step.id,
+            attempt_number=attempt_number,
+            state=WorkflowStepAttemptState.RUNNING,
+            provider_id=(
+                step.application.provider_hint
+                if step.application is not None and step.application.provider_hint is not None
+                else step.capability
+            ),
+            idempotency_key=f"{run.id}:{step.id}:{attempt_number}",
+            effect_idempotency_key=effect_idempotency_key,
+            started_at=utc_now(),
+        )
+        self._persist_attempt(attempt)
+        decision = None
+        handler = self._handlers.get(step.capability)
+        if self.adaptive is None:
+            provider_candidates: list[str] = []
+            if step.application is not None:
+                if step.application.provider_hint is not None:
+                    provider_candidates.append(step.application.provider_hint)
+                provider_candidates.extend(step.application.provider_candidates)
+            provider_candidates.extend(step.backend_candidates)
+            for provider in dict.fromkeys(provider_candidates):
+                candidate_handler = self._backend_handlers.get((step.capability, provider))
+                if candidate_handler is not None:
+                    handler = candidate_handler
+                    attempt = attempt.model_copy(update={"provider_id": provider})
+                    self._persist_attempt(attempt)
+                    break
+        if self.adaptive is not None and step.application_profile_id is not None:
+            from mllminal.learning.adaptive import (
+                AdaptiveBackendCandidate,
+                AdaptiveExecutionRequest,
+            )
+
+            candidates = (
+                step.backend_candidates
+                or (step.application.provider_candidates if step.application is not None else [])
+                or [
+                    backend
+                    for capability, backend in self._backend_handlers
+                    if capability == step.capability
+                ]
+                or ["default"]
+            )
+            decision = self.adaptive.decide(
+                AdaptiveExecutionRequest(
+                    workflow_run_id=run.id,
+                    workflow_step_id=step.id,
+                    application_profile_id=step.application_profile_id,
+                    abstract_action=step.abstract_action or step.capability,
+                    target_signature=step.target_signature or step.capability,
+                    candidates=[AdaptiveBackendCandidate(backend=name) for name in candidates],
+                    safety_filters_applied=["workflow_permission_verified"],
+                )
+            )
+            if decision.selected_backend is None:
+                result = CapabilityResult(
+                    capability=step.capability,
+                    succeeded=False,
+                    error=(
+                        "clarification_required"
+                        if decision.clarification_required
+                        else "adaptive_backend_unavailable"
+                    ),
+                )
+                verification = VerificationResult(
+                    state=VerificationState.UNAVAILABLE,
+                    reason=decision.decision_reason,
+                )
+                attempt = attempt.model_copy(
+                    update={
+                        "state": WorkflowStepAttemptState.FAILED,
+                        "error_code": result.error,
+                        "finished_at": utc_now(),
+                    }
+                )
+                self._persist_attempt(attempt)
+                return WorkflowStepResult(
+                    step_id=step.id,
+                    state="failed",
+                    capability_result=result,
+                    verification=verification,
+                )
+            handler = self._backend_handlers.get(
+                (step.capability, decision.selected_backend), handler
+            )
+            attempt = attempt.model_copy(update={"provider_id": decision.selected_backend})
+            self._persist_attempt(attempt)
+        resolved_arguments: dict[str, Any] = {}
+        if handler is None:
+            result = CapabilityResult(
+                capability=step.capability,
+                succeeded=False,
+                error="capability_not_registered",
+            )
+            verification = VerificationResult(
+                state=VerificationState.UNAVAILABLE,
+                reason="No bounded capability handler is registered",
+            )
+        else:
+            resolved_arguments = self._resolve_arguments(step, run.inputs, run.step_results)
+            cached = self._cached(effect_idempotency_key, "workflow.step.execute")
+            if cached is not None:
+                result = CapabilityResult.model_validate(cached)
+            else:
+                try:
+                    result = handler(resolved_arguments)
+                except Exception:
+                    result = CapabilityResult(
+                        capability=step.capability,
+                        succeeded=False,
+                        error="provider_execution_failed",
+                    )
+                if result.succeeded:
+                    self._save_idempotency(effect_idempotency_key, "workflow.step.execute", result)
+            verification = self._verify(step, result)
+        if decision is not None and self.adaptive is not None:
+            self.adaptive.record_outcome(
+                decision.decision_id,
+                execution_succeeded=result.succeeded,
+                verification_passed=verification.state is VerificationState.PASSED,
+                failure_class=result.error,
+            )
+        step_state = (
+            "succeeded"
+            if result.succeeded and verification.state is VerificationState.PASSED
+            else "failed"
+        )
+        checkpoint: WorkflowCheckpoint | None = None
+        if step_state == "succeeded":
+            checkpoint = WorkflowCheckpoint(
+                execution_id=run.id,
+                step_id=step.id,
+                attempt_id=attempt.id,
+                sequence=self._next_checkpoint_sequence(run.id),
+                state=WorkflowStepAttemptState.SUCCEEDED,
+                input_digest=self._digest(resolved_arguments),
+                output_digest=self._digest(result.output),
+                verified=True,
+                verified_effects={"verified": True},
+            )
+            self._persist_checkpoint(checkpoint)
+        attempt = attempt.model_copy(
+            update={
+                "state": (
+                    WorkflowStepAttemptState.SUCCEEDED
+                    if step_state == "succeeded"
+                    else WorkflowStepAttemptState.FAILED
+                ),
+                "checkpoint_id": checkpoint.id if checkpoint is not None else None,
+                "error_code": result.error,
+                "finished_at": utc_now(),
+            }
+        )
+        self._persist_attempt(attempt)
+        return WorkflowStepResult(
+            step_id=step.id,
+            state=step_state,
+            capability_result=result,
+            verification=verification,
+        )
 
     @staticmethod
     def _execution_steps(definition: WorkflowDefinition) -> list[WorkflowStep]:
@@ -626,8 +662,16 @@ class WorkflowService:
             ),
         )
 
-    @staticmethod
-    def _verify(step: WorkflowStep, result: CapabilityResult) -> VerificationResult:
+    def _verify(self, step: WorkflowStep, result: CapabilityResult) -> VerificationResult:
+        verifier = self._verifiers.get(step.capability)
+        if verifier is not None:
+            try:
+                return verifier(result)
+            except Exception:
+                return VerificationResult(
+                    state=VerificationState.UNAVAILABLE,
+                    reason="Independent verifier failed safely",
+                )
         if not result.succeeded:
             return VerificationResult(
                 state=VerificationState.FAILED,
