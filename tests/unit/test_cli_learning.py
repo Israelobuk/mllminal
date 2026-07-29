@@ -168,3 +168,14 @@ def test_learning_active_commands_are_daemon_backed_and_json_safe(tmp_path) -> N
     assert "candidate-1" in listed.stdout
     assert "SUGGESTION_RANKING" in shown.stdout
     assert "INACTIVE" in disabled.stdout
+
+
+def test_runtime_status_command_reports_shadow_only_domains(tmp_path) -> None:
+    result = runner.invoke(
+        create_app(Settings(data_dir=tmp_path, workspace_root=tmp_path)),
+        ["adaptive", "runtime-status"],
+    )
+
+    assert result.exit_code == 0
+    assert "shadow_only_domains" in result.stdout
+    assert "REPAIR_RANKING" in result.stdout

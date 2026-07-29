@@ -54,6 +54,7 @@ from mllminal.learning.profiles import ApplicationInteractionProfileService
 from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
+from mllminal.learning.status import PolicyRuntimeStatusService
 from mllminal.learning.verification_runtime import VerificationRankingService
 from mllminal.mining.contracts import MiningRequest
 from mllminal.mining.service import WorkflowMiningService
@@ -216,6 +217,13 @@ def create_app(
         repository = LearningRepository(resolved_settings.database_path)
         repository.initialize()
         return ApplicationInteractionProfileService(repository)
+
+    def policy_runtime_status_service() -> PolicyRuntimeStatusService:
+        repository = LearningRepository(resolved_settings.database_path)
+        repository.initialize()
+        return PolicyRuntimeStatusService(
+            repository, resolved_settings.data_dir / "learning" / "checkpoints"
+        )
 
     def verification_ranking_service() -> VerificationRankingService:
         repository = LearningRepository(resolved_settings.database_path)
@@ -883,6 +891,10 @@ def create_app(
             )
             .model_dump_json()
         )
+
+    @adaptive.command("runtime-status")
+    def adaptive_runtime_status() -> None:
+        typer.echo(json.dumps(policy_runtime_status_service().snapshot(), sort_keys=True))
 
     @adaptive.command("verification-ranking")
     def adaptive_verification_ranking(payload: str) -> None:

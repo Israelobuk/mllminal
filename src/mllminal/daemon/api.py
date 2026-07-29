@@ -69,6 +69,7 @@ from mllminal.learning.registry import PolicyRegistry
 from mllminal.learning.replay import LearningRepository
 from mllminal.learning.runtime_advisory import LearningRuntimeAdvisor
 from mllminal.learning.service import CandidateTrainingService, MinimumExperienceError
+from mllminal.learning.status import PolicyRuntimeStatusService
 from mllminal.learning.verification_runtime import VerificationRankingService
 from mllminal.mining.contracts import MiningRequest
 from mllminal.mining.service import WorkflowMiningService
@@ -222,6 +223,9 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     verification_ranking = VerificationRankingService(
         learning_repository, settings.data_dir / "learning" / "checkpoints"
     )
+    policy_runtime_status = PolicyRuntimeStatusService(
+        learning_repository, settings.data_dir / "learning" / "checkpoints"
+    )
     vision_runtime = LocalVisionRuntime(settings.data_dir / "vision", privacy, visual)
     mining = WorkflowMiningService()
     compiler = WorkflowCompilerService()
@@ -269,6 +273,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     app.state.acceptance = acceptance
     app.state.visual = visual
     app.state.verification_ranking = verification_ranking
+    app.state.policy_runtime_status = policy_runtime_status
     app.state.vision_runtime = vision_runtime
     app.state.mining = mining
     app.state.compiler = compiler
@@ -1049,6 +1054,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.get("/v1/adaptive/metrics", dependencies=protected)
     async def adaptive_metrics() -> dict[str, Any]:
         return adaptive.outcome_metrics().model_dump(mode="json")
+
+    @app.get("/v1/adaptive/policies/status", dependencies=protected)
+    async def adaptive_policies_status() -> dict[str, Any]:
+        return policy_runtime_status.snapshot()
 
     @app.post("/v1/adaptive/verification-ranking", dependencies=protected)
     async def adaptive_verification_ranking(body: VerificationRankingRequest) -> dict[str, Any]:

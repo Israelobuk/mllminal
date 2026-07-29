@@ -129,3 +129,19 @@ def test_active_policy_bindings_are_authenticated_domain_scoped_and_disableable(
         client.get("/v1/learning/policies/active/SUGGESTION_RANKING", headers=headers).status_code
         == 404
     )
+
+
+def test_aggregated_policy_runtime_status_is_authenticated_and_safety_explicit(
+    tmp_path: Path,
+) -> None:
+    client, headers = _client(tmp_path)
+
+    assert client.get("/v1/adaptive/policies/status").status_code == 401
+    response = client.get("/v1/adaptive/policies/status", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["deterministic_safety_authoritative"] is True
+    assert body["online_training_enabled"] is False
+    assert body["domains"]["REPAIR_RANKING"]["shadow_only"] is True
+    assert body["domains"]["VERIFICATION_RANKING"]["shadow_only"] is False
