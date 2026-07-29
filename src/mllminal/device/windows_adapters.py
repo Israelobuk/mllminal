@@ -255,22 +255,50 @@ class WindowsUIAutomationAdapter:
             self.client_module = _module("win32com.client")
         self._automation: Any | None = None
         self._last: tuple[str, str, str, bool] | None = None
+        self._lock = threading.RLock()
+        self._closed = False
 
     def capability(self) -> ObserverCapability:
-        return ObserverCapability(self.name, self.client_module is not None)
+        with self._lock:
+            return ObserverCapability(
+                self.name, self.client_module is not None and not self._closed
+            )
+
+    def start(self) -> None:
+        with self._lock:
+            self._closed = False
+            self._last = None
+
+    def stop(self) -> None:
+        with self._lock:
+            self._closed = True
+            automation = self._automation
+            self._automation = None
+        if automation is not None:
+            ole_object = getattr(automation, "_oleobj_", None)
+            release = getattr(ole_object, "Release", None)
+            if callable(release):
+                with contextlib.suppress(Exception):
+                    release()
 
     def _client(self) -> Any | None:
-        if self.client_module is None:
-            return None
-        if self._automation is None:
-            self._automation = self.client_module.Dispatch("UIAutomationClient.CUIAutomation8")
-        return self._automation
+        with self._lock:
+            if self._closed or self.client_module is None:
+                return None
+            if self._automation is None:
+                try:
+                    self._automation = self.client_module.Dispatch(
+                        "UIAutomationClient.CUIAutomation8"
+                    )
+                except Exception:
+                    return None
+            return self._automation
 
     def focused_metadata(self) -> dict[str, Any] | None:
-        client = self._client()
-        if client is None:
-            return None
         try:
+            client = self._client()
+            if client is None:
+                return None
             element = client.GetFocusedElement()
             control_id = int(element.CurrentControlType)
             control_type = self._CONTROL_TYPES.get(control_id, f"uia-{control_id}")
@@ -322,10 +350,10 @@ class WindowsUIAutomationAdapter:
     def invoke_focused_control(self, approved: bool = False) -> bool:
         if not approved:
             raise PermissionError("UI Automation invocation requires explicit approval")
-        client = self._client()
-        if client is None:
-            return False
         try:
+            client = self._client()
+            if client is None:
+                return False
             element = client.GetFocusedElement()
             pattern = element.GetCurrentPattern(10000)
             pattern.Invoke()
@@ -405,9 +433,11 @@ class WindowsInputHookAdapter:
         self._secure_rejection_emitted = False
         self._signals: deque[RawDeviceSignal] = deque(maxlen=256)
         self._lock = threading.Lock()
+        self._lifecycle_lock = threading.RLock()
         self._thread: threading.Thread | None = None
         self._thread_id = 0
         self._stop = threading.Event()
+        self._accept_callbacks = threading.Event()
         self._ready = threading.Event()
         self._keyboard_callback: Any = None
         self._mouse_callback: Any = None
@@ -417,25 +447,38 @@ class WindowsInputHookAdapter:
         return ObserverCapability(self.name, self.enabled)
 
     def start(self) -> None:
-        if not self.enabled or self._thread is not None:
-            return
-        self._stop.clear()
-        self._ready.clear()
-        self._thread = threading.Thread(
-            target=self._pump, name="mllminal-windows-hooks", daemon=True
-        )
-        self._thread.start()
+        with self._lifecycle_lock:
+            if not self.enabled:
+                return
+            if self._thread is not None and self._thread.is_alive():
+                return
+            if self._thread is not None:
+                self._thread.join()
+                self._thread = None
+            self._stop.clear()
+            self._accept_callbacks.set()
+            self._ready.clear()
+            self._thread = threading.Thread(
+                target=self._pump, name="mllminal-windows-hooks", daemon=False
+            )
+            self._thread.start()
         self._ready.wait(timeout=2)
 
     def stop(self) -> None:
-        if self._thread is None:
-            return
-        self._stop.set()
-        if self._thread_id:
-            ctypes.windll.user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)
-        self._thread.join(timeout=2)
-        self._thread = None
-        self._thread_id = 0
+        with self._lifecycle_lock:
+            self._accept_callbacks.clear()
+            self._stop.set()
+            thread = self._thread
+            thread_id = self._thread_id
+        if thread_id and thread is not threading.current_thread():
+            with contextlib.suppress(Exception):
+                ctypes.windll.user32.PostThreadMessageW(thread_id, 0x0012, 0, 0)
+        if thread is not None and thread is not threading.current_thread():
+            thread.join()
+        with self._lifecycle_lock:
+            if self._thread is thread and (thread is None or not thread.is_alive()):
+                self._thread = None
+                self._thread_id = 0
 
     def poll(self) -> list[RawDeviceSignal]:
         with self._lock:
@@ -444,10 +487,15 @@ class WindowsInputHookAdapter:
         return result
 
     def _queue(self, event_type: str, payload: dict[str, Any]) -> None:
+        if not self._accept_callbacks.is_set():
+            return
         with self._lock:
-            self._signals.append(_signal(event_type, self.name, payload))
+            if self._accept_callbacks.is_set():
+                self._signals.append(_signal(event_type, self.name, payload))
 
     def _keyboard_event(self, vk: int) -> None:
+        if not self._accept_callbacks.is_set():
+            return
         secure = bool(self.secure_focus and self.secure_focus())
         if secure:
             if not self._secure_rejection_emitted:
@@ -504,6 +552,8 @@ class WindowsInputHookAdapter:
                 )
 
     def _mouse_event(self, event_type: str, mouse_data: int = 0) -> None:
+        if not self._accept_callbacks.is_set():
+            return
         if self.secure_focus and self.secure_focus():
             return
         if event_type == "mouse.scroll":
@@ -535,47 +585,101 @@ class WindowsInputHookAdapter:
         values = {"ctrl": 0x11, "alt": 0x12, "shift": 0x10, "win": 0x5B}
         return {name for name, vk in values.items() if user32.GetAsyncKeyState(vk) & 0x8000}
 
+    @staticmethod
+    def _call_next_hook(user32: Any, n_code: int, w_param: int, l_param: int) -> int:
+        try:
+            return int(user32.CallNextHookEx(None, n_code, w_param, l_param))
+        except (ctypes.ArgumentError, OverflowError):
+            return 0
+
     def _pump(self) -> None:
-        user32 = ctypes.windll.user32
-        self._thread_id = int(ctypes.windll.kernel32.GetCurrentThreadId())
-        hook_proc = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, ctypes.c_ulong, ctypes.c_void_p)
+        user32: Any | None = None
+        try:
+            user32 = ctypes.windll.user32
+            self._thread_id = int(ctypes.windll.kernel32.GetCurrentThreadId())
+            hook_proc = ctypes.WINFUNCTYPE(
+                ctypes.c_ssize_t, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM
+            )
+            user32.CallNextHookEx.argtypes = (
+                wintypes.HHOOK,
+                ctypes.c_int,
+                wintypes.WPARAM,
+                wintypes.LPARAM,
+            )
+            user32.CallNextHookEx.restype = ctypes.c_ssize_t
+            user32.SetWindowsHookExW.argtypes = (
+                ctypes.c_int,
+                hook_proc,
+                wintypes.HINSTANCE,
+                wintypes.DWORD,
+            )
+            user32.SetWindowsHookExW.restype = wintypes.HHOOK
+            user32.UnhookWindowsHookEx.argtypes = (wintypes.HHOOK,)
+            user32.UnhookWindowsHookEx.restype = wintypes.BOOL
+            user32.PostThreadMessageW.argtypes = (
+                wintypes.DWORD,
+                wintypes.UINT,
+                wintypes.WPARAM,
+                wintypes.LPARAM,
+            )
+            user32.PostThreadMessageW.restype = wintypes.BOOL
 
-        def keyboard(n_code: int, w_param: int, l_param: int) -> int:
-            if n_code >= 0 and w_param in (0x0100, 0x0104):
-                self._keyboard_event(
-                    int(ctypes.cast(l_param, ctypes.POINTER(_KbdHook)).contents.vk_code)
-                )
-            return int(user32.CallNextHookEx(0, n_code, w_param, l_param))
+            def keyboard(n_code: int, w_param: int, l_param: int) -> int:
+                try:
+                    if (
+                        self._accept_callbacks.is_set()
+                        and n_code >= 0
+                        and w_param in (0x0100, 0x0104)
+                    ):
+                        self._keyboard_event(
+                            int(ctypes.cast(l_param, ctypes.POINTER(_KbdHook)).contents.vk_code)
+                        )
+                except Exception:
+                    pass
+                return self._call_next_hook(user32, n_code, w_param, l_param)
 
-        def mouse(n_code: int, w_param: int, _l_param: int) -> int:
-            if n_code >= 0:
-                events = {
-                    0x0201: "mouse.click",
-                    0x0203: "mouse.double_click",
-                    0x020A: "mouse.scroll",
-                }
-                if w_param in events:
-                    mouse_data = int(
-                        ctypes.cast(_l_param, ctypes.POINTER(_MouseHook)).contents.mouse_data
-                    )
-                    self._mouse_event(events[w_param], mouse_data)
-            return int(user32.CallNextHookEx(0, n_code, w_param, _l_param))
+            def mouse(n_code: int, w_param: int, l_param: int) -> int:
+                try:
+                    if self._accept_callbacks.is_set() and n_code >= 0:
+                        events = {
+                            0x0201: "mouse.click",
+                            0x0203: "mouse.double_click",
+                            0x020A: "mouse.scroll",
+                        }
+                        if w_param in events:
+                            mouse_data = int(
+                                ctypes.cast(l_param, ctypes.POINTER(_MouseHook)).contents.mouse_data
+                            )
+                            self._mouse_event(events[w_param], mouse_data)
+                except Exception:
+                    pass
+                return self._call_next_hook(user32, n_code, w_param, l_param)
 
-        self._keyboard_callback = hook_proc(keyboard)
-        self._mouse_callback = hook_proc(mouse)
-        self._hook_handles = [
-            int(user32.SetWindowsHookExW(13, self._keyboard_callback, 0, 0)),
-            int(user32.SetWindowsHookExW(14, self._mouse_callback, 0, 0)),
-        ]
-        self._ready.set()
-        msg = wintypes.MSG()
-        while not self._stop.is_set() and user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) > 0:
-            user32.TranslateMessage(ctypes.byref(msg))
-            user32.DispatchMessageW(ctypes.byref(msg))
-        for handle in self._hook_handles:
-            if handle:
-                user32.UnhookWindowsHookEx(handle)
-        self._hook_handles.clear()
+            self._keyboard_callback = hook_proc(keyboard)
+            self._mouse_callback = hook_proc(mouse)
+            self._hook_handles = [
+                int(user32.SetWindowsHookExW(13, self._keyboard_callback, None, 0)),
+                int(user32.SetWindowsHookExW(14, self._mouse_callback, None, 0)),
+            ]
+            self._ready.set()
+            msg = wintypes.MSG()
+            while not self._stop.is_set() and user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+                user32.TranslateMessage(ctypes.byref(msg))
+                user32.DispatchMessageW(ctypes.byref(msg))
+        except Exception:
+            self._ready.set()
+        finally:
+            self._accept_callbacks.clear()
+            if user32 is not None:
+                for handle in self._hook_handles:
+                    if handle:
+                        with contextlib.suppress(Exception):
+                            user32.UnhookWindowsHookEx(handle)
+            self._hook_handles.clear()
+            self._keyboard_callback = None
+            self._mouse_callback = None
+            self._thread_id = 0
+            self._ready.set()
 
 
 class FakeWindowsAdapter:

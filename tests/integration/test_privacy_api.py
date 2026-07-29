@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
@@ -8,20 +9,20 @@ from mllminal.privacy.contracts import CaptureCategory, CaptureMode
 from mllminal.runtime_store import RuntimeStore
 
 
-def make_client(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
+@pytest.fixture
+def client_and_headers(tmp_path: Path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     settings = Settings(data_dir=tmp_path / "data", workspace_root=workspace)
     ProviderConfigStore(settings).save(ProviderConfig(provider="deterministic", model="fixture"))
     store = RuntimeStore(settings.database_path)
     store.initialize()
-    return TestClient(create_app(settings, store, "test-token")), {
-        "Authorization": "Bearer test-token"
-    }
+    with TestClient(create_app(settings, store, "test-token")) as client:
+        yield client, {"Authorization": "Bearer test-token"}
 
 
-def test_privacy_requires_auth_and_explicit_enable(tmp_path: Path) -> None:
-    client, headers = make_client(tmp_path)
+def test_privacy_requires_auth_and_explicit_enable(client_and_headers) -> None:
+    client, headers = client_and_headers
 
     assert client.get("/v1/privacy/status").status_code == 401
     initial = client.get("/v1/privacy/status", headers=headers).json()
@@ -35,8 +36,8 @@ def test_privacy_requires_auth_and_explicit_enable(tmp_path: Path) -> None:
     assert enabled.json()["consent_granted"] is True
 
 
-def test_privacy_capture_policy_and_history_routes_are_durable(tmp_path: Path) -> None:
-    client, headers = make_client(tmp_path)
+def test_privacy_capture_policy_and_history_routes_are_durable(client_and_headers) -> None:
+    client, headers = client_and_headers
     client.post("/v1/privacy/enable", headers={**headers, "Idempotency-Key": "enable"})
     policy = client.get("/v1/privacy/policy", headers=headers).json()
     policy["capture_modes"][CaptureCategory.SEMANTIC_POINTER] = CaptureMode.METADATA
@@ -66,8 +67,8 @@ def test_privacy_capture_policy_and_history_routes_are_durable(tmp_path: Path) -
     assert exported.json()["history"][0]["payload"]["name"] == "Export"
 
 
-def test_privacy_exclusion_emergency_and_history_delete_routes(tmp_path: Path) -> None:
-    client, headers = make_client(tmp_path)
+def test_privacy_exclusion_emergency_and_history_delete_routes(client_and_headers) -> None:
+    client, headers = client_and_headers
     client.post("/v1/privacy/enable", headers={**headers, "Idempotency-Key": "enable"})
     rule = client.post(
         "/v1/privacy/exclusions",
@@ -109,8 +110,8 @@ def test_privacy_exclusion_emergency_and_history_delete_routes(tmp_path: Path) -
     assert deleted.status_code == 200
 
 
-def test_two_privacy_websockets_replay_the_same_events(tmp_path: Path) -> None:
-    client, headers = make_client(tmp_path)
+def test_two_privacy_websockets_replay_the_same_events(client_and_headers) -> None:
+    client, headers = client_and_headers
     client.post("/v1/privacy/enable", headers={**headers, "Idempotency-Key": "enable"})
     client.post("/v1/privacy/pause", headers={**headers, "Idempotency-Key": "pause"})
     expected = client.app.state.privacy.events()
