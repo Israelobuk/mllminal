@@ -2,6 +2,7 @@ from pathlib import Path
 
 import torch
 
+from mllminal.learning.active_policy_registry import ActivePolicyRegistry
 from mllminal.learning.adaptive import (
     AdaptiveBackendCandidate,
     AdaptiveExecutionRequest,
@@ -65,6 +66,11 @@ def _runtime(
     )
     policy = repository.update_policy_checkpoint(policy.id, digest)
     repository.promote_policy(policy.id, reason="test approval", idempotency_key="test-promote")
+    ActivePolicyRegistry(repository, tmp_path / "checkpoints").activate(
+        policy.id,
+        activated_by="test",
+        idempotency_key="test-active-backend",
+    )
     runtime = BackendPolicyRuntime(repository, tmp_path / "checkpoints")
     return (
         AdaptiveExecutionService(
