@@ -299,6 +299,42 @@ class LearningDaemonClient(DaemonClient):
     async def active_policy(self, domain: str) -> dict[str, Any]:
         return _dict(await self.request("GET", f"/v1/learning/active?domain={domain}"))
 
+    async def active_policy_bindings(self) -> list[dict[str, Any]]:
+        return _list(await self.request("GET", "/v1/learning/policies/active"))
+
+    async def active_policy_binding(self, domain: str) -> dict[str, Any]:
+        return _dict(await self.request("GET", f"/v1/learning/policies/active/{domain}"))
+
+    async def enable_active_policy(
+        self, domain: str, payload: dict[str, Any], *, idempotency_key: str
+    ) -> dict[str, Any]:
+        return _dict(
+            await self.request(
+                "POST",
+                f"/v1/learning/policies/active/{domain}/enable",
+                payload,
+                idempotency_key=idempotency_key,
+            )
+        )
+
+    async def disable_active_policy(self, domain: str, *, idempotency_key: str) -> dict[str, Any]:
+        return _dict(
+            await self.request(
+                "POST",
+                f"/v1/learning/policies/active/{domain}/disable",
+                idempotency_key=idempotency_key,
+            )
+        )
+
+    async def rollback_active_policy(self, domain: str, *, idempotency_key: str) -> dict[str, Any]:
+        return _dict(
+            await self.request(
+                "POST",
+                f"/v1/learning/policies/active/{domain}/rollback",
+                idempotency_key=idempotency_key,
+            )
+        )
+
     async def worker_status(self, job_id: str) -> dict[str, Any]:
         return _dict(await self.request("GET", f"/v1/learning/workers/{job_id}"))
 

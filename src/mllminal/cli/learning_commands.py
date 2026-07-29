@@ -34,6 +34,7 @@ def register_learning_commands(
     policy = typer.Typer(help="Train and explicitly govern advisory candidates.")
     worker = typer.Typer(help="Inspect or cancel daemon-owned training workers.")
     experiments = typer.Typer(help="Inspect durable offline training runs.")
+    active = typer.Typer(help="Inspect and explicitly manage domain-scoped active policies.")
 
     def client() -> LearningDaemonClient:
         return client_factory(settings)
@@ -383,8 +384,103 @@ def register_learning_commands(
             for key, value in summary.items():
                 typer.echo(f"{key}: {value}")
 
+    def safe_binding(item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: item[key]
+            for key in (
+                "binding_id",
+                "policy_domain",
+                "candidate_id",
+                "policy_version",
+                "artifact_digest",
+                "feature_schema_version",
+                "action_schema_version",
+                "advisory_weight",
+                "confidence_threshold",
+                "latency_budget_ms",
+                "status",
+                "status_reason",
+                "previous_binding_id",
+                "rollback_target_id",
+                "created_at",
+            )
+            if key in item
+        }
+
+    @active.command("list")
+    def active_list(json_output: bool = typer.Option(False, "--json")) -> None:
+        result = call(lambda value: value.active_policy_bindings())
+        summaries = [safe_binding(item) for item in result]
+        if json_output:
+            emit(result, summaries, True)
+        else:
+            for item in summaries:
+                typer.echo(" ".join(f"{key}={value}" for key, value in item.items()))
+
+    @active.command("show")
+    def active_show(domain: str, json_output: bool = typer.Option(False, "--json")) -> None:
+        result = call(lambda value: value.active_policy_binding(domain))
+        summary = safe_binding(result)
+        if json_output:
+            emit(result, summary, True)
+        else:
+            for key, value in summary.items():
+                typer.echo(f"{key}: {value}")
+
+    @active.command("enable")
+    def active_enable(
+        domain: str,
+        candidate_id: str,
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        payload = {"candidate_id": candidate_id, "activated_by": "cli_operator"}
+        result = call(
+            lambda value: value.enable_active_policy(
+                domain,
+                payload,
+                idempotency_key=f"cli-learning-active-enable-{domain}-{candidate_id}",
+            )
+        )
+        summary = safe_binding(result)
+        if json_output:
+            emit(result, summary, True)
+        else:
+            typer.echo(f"Policy binding: {summary.get('binding_id', 'unknown')}")
+            typer.echo(f"State: {summary.get('status', 'unknown')}")
+
+    @active.command("disable")
+    def active_disable(domain: str, json_output: bool = typer.Option(False, "--json")) -> None:
+        result = call(
+            lambda value: value.disable_active_policy(
+                domain,
+                idempotency_key=f"cli-learning-active-disable-{domain}",
+            )
+        )
+        summary = safe_binding(result)
+        if json_output:
+            emit(result, summary, True)
+        else:
+            typer.echo(f"Policy binding: {summary.get('binding_id', 'unknown')}")
+            typer.echo(f"State: {summary.get('status', 'unknown')}")
+
+    @active.command("rollback")
+    def active_rollback(domain: str, json_output: bool = typer.Option(False, "--json")) -> None:
+        result = call(
+            lambda value: value.rollback_active_policy(
+                domain,
+                idempotency_key=f"cli-learning-active-rollback-{domain}",
+            )
+        )
+        summary = safe_binding(result)
+        if json_output:
+            emit(result, summary, True)
+        else:
+            typer.echo(f"Policy binding: {summary.get('binding_id', 'unknown')}")
+            typer.echo(f"State: {summary.get('status', 'unknown')}")
+
     learning.add_typer(experiences, name="experiences")
     learning.add_typer(replay, name="replay")
     learning.add_typer(policy, name="policy")
     learning.add_typer(worker, name="worker")
     learning.add_typer(experiments, name="experiments")
+    learning.add_typer(active, name="active")

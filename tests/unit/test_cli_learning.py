@@ -125,3 +125,46 @@ def test_learning_policy_train_uses_authenticated_daemon_and_safe_output(tmp_pat
             "cli-learning-policy-train-SUGGESTION_RANKING",
         )
     ]
+
+
+def test_learning_active_commands_are_daemon_backed_and_json_safe(tmp_path) -> None:
+    class FakeDaemonClient:
+        async def active_policy_bindings(self):
+            return [
+                {
+                    "policy_domain": "SUGGESTION_RANKING",
+                    "status": "ACTIVE",
+                    "candidate_id": "candidate-1",
+                }
+            ]
+
+        async def active_policy_binding(self, domain):
+            return {"policy_domain": domain, "status": "ACTIVE", "candidate_id": "candidate-1"}
+
+        async def enable_active_policy(self, domain, payload, *, idempotency_key):
+            return {
+                "policy_domain": domain,
+                "status": "ACTIVE",
+                "candidate_id": payload["candidate_id"],
+            }
+
+        async def disable_active_policy(self, domain, *, idempotency_key):
+            return {"policy_domain": domain, "status": "INACTIVE"}
+
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeDaemonClient(),
+    )
+
+    listed = runner.invoke(app, ["learning", "active", "list", "--json"])
+    shown = runner.invoke(app, ["learning", "active", "show", "SUGGESTION_RANKING", "--json"])
+    enabled = runner.invoke(
+        app,
+        ["learning", "active", "enable", "SUGGESTION_RANKING", "candidate-1", "--json"],
+    )
+    disabled = runner.invoke(app, ["learning", "active", "disable", "SUGGESTION_RANKING", "--json"])
+
+    assert listed.exit_code == shown.exit_code == enabled.exit_code == disabled.exit_code == 0
+    assert "candidate-1" in listed.stdout
+    assert "SUGGESTION_RANKING" in shown.stdout
+    assert "INACTIVE" in disabled.stdout
