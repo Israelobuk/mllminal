@@ -20,6 +20,15 @@ class ActivePolicyValidationError(ValueError):
     """Raised when a candidate cannot be bound safely to a runtime domain."""
 
 
+LIVE_ADVISORY_POLICY_DOMAINS: frozenset[PolicyDomain] = frozenset(
+    {
+        PolicyDomain.BACKEND_RANKING,
+        PolicyDomain.SUGGESTION_RANKING,
+        PolicyDomain.VERIFICATION_RANKING,
+    }
+)
+
+
 class ActivePolicyRegistry:
     """Manage explicit active/shadow bindings without changing candidate lifecycle."""
 
@@ -84,6 +93,14 @@ class ActivePolicyRegistry:
                     policy, path, actual_digest, idempotency_key, "runtime version is incompatible"
                 )
                 raise ActivePolicyValidationError("runtime version is incompatible")
+            if (
+                mode is ActivePolicyStatus.ACTIVE
+                and policy.policy_domain not in LIVE_ADVISORY_POLICY_DOMAINS
+            ):
+                raise ActivePolicyValidationError(
+                    f"{policy.policy_domain.value} is shadow-only until "
+                    "a live runtime is integrated"
+                )
             binding = ActivePolicyBinding(
                 policy_domain=policy.policy_domain,
                 candidate_id=policy.id,
@@ -176,6 +193,7 @@ class ActivePolicyRegistry:
 
 
 __all__ = [
+    "LIVE_ADVISORY_POLICY_DOMAINS",
     "ActivePolicyRegistry",
     "ActivePolicyStatus",
     "ActivePolicyValidationError",
