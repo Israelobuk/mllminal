@@ -39,6 +39,7 @@ class RuntimePolicyStatus:
     policy_domain: str
     status: str = ActivePolicyStatus.INACTIVE.value
     active: bool = False
+    shadow: bool = False
     advisory_only: bool = True
     binding_id: str | None = None
     candidate_id: str | None = None
@@ -78,6 +79,7 @@ class ActivePolicyRuntimeAdapter:
         max_rows: int = DEFAULT_MAX_ROWS,
         max_inference_seconds: float = DEFAULT_MAX_INFERENCE_SECONDS,
         max_artifact_bytes: int = DEFAULT_MAX_ARTIFACT_BYTES,
+        allow_shadow: bool = False,
     ) -> None:
         if max_rows < 1:
             raise ValueError("max_rows must be positive")
@@ -95,29 +97,37 @@ class ActivePolicyRuntimeAdapter:
         self.max_rows = max_rows
         self.max_inference_seconds = max_inference_seconds
         self.max_artifact_bytes = max_artifact_bytes
+        self.allow_shadow = allow_shadow
         self._last_fallback_reason: str | None = None
         self._loaded: tuple[str, str, OfflineCandidateModel] | None = None
 
     def status(self) -> RuntimePolicyStatus:
-        binding = self.registry.active(self.policy_domain)
+        binding = self._binding()
         try:
             self.load()
         except RuntimePolicyUnavailable as error:
             self._last_fallback_reason = str(error)
             return self._status(binding=binding)
-        return self._status(binding=binding, active=True, schema_valid=True)
+        return self._status(
+            binding=binding,
+            active=binding is not None and binding.status is ActivePolicyStatus.ACTIVE,
+            schema_valid=True,
+        )
 
     def load(self) -> LoadedRuntimePolicy:
-        binding = self.registry.active(self.policy_domain)
+        binding = self._binding()
         if binding is None:
             raise self._unavailable("no active policy binding")
-        if binding.status is not ActivePolicyStatus.ACTIVE:
-            raise self._unavailable("active policy binding is not ACTIVE")
+        allowed_statuses = {ActivePolicyStatus.ACTIVE}
+        if self.allow_shadow:
+            allowed_statuses.add(ActivePolicyStatus.SHADOW)
+        if binding.status not in allowed_statuses:
+            raise self._unavailable("active policy binding is not runnable")
         try:
             candidate = self.registry.repository.get_policy_version(binding.candidate_id)
         except KeyError as error:
             raise self._unavailable("active policy candidate is unavailable") from error
-        if candidate.lifecycle.value != "ACTIVE":
+        if not self.allow_shadow and candidate.lifecycle.value != "ACTIVE":
             raise self._unavailable("active policy candidate is not ACTIVE")
         if binding.runtime_version != self.runtime_version:
             raise self._unavailable("runtime version is incompatible")
@@ -192,6 +202,19 @@ class ActivePolicyRuntimeAdapter:
             raise self._unavailable("inference output dimensions are invalid")
         return tuple(tuple(min(max(float(score), 0.0), 1.0) for score in row) for row in rows)
 
+    def _binding(self) -> ActivePolicyBinding | None:
+        if not self.allow_shadow:
+            return self.registry.active(self.policy_domain)
+        bindings = self.registry.list(self.policy_domain)
+        return next(
+            (
+                binding
+                for binding in reversed(bindings)
+                if binding.status is ActivePolicyStatus.SHADOW
+            ),
+            None,
+        )
+
     def _artifact_path(self, artifact_path: str) -> Path:
         path = (self.artifact_root / artifact_path).resolve()
         try:
@@ -211,6 +234,7 @@ class ActivePolicyRuntimeAdapter:
             policy_domain=self.policy_domain.value,
             status=binding.status.value if binding else ActivePolicyStatus.INACTIVE.value,
             active=active,
+            shadow=binding is not None and binding.status is ActivePolicyStatus.SHADOW,
             binding_id=binding.binding_id if binding else None,
             candidate_id=binding.candidate_id if binding else None,
             artifact_digest=binding.artifact_digest if binding else None,
