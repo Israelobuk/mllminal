@@ -16,6 +16,7 @@ from mllminal.workflow.contracts import (
     VerificationState,
     WorkflowDefinition,
     WorkflowDefinitionState,
+    WorkflowInputType,
     WorkflowRun,
     WorkflowRunEvent,
     WorkflowRunRequest,
@@ -127,11 +128,12 @@ class WorkflowService:
             preview=request.preview,
             inputs=inputs,
         )
+        execution_steps = self._execution_steps(definition)
         if request.preview:
-            run.step_results = [self._preview_result(step) for step in definition.steps]
-            run.current_step_order = len(definition.steps)
-        elif any(step.approval_required for step in definition.steps):
-            first = next(step for step in definition.steps if step.approval_required)
+            run.step_results = [self._preview_result(step) for step in execution_steps]
+            run.current_step_order = len(execution_steps)
+        elif any(step.approval_required for step in execution_steps):
+            first = next(step for step in execution_steps if step.approval_required)
             run.state = WorkflowRunState.PENDING_APPROVAL
             run.pending_approval_step_id = first.id
             run.current_step_order = first.order
@@ -233,7 +235,7 @@ class WorkflowService:
 
     def _execute(self, run: WorkflowRun, definition: WorkflowDefinition) -> WorkflowRun:
         run.state = WorkflowRunState.RUNNING
-        for step in definition.steps:
+        for step in self._execution_steps(definition):
             run.current_step_order = step.order
             decision = None
             handler = self._handlers.get(step.capability)
@@ -301,7 +303,7 @@ class WorkflowService:
                     reason="No bounded capability handler is registered",
                 )
             else:
-                result = handler(self._resolve_arguments(step, run.inputs))
+                result = handler(self._resolve_arguments(step, run.inputs, run.step_results))
                 verification = self._verify(step, result)
             if decision is not None and self.adaptive is not None:
                 self.adaptive.record_outcome(
@@ -331,6 +333,28 @@ class WorkflowService:
             run.current_step_order = len(definition.steps)
         run.updated_at = utc_now()
         return run
+
+    @staticmethod
+    def _execution_steps(definition: WorkflowDefinition) -> list[WorkflowStep]:
+        steps_by_id = {step.id: step for step in definition.steps}
+        pending = set(steps_by_id)
+        completed: set[str] = set()
+        ordered: list[WorkflowStep] = []
+        while pending:
+            ready = sorted(
+                (
+                    steps_by_id[step_id]
+                    for step_id in pending
+                    if set(steps_by_id[step_id].depends_on) <= completed
+                ),
+                key=lambda step: step.order,
+            )
+            if not ready:
+                raise RuntimeError("workflow step dependencies cannot be resolved")
+            ordered.extend(ready)
+            completed.update(step.id for step in ready)
+            pending.difference_update(step.id for step in ready)
+        return ordered
 
     @staticmethod
     def _preview_result(step: WorkflowStep) -> WorkflowStepResult:
@@ -371,7 +395,11 @@ class WorkflowService:
         )
 
     @staticmethod
-    def _resolve_arguments(step: WorkflowStep, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _resolve_arguments(
+        step: WorkflowStep,
+        inputs: dict[str, Any],
+        step_results: list[WorkflowStepResult] | None = None,
+    ) -> dict[str, Any]:
         def resolve(value: Any) -> Any:
             if isinstance(value, str) and value.startswith("$input."):
                 return inputs.get(value.removeprefix("$input."))
@@ -381,7 +409,33 @@ class WorkflowService:
                 return [resolve(item) for item in value]
             return value
 
-        return cast(dict[str, Any], resolve(step.arguments))
+        arguments = cast(dict[str, Any], resolve(step.arguments))
+        if not step.input_bindings:
+            return arguments
+        if step_results is None:
+            raise RuntimeError("workflow step bindings require execution results")
+        results_by_step = {result.step_id: result for result in step_results}
+        for target_name, binding in step.input_bindings.items():
+            source_result = results_by_step.get(binding.source_step_id)
+            if (
+                source_result is None
+                or source_result.state != "succeeded"
+                or source_result.capability_result is None
+            ):
+                raise RuntimeError(
+                    f"workflow binding source is not a completed step: {binding.source_step_id}"
+                )
+            if binding.source_field not in source_result.capability_result.output:
+                raise ValueError(
+                    f"workflow binding source field is missing: {binding.source_field}"
+                )
+            value = source_result.capability_result.output[binding.source_field]
+            if binding.target_type is not WorkflowInputType.PREVIOUS_OUTPUT and not (
+                WorkflowService._valid_input_type(binding.target_type.value, value)
+            ):
+                raise ValueError(f"workflow binding type mismatch: {target_name}")
+            arguments[target_name] = value
+        return arguments
 
     @staticmethod
     def _validate_inputs(definition: WorkflowDefinition, values: dict[str, Any]) -> dict[str, Any]:
@@ -416,7 +470,7 @@ class WorkflowService:
             "contact": lambda: isinstance(value, str),
             "application": lambda: isinstance(value, str),
             "selected_item": lambda: isinstance(value, str),
-            "previous_output": lambda: isinstance(value, (str, dict, list)),
+            "previous_output": lambda: isinstance(value, (str, int, float, bool, dict, list)),
             "user_choice": lambda: isinstance(value, (str, int, float, bool)),
             "integer": lambda: isinstance(value, int) and not isinstance(value, bool),
             "number": lambda: isinstance(value, (int, float)) and not isinstance(value, bool),
