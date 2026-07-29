@@ -62,6 +62,15 @@ class WorkflowStepAttemptState(StrEnum):
     SKIPPED = "skipped"
 
 
+class WorkflowRollbackPlanState(StrEnum):
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXECUTED = "executed"
+    FAILED = "failed"
+    UNAVAILABLE = "unavailable"
+
+
 class VerificationState(StrEnum):
     NOT_RUN = "not_run"
     PASSED = "passed"
@@ -302,6 +311,25 @@ class WorkflowCheckpoint(Contract):
     resumable: bool = True
     verified_effects: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class WorkflowRollbackStep(Contract):
+    step_id: str
+    source_attempt_id: str
+    capability: str
+    consequence_class: str = "reversible"
+    approval_required: bool = True
+
+
+class WorkflowRollbackPlan(Contract):
+    id: str = Field(default_factory=new_id)
+    run_id: str
+    state: WorkflowRollbackPlanState = WorkflowRollbackPlanState.PROPOSED
+    reason: str
+    steps: list[WorkflowRollbackStep] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+    approved_at: datetime | None = None
+    executed_at: datetime | None = None
 
 
 class WorkflowRun(Contract):
