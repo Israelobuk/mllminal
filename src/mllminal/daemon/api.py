@@ -731,6 +731,51 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     async def workflow_run_record(run_id: str) -> dict[str, Any]:
         return workflow.run_record(run_id).model_dump(mode="json")
 
+    @app.post("/v1/workflow-runs/{run_id}/resume", dependencies=protected)
+    async def workflow_resume(
+        run_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return workflow.resume(run_id, idempotency_key=idempotency_key).model_dump(mode="json")
+
+    @app.get("/v1/workflow-runs/{run_id}/execution", dependencies=protected)
+    async def workflow_execution(run_id: str) -> dict[str, Any]:
+        return workflow.execution(run_id).model_dump(mode="json")
+
+    @app.get("/v1/workflow-runs/{run_id}/attempts", dependencies=protected)
+    async def workflow_attempts(run_id: str) -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in workflow.attempts(run_id)]
+
+    @app.get("/v1/workflow-runs/{run_id}/checkpoints", dependencies=protected)
+    async def workflow_checkpoints(run_id: str) -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in workflow.checkpoints(run_id)]
+
+    @app.post("/v1/workflow-runs/{run_id}/rollback-plans", dependencies=protected)
+    async def workflow_rollback_plan(
+        run_id: str,
+        reason: str = "operator requested rollback",
+    ) -> dict[str, Any]:
+        return workflow.propose_rollback(run_id, reason=reason).model_dump(mode="json")
+
+    @app.post("/v1/workflow-rollback-plans/{plan_id}/approve", dependencies=protected)
+    async def workflow_rollback_plan_approve(
+        plan_id: str,
+        body: WorkflowApprovalRequest,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return workflow.approve_rollback(
+            plan_id, approved=body.approved, idempotency_key=idempotency_key
+        ).model_dump(mode="json")
+
+    @app.post("/v1/workflow-rollback-plans/{plan_id}/execute", dependencies=protected)
+    async def workflow_rollback_plan_execute(
+        plan_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return workflow.execute_rollback(plan_id, idempotency_key=idempotency_key).model_dump(
+            mode="json"
+        )
+
     @app.post("/v1/workflow-runs/{run_id}/approve", dependencies=protected)
     async def workflow_approve(
         run_id: str,
@@ -1310,6 +1355,29 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
                     }
                 )
         except (WebSocketDisconnect, TimeoutError, ValueError):
+            return
+
+    @app.websocket("/v1/workflow-runs/{run_id}/events/stream")
+    async def workflow_event_stream(socket: WebSocket, run_id: str) -> None:
+        await socket.accept()
+        try:
+            authentication = await asyncio.wait_for(socket.receive_json(), timeout=5)
+            supplied = authentication.get("token") if isinstance(authentication, dict) else None
+            if authentication.get("type") != "authenticate" or not isinstance(supplied, str):
+                await socket.close(code=4401, reason="Authentication required")
+                return
+            if not secrets.compare_digest(supplied, token):
+                await socket.close(code=4401, reason="Authentication failed")
+                return
+            after = int(socket.query_params.get("after_sequence", "0"))
+            await socket.send_json({"type": "authenticated"})
+            while True:
+                events = workflow.events(run_id)
+                for event in events[after:]:
+                    await socket.send_json(event.model_dump(mode="json"))
+                    after += 1
+                await asyncio.sleep(0.1)
+        except (WebSocketDisconnect, TimeoutError, KeyError, ValueError):
             return
 
     @app.websocket("/v1/events")
