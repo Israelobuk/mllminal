@@ -143,13 +143,13 @@ def test_invalid_artifact_digest_and_schema_never_create_binding(tmp_path: Path)
 def test_activation_is_idempotent_and_disable_keeps_deterministic_fallback(tmp_path: Path) -> None:
     repository, registry = _setup(tmp_path)
     candidate = _candidate(
-        repository, tmp_path / "checkpoints", PolicyDomain.CLARIFICATION_POLICY, "idempotent"
+        repository, tmp_path / "checkpoints", PolicyDomain.SUGGESTION_RANKING, "idempotent"
     )
 
     first = registry.activate(candidate, activated_by="operator", idempotency_key="same-key")
     repeated = registry.activate(candidate, activated_by="operator", idempotency_key="same-key")
     disabled = registry.disable(
-        PolicyDomain.CLARIFICATION_POLICY,
+        PolicyDomain.SUGGESTION_RANKING,
         reason="manual safety pause",
         idempotency_key="disable-clarification",
     )
@@ -157,3 +157,23 @@ def test_activation_is_idempotent_and_disable_keeps_deterministic_fallback(tmp_p
     assert repeated.binding_id == first.binding_id
     assert disabled.status is ActivePolicyStatus.INACTIVE
     assert registry.active(PolicyDomain.CLARIFICATION_POLICY) is None
+
+
+def test_future_policy_domains_are_shadow_only(tmp_path: Path) -> None:
+    repository, registry = _setup(tmp_path)
+    candidate = _candidate(
+        repository, tmp_path / "checkpoints", PolicyDomain.REPAIR_RANKING, "shadow-only"
+    )
+
+    with pytest.raises(ActivePolicyValidationError, match="shadow-only"):
+        registry.activate(candidate, activated_by="operator", idempotency_key="active-repair")
+
+    shadow = registry.activate(
+        candidate,
+        activated_by="operator",
+        idempotency_key="shadow-repair",
+        mode=ActivePolicyStatus.SHADOW,
+    )
+
+    assert shadow.status is ActivePolicyStatus.SHADOW
+    assert registry.active(PolicyDomain.REPAIR_RANKING) is None
