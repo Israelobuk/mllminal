@@ -24,6 +24,14 @@ class CapabilityMode(StrEnum):
     DRAFT_ONLY = "draft_only"
 
 
+class CapabilityConsequence(StrEnum):
+    READ_ONLY = "read_only"
+    REVERSIBLE = "reversible"
+    DRAFT = "draft"
+    EXTERNAL_SUBMISSION = "external_submission"
+    IRREVERSIBLE = "irreversible"
+
+
 class ApplicationAvailability(Contract):
     application: str
     display_name: str
@@ -40,6 +48,8 @@ class CapabilityDefinition(Contract):
     mode: CapabilityMode
     permission_scope: str
     consequential: bool = False
+    consequence: CapabilityConsequence = CapabilityConsequence.READ_ONLY
+    requires_independent_verification: bool = False
 
 
 class CapabilityRequest(Contract):
