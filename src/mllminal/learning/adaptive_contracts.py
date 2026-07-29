@@ -56,6 +56,8 @@ class AdaptiveExecutionDecision(Contract):
     eligible_backends: list[str] = Field(default_factory=list)
     rejected_backends: list[RejectedBackend] = Field(default_factory=list)
     selected_backend: str | None = None
+    deterministic_selected_backend: str | None = None
+    advisory_changed_selection: bool = False
     reliability_snapshot: dict[str, dict[str, Any]] = Field(default_factory=dict)
     deterministic_scores: dict[str, float] = Field(default_factory=dict)
     advisory_scores: dict[str, float] = Field(default_factory=dict)
@@ -66,6 +68,7 @@ class AdaptiveExecutionDecision(Contract):
     shadow_selected_backend: str | None = None
     shadow_rank_changed: bool = False
     shadow_explanation: str | None = None
+    outcome_attribution: dict[str, Any] = Field(default_factory=dict)
     advisory_policy: dict[str, Any] = Field(default_factory=dict)
     safety_filters_applied: list[str] = Field(default_factory=list)
     policy_version: str

@@ -75,6 +75,10 @@ def test_decisions_are_durable_and_verified_failure_changes_next_backend_ranking
     assert failed.execution_outcome == "failed"
     assert failed.verification_outcome == "failed"
     assert failed.reward_signal_id is not None
+    assert failed.outcome_attribution["attribution_version"] == "outcome_attribution_v1"
+    assert failed.outcome_attribution["execution_succeeded"] is False
+    assert failed.outcome_attribution["verification_passed"] is False
+    assert failed.outcome_attribution["selected_backend"] == "windows.uia"
 
     second = service.decide(_request(profile, "run-2"))
     assert second.selected_backend == "local.vision"

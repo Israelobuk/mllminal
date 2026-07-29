@@ -9,6 +9,7 @@ from mllminal.learning.adaptive_contracts import (
     RejectedBackend,
 )
 from mllminal.learning.backend_runtime import BackendPolicyRuntime, BackendPolicyStatus
+from mllminal.learning.metrics import AdaptiveOutcomeMetrics, summarize_backend_outcomes
 from mllminal.learning.offline_collection import training_experience_from_adaptive_decision
 from mllminal.learning.profile_contracts import (
     ApplicationInteractionProfile,
@@ -209,6 +210,15 @@ class AdaptiveExecutionService:
             eligible_backends=[candidate.backend for candidate in ranked],
             rejected_backends=rejected,
             selected_backend=selected,
+            deterministic_selected_backend=(
+                deterministic_ranked[0].backend if deterministic_ranked else None
+            ),
+            advisory_changed_selection=(
+                advisory_used
+                and selected is not None
+                and bool(deterministic_ranked)
+                and selected != deterministic_ranked[0].backend
+            ),
             reliability_snapshot=snapshots,
             deterministic_scores=deterministic_scores,
             advisory_scores=advisory_scores,
@@ -241,6 +251,12 @@ class AdaptiveExecutionService:
                 update={
                     "execution_outcome": "not_executed",
                     "verification_outcome": "not_run",
+                    "outcome_attribution": self._outcome_attribution(
+                        decision,
+                        execution_succeeded=False,
+                        verification_passed=False,
+                        failure_class=None,
+                    ),
                 }
             )
             saved = self.repository.save_adaptive_decision(updated)
@@ -286,11 +302,37 @@ class AdaptiveExecutionService:
                 "execution_outcome": "succeeded" if execution_succeeded else "failed",
                 "verification_outcome": "passed" if verification_passed else "failed",
                 "reward_signal_id": experience.experience_id if experience else None,
+                "outcome_attribution": self._outcome_attribution(
+                    decision,
+                    execution_succeeded=execution_succeeded,
+                    verification_passed=verification_passed,
+                    failure_class=failure_class,
+                ),
             }
         )
         saved = self.repository.save_adaptive_decision(updated)
         self._save_training_experience(saved)
         return saved
+
+    @staticmethod
+    def _outcome_attribution(
+        decision: AdaptiveExecutionDecision,
+        *,
+        execution_succeeded: bool,
+        verification_passed: bool,
+        failure_class: str | None,
+    ) -> dict[str, object]:
+        return {
+            "attribution_version": "outcome_attribution_v1",
+            "selected_backend": decision.selected_backend,
+            "deterministic_selected_backend": decision.deterministic_selected_backend,
+            "advisory_changed_selection": decision.advisory_changed_selection,
+            "shadow_selected_backend": decision.shadow_selected_backend,
+            "shadow_rank_changed": decision.shadow_rank_changed,
+            "execution_succeeded": execution_succeeded,
+            "verification_passed": verification_passed,
+            "failure_class": failure_class or "none",
+        }
 
     def _save_training_experience(self, decision: AdaptiveExecutionDecision) -> None:
         self.repository.save_training_experience(
@@ -308,6 +350,9 @@ class AdaptiveExecutionService:
 
     def decision(self, decision_id: str) -> AdaptiveExecutionDecision:
         return self.repository.get_adaptive_decision(decision_id)
+
+    def outcome_metrics(self) -> AdaptiveOutcomeMetrics:
+        return summarize_backend_outcomes(self.decisions())
 
     def decisions(self) -> list[AdaptiveExecutionDecision]:
         return self.repository.list_adaptive_decisions()
