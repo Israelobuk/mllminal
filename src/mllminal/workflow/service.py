@@ -60,6 +60,7 @@ class WorkflowService:
         Base.metadata.create_all(self.engine)
         self._handlers: dict[str, CapabilityHandler] = {}
         self._backend_handlers: dict[tuple[str, str], CapabilityHandler] = {}
+        self._transition_handlers: dict[tuple[str, str], CapabilityHandler] = {}
         self.adaptive = adaptive
 
     def register_capability(self, name: str, handler: CapabilityHandler) -> None:
@@ -69,6 +70,12 @@ class WorkflowService:
     def register_backend(self, capability: str, backend: str, handler: CapabilityHandler) -> None:
         """Register a bounded capability implementation for a named backend."""
         self._backend_handlers[(capability, backend)] = handler
+
+    def register_transition(
+        self, from_application: str, to_application: str, handler: CapabilityHandler
+    ) -> None:
+        """Register a bounded handler for one explicit application transition."""
+        self._transition_handlers[(from_application, to_application)] = handler
 
     def create(self, definition: WorkflowDefinition, *, idempotency_key: str) -> WorkflowDefinition:
         cached = self._cached(idempotency_key, "workflow.create")
@@ -142,8 +149,12 @@ class WorkflowService:
         if request.preview:
             run.step_results = [self._preview_result(step) for step in execution_steps]
             run.current_step_order = len(execution_steps)
-        elif any(step.approval_required for step in execution_steps):
-            first = next(step for step in execution_steps if step.approval_required)
+        elif any(step.approval_required for step in execution_steps) or any(
+            transition.approval_required for transition in definition.transitions
+        ):
+            first = next(
+                (step for step in execution_steps if step.approval_required), execution_steps[0]
+            )
             run.state = WorkflowRunState.PENDING_APPROVAL
             run.pending_approval_step_id = first.id
             run.current_step_order = first.order
@@ -321,11 +332,69 @@ class WorkflowService:
                         )
                     )
                     completed_step_ids.add(restored_checkpoint.step_id)
+        previous_application_id: str | None = None
         for step in self._execution_steps(definition):
+            current_application_id = (
+                step.application.application_id if step.application is not None else None
+            )
             if resume and any(
                 item.step_id == step.id and item.state == "succeeded" for item in run.step_results
             ):
+                previous_application_id = current_application_id
                 continue
+            if (
+                previous_application_id is not None
+                and current_application_id is not None
+                and previous_application_id != current_application_id
+            ):
+                transition = next(
+                    (
+                        item
+                        for item in definition.transitions
+                        if item.from_application_id == previous_application_id
+                        and item.to_application_id == current_application_id
+                    ),
+                    None,
+                )
+                transition_handler = self._transition_handlers.get(
+                    (previous_application_id, current_application_id)
+                )
+                if transition is None or transition_handler is None:
+                    transition_result = CapabilityResult(
+                        capability="application.transition",
+                        succeeded=False,
+                        error="application_transition_unavailable",
+                    )
+                else:
+                    transition_result = transition_handler(
+                        {
+                            "from_application": previous_application_id,
+                            "to_application": current_application_id,
+                        }
+                    )
+                    self._persist_run(
+                        run,
+                        event_type="application.transition",
+                        event_payload={
+                            "from_application": previous_application_id,
+                            "to_application": current_application_id,
+                        },
+                    )
+                if not transition_result.succeeded:
+                    run.step_results.append(
+                        WorkflowStepResult(
+                            step_id=step.id,
+                            state="failed",
+                            capability_result=transition_result,
+                            verification=VerificationResult(
+                                state=VerificationState.FAILED,
+                                reason=transition_result.error or "Application transition failed",
+                            ),
+                        )
+                    )
+                    self._persist_run(run, event_type="step.failed")
+                    run.state = WorkflowRunState.FAILED
+                    break
             run.current_step_order = step.order
             attempt_number = self._next_attempt_number(run.id, step.id)
             attempt = WorkflowStepAttempt(
@@ -344,6 +413,20 @@ class WorkflowService:
             self._persist_attempt(attempt)
             decision = None
             handler = self._handlers.get(step.capability)
+            if self.adaptive is None:
+                provider_candidates: list[str] = []
+                if step.application is not None:
+                    if step.application.provider_hint is not None:
+                        provider_candidates.append(step.application.provider_hint)
+                    provider_candidates.extend(step.application.provider_candidates)
+                provider_candidates.extend(step.backend_candidates)
+                for provider in dict.fromkeys(provider_candidates):
+                    candidate_handler = self._backend_handlers.get((step.capability, provider))
+                    if candidate_handler is not None:
+                        handler = candidate_handler
+                        attempt = attempt.model_copy(update={"provider_id": provider})
+                        self._persist_attempt(attempt)
+                        break
             if self.adaptive is not None and step.application_profile_id is not None:
                 from mllminal.learning.adaptive import (
                     AdaptiveBackendCandidate,
@@ -470,6 +553,7 @@ class WorkflowService:
                     verification=verification,
                 )
             )
+            previous_application_id = current_application_id
             self._persist_run(
                 run,
                 event_type="step.completed" if step_state == "succeeded" else "step.failed",
@@ -776,8 +860,18 @@ class WorkflowService:
             )
         )
 
-    def _persist_run(self, run: WorkflowRun, *, event_type: str) -> None:
-        event = WorkflowRunEvent(run_id=run.id, event_type=event_type, payload=run.model_dump())
+    def _persist_run(
+        self,
+        run: WorkflowRun,
+        *,
+        event_type: str,
+        event_payload: dict[str, Any] | None = None,
+    ) -> None:
+        event = WorkflowRunEvent(
+            run_id=run.id,
+            event_type=event_type,
+            payload=event_payload if event_payload is not None else run.model_dump(),
+        )
         with DbSession(self.engine) as database, database.begin():
             row = database.get(WorkflowRunRow, run.id)
             if row is None:
