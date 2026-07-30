@@ -12,6 +12,7 @@ from mllminal.acceptance.contracts import (
     AcceptanceRun,
     AcceptanceStage,
     AcceptanceState,
+    CapabilityAcceptanceMatrixEntry,
     CapabilityReadiness,
     ReadinessClass,
 )
@@ -140,6 +141,45 @@ class ProductAcceptanceService:
             )
         ]
 
+    @staticmethod
+    def cross_provider_matrix() -> list[CapabilityAcceptanceMatrixEntry]:
+        """Return the generic capability acceptance matrix across bounded provider kinds."""
+
+        return [
+            CapabilityAcceptanceMatrixEntry(
+                capability="application.inspect_state",
+                provider_kinds=["native", "bundled", "manual"],
+                approval_required=False,
+                evidence=["provider discovery", "state verification"],
+            ),
+            CapabilityAcceptanceMatrixEntry(
+                capability="control.invoke",
+                provider_kinds=["native", "browser", "portable", "manual"],
+                evidence=["bounded adapter", "independent output verification"],
+            ),
+            CapabilityAcceptanceMatrixEntry(
+                capability="document.export",
+                provider_kinds=["native", "bundled", "manual"],
+                evidence=["approved destination", "artifact verification"],
+            ),
+            CapabilityAcceptanceMatrixEntry(
+                capability="file.move",
+                provider_kinds=["native", "portable", "manual"],
+                evidence=["workspace confinement", "source and destination verification"],
+            ),
+            CapabilityAcceptanceMatrixEntry(
+                capability="table.read",
+                provider_kinds=["native", "browser", "portable", "manual"],
+                approval_required=False,
+                evidence=["bounded extraction", "read-state verification"],
+            ),
+            CapabilityAcceptanceMatrixEntry(
+                capability="draft.create",
+                provider_kinds=["browser", "bundled", "manual"],
+                evidence=["draft-only boundary", "unsent-state verification"],
+            ),
+        ]
+
     def report(self) -> dict[str, Any]:
         run = self.status()
         return {
@@ -147,6 +187,9 @@ class ProductAcceptanceService:
             "security": [item.model_dump(mode="json") for item in self.security()],
             "performance": [item.model_dump(mode="json") for item in self.performance()],
             "readiness": [item.model_dump(mode="json") for item in self.readiness()],
+            "cross_provider_matrix": [
+                item.model_dump(mode="json") for item in self.cross_provider_matrix()
+            ],
             "automatic_email_send": False,
             "real_windows_acceptance_required": True,
         }
