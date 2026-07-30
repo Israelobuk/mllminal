@@ -64,6 +64,17 @@ class CapabilityReadiness(Contract):
     note: str | None = None
 
 
+class CapabilityAcceptanceMatrixEntry(Contract):
+    """Acceptance evidence shared across provider kinds for one generic capability."""
+
+    capability: str
+    provider_kinds: list[str] = Field(min_length=1, max_length=8)
+    requires_independent_verification: bool = True
+    approval_required: bool = True
+    external_submission_allowed: Literal[False] = False
+    evidence: list[str] = Field(default_factory=list, max_length=8)
+
+
 class AcceptanceRun(Contract):
     id: str = Field(default_factory=new_id)
     state: AcceptanceState = AcceptanceState.NOT_STARTED
