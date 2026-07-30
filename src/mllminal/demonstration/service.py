@@ -232,7 +232,10 @@ class DemonstrationService:
                     text_entry_occurred=request.text_entry_occurred,
                     fragile=request.fragile,
                     source_event_id=request.source_event_id,
-                    required_capability=self._capability_for_event(request.event),
+                    required_capability=self._capability_for_event(
+                        request.event,
+                        normalized_file_operation=request.normalized_file_operation,
+                    ),
                     application_profile_id=(
                         request.application_profile_id or self._profile_id_for_event(request.event)
                     ),
@@ -356,9 +359,9 @@ class DemonstrationService:
                 ),
                 verification_requirements=sorted(
                     {
-                        "independent filesystem verification"
+                        "independent file state verification"
                         if step.event.kind.value == "file.operation"
-                        else "post-action state verification"
+                        else "independent capability output verification"
                         for step in steps
                         if step.event.kind.value in {"file.operation", "control.invoked"}
                     }
@@ -491,15 +494,44 @@ class DemonstrationService:
         return self.profile_id_for_application(event.target.application)
 
     @staticmethod
-    def _capability_for_event(event: Any) -> str:
+    def _capability_for_event(
+        event: InteractionEvent,
+        *,
+        normalized_file_operation: str | None = None,
+    ) -> str:
         kind = event.kind.value
+        action = (
+            event.target.action_type.casefold().replace(" ", "_").replace("-", "_")
+            if event.target is not None
+            else ""
+        )
+        if "export" in action:
+            return "document.export"
+        if "draft" in action:
+            return "draft.create"
         if kind == "file.operation":
-            return "filesystem.metadata"
+            operation = (normalized_file_operation or "").casefold().replace(" ", "_")
+            for key in ("rename", "move", "copy"):
+                if key in operation:
+                    return f"file.{key}"
+            return "file.transform"
         if kind == "control.invoked":
-            return "windows.uia.invoke"
-        if kind.startswith("keyboard") or kind.startswith("text_entry"):
-            return "windows.input.metadata"
-        return "windows.observation"
+            if any(token in action for token in ("select", "choose")):
+                return "control.select"
+            if any(token in action for token in ("set", "type", "enter", "fill")):
+                return "field.set"
+            return "control.invoke"
+        if kind.startswith("keyboard"):
+            return "keyboard.shortcut"
+        if kind.startswith("text_entry"):
+            return "keyboard.text_intent"
+        if kind.startswith("mouse"):
+            return "pointer.click" if kind == "mouse.click" else "pointer.drag"
+        if kind == "application.focus":
+            return "application.focus"
+        if kind == "window.focus":
+            return "window.focus"
+        return "state.verify"
 
     @staticmethod
     def _normalize_shortcut(shortcut: str) -> str:
