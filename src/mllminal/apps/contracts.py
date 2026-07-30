@@ -52,6 +52,26 @@ class CapabilityDefinition(Contract):
     requires_independent_verification: bool = False
 
 
+class DiscoveredCapability(Contract):
+    """A bounded capability result with its provider-neutral provenance."""
+
+    capability: CapabilityDefinition
+    provider: str
+    source: str
+    surface: str = "application"
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class CapabilityDiscoveryReport(Contract):
+    """Safe, bounded capability discovery for one application surface."""
+
+    application: str
+    capabilities: list[DiscoveredCapability] = Field(default_factory=list, max_length=128)
+    bounded: bool = True
+    complete: bool = True
+    explanation: str
+
+
 class CapabilityRequest(Contract):
     capability: str
     arguments: dict[str, Any] = Field(default_factory=dict)
