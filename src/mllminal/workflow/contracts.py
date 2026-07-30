@@ -146,6 +146,7 @@ class WorkflowStep(Contract):
     retry_policy: WorkflowRetryPolicy = Field(default_factory=WorkflowRetryPolicy)
     rollback_capability: str | None = None
     verification: WorkflowVerification | None = None
+    rollback_verification: WorkflowVerification | None = None
 
 
 class WorkflowDefinition(Contract):
@@ -319,6 +320,7 @@ class WorkflowRollbackStep(Contract):
     capability: str
     consequence_class: str = "reversible"
     approval_required: bool = True
+    verification: WorkflowVerification | None = None
 
 
 class WorkflowRollbackPlan(Contract):

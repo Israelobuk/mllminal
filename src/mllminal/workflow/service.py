@@ -67,6 +67,7 @@ class WorkflowService:
         self._backend_handlers: dict[tuple[str, str], CapabilityHandler] = {}
         self._transition_handlers: dict[tuple[str, str], CapabilityHandler] = {}
         self._verifiers: dict[str, VerificationHandler] = {}
+        self._verification_kind_handlers: dict[str, VerificationHandler] = {}
         self.adaptive = adaptive
 
     def register_capability(self, name: str, handler: CapabilityHandler) -> None:
@@ -86,6 +87,10 @@ class WorkflowService:
     def register_verifier(self, capability: str, verifier: VerificationHandler) -> None:
         """Register an independent local verifier for a capability result."""
         self._verifiers[capability] = verifier
+
+    def register_verification_kind(self, kind: str, verifier: VerificationHandler) -> None:
+        """Register a provider-neutral independent verification strategy."""
+        self._verification_kind_handlers[kind] = verifier
 
     def create(self, definition: WorkflowDefinition, *, idempotency_key: str) -> WorkflowDefinition:
         cached = self._cached(idempotency_key, "workflow.create")
@@ -317,6 +322,7 @@ class WorkflowService:
                     step_id=step.id,
                     source_attempt_id=attempt.id,
                     capability=step.rollback_capability,
+                    verification=step.rollback_verification,
                 )
             )
         plan = WorkflowRollbackPlan(
@@ -380,7 +386,23 @@ class WorkflowService:
                 break
             step = next(item for item in definition.steps if item.id == rollback_step.step_id)
             result = handler(self._resolve_arguments(step, run.inputs, run.step_results))
-            if not result.succeeded:
+            rollback_verification = (
+                self._verify(
+                    WorkflowStep(
+                        id=rollback_step.step_id,
+                        order=1,
+                        capability=rollback_step.capability,
+                        verification=rollback_step.verification,
+                    ),
+                    result,
+                )
+                if rollback_step.verification is not None
+                else None
+            )
+            if not result.succeeded or (
+                rollback_verification is not None
+                and rollback_verification.state is not VerificationState.PASSED
+            ):
                 rollback_failed = True
                 break
         run.rollback_state = "partial" if rollback_failed else "complete"
@@ -775,6 +797,8 @@ class WorkflowService:
 
     def _verify(self, step: WorkflowStep, result: CapabilityResult) -> VerificationResult:
         verifier = self._verifiers.get(step.capability)
+        if verifier is None and step.verification is not None:
+            verifier = self._verification_kind_handlers.get(step.verification.kind)
         if verifier is not None:
             try:
                 return verifier(result)
