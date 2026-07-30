@@ -14,6 +14,7 @@ from mllminal.apps.contracts import (
     ApplicationGrant,
     ApplicationState,
     CapabilityDefinition,
+    CapabilityDiscoveryReport,
     CapabilityRequest,
     CapabilityResult,
     VerificationResult,
@@ -81,6 +82,9 @@ class ApplicationBridgeService:
 
     async def capabilities(self, application: str) -> list[CapabilityDefinition]:
         return list(await self.discovery.capabilities(application))
+
+    async def capability_discovery(self, application: str) -> CapabilityDiscoveryReport:
+        return await self.discovery.discover_capabilities(application)
 
     async def provider_discovery(self) -> list[ProviderAvailability]:
         """Discover providers without requiring any desktop application."""
