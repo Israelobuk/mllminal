@@ -41,6 +41,29 @@ class ProfileControl(Contract):
     last_seen_at: datetime = Field(default_factory=utc_now)
 
 
+class ProfileCapability(Contract):
+    """A provider-neutral capability observed on an application surface."""
+
+    name: str = Field(min_length=1, max_length=128)
+    provider: str = Field(default="unknown", min_length=1, max_length=128)
+    surface: str = Field(default="unknown", min_length=1, max_length=128)
+    consequence: str = Field(default="read_only", min_length=1, max_length=64)
+    available: bool = True
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    observation_count: int = Field(default=1, ge=1)
+    last_seen_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("name", "provider", "surface", "consequence", mode="before")
+    @classmethod
+    def reject_sensitive_labels(cls, value: Any) -> Any:
+        if isinstance(value, str) and any(
+            marker in value.casefold()
+            for marker in ("password", "cookie", "token", "secret", "credential")
+        ):
+            raise ValueError("capability metadata contains prohibited credential material")
+        return value
+
+
 class ProfileBackendChoice(Contract):
     backend: str
     abstract_action: str
@@ -162,6 +185,8 @@ class ApplicationInteractionProfile(Contract):
     observed_window_titles: list[str] = Field(default_factory=list)
     accessibility_support_level: str = "metadata_only"
     discovered_controls: list[ProfileControl] = Field(default_factory=list)
+    discovered_capabilities: list[ProfileCapability] = Field(default_factory=list)
+    capability_sources: list[str] = Field(default_factory=list)
     stable_automation_ids: list[str] = Field(default_factory=list)
     stable_control_names_roles: list[str] = Field(default_factory=list)
     observed_keyboard_shortcuts: list[str] = Field(default_factory=list)
@@ -186,6 +211,7 @@ class ApplicationInteractionProfile(Contract):
         "executable_name",
         "window_class_patterns",
         "observed_window_titles",
+        "capability_sources",
         "stable_automation_ids",
         "stable_control_names_roles",
         "observed_keyboard_shortcuts",

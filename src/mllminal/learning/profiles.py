@@ -17,6 +17,7 @@ from mllminal.learning.profile_contracts import (
     BackendReliabilityRecord,
     BackendResolution,
     ProfileBackendChoice,
+    ProfileCapability,
     ProfileControl,
     ProfileExperienceRequest,
     ProfileExperienceType,
@@ -232,6 +233,55 @@ class ApplicationInteractionProfileService:
 
     def profile(self, profile_id: str) -> ApplicationInteractionProfile:
         return self.repository.get_interaction_profile(profile_id)
+
+    def record_capabilities(
+        self,
+        profile_id: str,
+        capabilities: Iterable[ProfileCapability],
+        *,
+        source: str = "unknown",
+    ) -> ApplicationInteractionProfile:
+        """Persist bounded provider-neutral capabilities for one application profile."""
+
+        profile = self.repository.get_interaction_profile(profile_id)
+        now = utc_now()
+        discovered = list(profile.discovered_capabilities)
+        for capability in capabilities:
+            index = next(
+                (
+                    index
+                    for index, item in enumerate(discovered)
+                    if (item.name, item.provider, item.surface)
+                    == (capability.name, capability.provider, capability.surface)
+                ),
+                None,
+            )
+            if index is None:
+                discovered.append(capability.model_copy(update={"last_seen_at": now}))
+                continue
+            current = discovered[index]
+            discovered[index] = current.model_copy(
+                update={
+                    "available": capability.available,
+                    "confidence": max(current.confidence, capability.confidence),
+                    "consequence": capability.consequence,
+                    "observation_count": current.observation_count + 1,
+                    "last_seen_at": now,
+                }
+            )
+        source_label = self._safe_label(source) or "unknown"
+        updated = profile.model_copy(
+            update={
+                "discovered_capabilities": discovered,
+                "capability_sources": self._append_unique(profile.capability_sources, source_label),
+                "last_seen_at": now,
+                "profile_version": profile.profile_version + 1,
+            }
+        )
+        return self.repository.save_interaction_profile(
+            updated,
+            identity_key=self._identity_key(profile.application_identity, None),
+        )
 
     def reliability(self, profile_id: str) -> list[BackendReliabilityRecord]:
         self.repository.get_interaction_profile(profile_id)
