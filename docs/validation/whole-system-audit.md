@@ -1,31 +1,35 @@
 # Whole-System Audit
 
-Date: 2026-07-20
+Date: 2026-07-30
 Repository: `Israelobuk/mllminal`
-Validation base: `origin/main` at `ddc70ce5c4a465340db7300c48100670af0e22ca`
+Validation base: `origin/main` at `3a5dde817cab84bd2ba064cc700acefcbc43dbe1`
 
 ## Executive result
 
-The merged MLLminal subsystems are coherent as a local-first architecture and the repository is currently green, but they are not one fully usable real-world Windows automation product yet. The real paths are persistence, privacy filtering, deterministic modeling, approval state, bounded filesystem inspection, and typed workflow orchestration through injected handlers. Windows interaction capture, desktop/browser control, screenshot analysis, desktop-daemon synchronization, and real action execution remain unavailable or simulated; optional provider-specific evidence is tracked separately.
+The merged MLLminal subsystems form a coherent local-first Windows technical-preview architecture. The real paths include persistence, privacy filtering, deterministic modeling, approval state, bounded application/provider discovery, workflow compilation, verification/recovery, Windows observer lifecycle coverage, daemon/client synchronization, and generalized packaging. The product is not yet a clean-machine certification of unrestricted real-world Windows automation.
 
 ## Evidence collected
 
-- `uv run ruff check .`: passed.
-- `uv run ruff format --check .`: passed; 140 files already formatted.
-- `uv run mypy src`: passed; 102 source files checked.
-- `uv run pytest`: passed; 146 tests, 4 warnings. Both `tests/unit tests/integration` and the reverse collection order passed 146 tests.
-- Clean migration upgrade: `0009_application_bridge`.
-- Earliest supported revision `0001_foundation` upgraded to `0009_application_bridge`.
-- Targeted hardening suite: 5 passed.
-- Test audit: no `skip`, `xfail`, explicit order fixtures, or dependency markers found. Mocks are limited to Ollama transport/provider and an intentional training failure injection. New feature packages have little or no dedicated test coverage; this is a coverage gap, not proof of production readiness.
+- Windows GitHub Actions CI (`windows-latest`, run `30593095849`): passed locked dependency sync, Ruff, format, mypy, and the full 257-test suite.
+- Local full suite: 257 passed with 4 expected dependency warnings.
+- Focused final security/recovery/governance/packaging suite: 20 passed.
+- PowerShell 5.1 parser: all Windows packaging scripts passed.
+- `doctor.ps1` absent-installation smoke test: returned a safe report with observation, automatic execution, model download, credential export, and external submission disabled.
+- No credentials, tokens, cookies, passwords, or raw keystrokes were extracted during validation.
 
-## Defects corrected in this milestone
+## Delivered milestones
 
-1. Filesystem inspection and draft paths now remain under the configured workspace root, including symlink-resolved paths.
-2. Application bridge and bounded action execution now consult the persisted privacy emergency-stop state.
-3. Non-preview workflow execution no longer crashes when `WorkflowRun` runtime state is updated.
-4. Application verification now requires an exact result previously persisted by the bridge execution path; forged result payloads are rejected.
+1. Generic contracts, compiler semantics, profiles, bounded discovery, verification/recovery, demonstrations, unknown-application fixtures, and cross-provider acceptance are merged.
+2. Generic CLI, authenticated daemon API, and desktop application-discovery status are merged.
+3. Windows technical-preview packaging now records a versioned first-run policy and provider inventory, includes a read-only doctor report, and exports only an allowlisted diagnostic set.
 
-## System-level conclusion
+## Remaining gaps
 
-The repository is releasable as a deterministic local workflow-intelligence prototype with explicit safety boundaries. It is not releasable as a claim of whole-device Windows automation. The remaining gaps are documented in the feature matrix, acceptance results, and security findings rather than hidden behind passing fixture tests.
+- Real application-state verification and clean Windows UI acceptance remain manual.
+- Inno Setup compilation, signing, clean install, startup, diagnostics, and uninstall retention/deletion remain manual.
+- Optional native document/draft provider evidence is host-dependent.
+- No default unrestricted action executor or automatic external submission path is allowed.
+
+## Conclusion
+
+The repository is releasable as a deterministic, safety-bounded Windows technical-preview baseline. The next product milestone can begin with Active Advisory Policy Runtime Integration under the existing deterministic authority, approval, permission, emergency-stop, verification, rollback, and offline-learning controls.
