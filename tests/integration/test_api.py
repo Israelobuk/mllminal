@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -66,6 +67,27 @@ def test_websocket_authenticates_then_replays_ordered_events(tmp_path: Path) -> 
     assert authenticated == {"type": "authenticated"}
     assert event["sequence"] == 1
     assert event["event_type"] == "session.created"
+
+
+def test_message_stream_emits_provider_events_before_pending_projection(tmp_path: Path) -> None:
+    client, headers, workspace = make_client(tmp_path)
+    session = client.post(
+        "/v1/sessions", headers=headers, json={"workspace_root": str(workspace)}
+    ).json()
+
+    response = client.post(
+        f"/v1/sessions/{session['id']}/messages/stream",
+        headers={**headers, "Idempotency-Key": "stream-request"},
+        json={"content": "inspect this project"},
+    )
+
+    assert response.status_code == 200
+    items = [json.loads(line) for line in response.text.splitlines()]
+    events = [item["event"] for item in items if item["type"] == "event"]
+    pending = [item["pending"] for item in items if item["type"] == "pending"]
+    assert events
+    assert "response.delta" in [event["event_type"] for event in events]
+    assert pending[0]["task"]["state"] == "WAITING_FOR_APPROVAL"
 
 
 def test_unknown_routes_return_typed_error(tmp_path: Path) -> None:

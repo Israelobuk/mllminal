@@ -1,6 +1,7 @@
 """Authenticated REST and replayable WebSocket API."""
 
 import asyncio
+import contextlib
 import json
 import secrets
 from collections import defaultdict
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from mllminal.acceptance.contracts import AcceptanceRecordRequest
@@ -738,6 +739,13 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     ) -> dict[str, Any]:
         return workflow.resume(run_id, idempotency_key=idempotency_key).model_dump(mode="json")
 
+    @app.post("/v1/workflow-runs/{run_id}/cancel", dependencies=protected)
+    async def workflow_cancel(
+        run_id: str,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        return workflow.cancel(run_id, idempotency_key=idempotency_key).model_dump(mode="json")
+
     @app.get("/v1/workflow-runs/{run_id}/execution", dependencies=protected)
     async def workflow_execution(run_id: str) -> dict[str, Any]:
         return workflow.execution(run_id).model_dump(mode="json")
@@ -1063,6 +1071,90 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         await hub.publish(store.list_events(session_id, after))
         return _pending_payload(pending)
 
+    @app.post("/v1/sessions/{session_id}/messages/stream", dependencies=protected)
+    async def stream_message(
+        session_id: str,
+        body: MessageCreate,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> StreamingResponse:
+        store.get_session(session_id)
+        existing_events = store.list_events(session_id)
+        after = existing_events[-1].sequence if existing_events else 0
+
+        async def generate() -> AsyncIterator[str]:
+            queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+            async def sink(event: dict[str, Any]) -> None:
+                await queue.put({"type": "event", "event": event})
+
+            submission = asyncio.create_task(
+                runtime.submit(
+                    session_id,
+                    body.content,
+                    idempotency_key,
+                    event_sink=sink,
+                )
+            )
+            try:
+                while True:
+                    item_task = asyncio.create_task(queue.get())
+                    done, _ = await asyncio.wait(
+                        {item_task, submission}, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if item_task in done:
+                        yield json.dumps(item_task.result(), sort_keys=True) + "\n"
+                        continue
+                    item_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await item_task
+                    try:
+                        pending = submission.result()
+                    except ProviderFailure as error:
+                        yield (
+                            json.dumps(
+                                {
+                                    "type": "error",
+                                    "error": {
+                                        "category": error.category,
+                                        "message": str(error),
+                                    },
+                                },
+                                sort_keys=True,
+                            )
+                            + "\n"
+                        )
+                    except Exception as error:
+                        yield (
+                            json.dumps(
+                                {
+                                    "type": "error",
+                                    "error": {
+                                        "category": "runtime_failed",
+                                        "message": str(error),
+                                    },
+                                },
+                                sort_keys=True,
+                            )
+                            + "\n"
+                        )
+                    else:
+                        yield (
+                            json.dumps(
+                                {"type": "pending", "pending": _pending_payload(pending)},
+                                sort_keys=True,
+                            )
+                            + "\n"
+                        )
+                    break
+            finally:
+                if not submission.done():
+                    submission.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await submission
+                await hub.publish(store.list_events(session_id, after))
+
+        return StreamingResponse(generate(), media_type="application/x-ndjson")
+
     @app.get("/v1/tasks", dependencies=protected)
     async def list_tasks() -> list[dict[str, Any]]:
         return [task.model_dump(mode="json") for task in store.list_tasks()]
@@ -1070,6 +1162,14 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     @app.get("/v1/tasks/{task_id}", dependencies=protected)
     async def get_task(task_id: str) -> dict[str, Any]:
         return store.get_task(task_id).model_dump(mode="json")
+
+    @app.get("/v1/approvals", dependencies=protected)
+    async def list_approvals() -> list[dict[str, Any]]:
+        return [item.model_dump(mode="json") for item in store.list_all_approvals()]
+
+    @app.get("/v1/approvals/{approval_id}", dependencies=protected)
+    async def get_approval(approval_id: str) -> dict[str, Any]:
+        return store.get_approval(approval_id).model_dump(mode="json")
 
     @app.post("/v1/approvals/{approval_id}/decisions", dependencies=protected)
     async def decide_approval(

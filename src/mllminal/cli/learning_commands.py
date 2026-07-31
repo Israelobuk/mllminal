@@ -34,7 +34,10 @@ def register_learning_commands(
     policy = typer.Typer(help="Train and explicitly govern advisory candidates.")
     worker = typer.Typer(help="Inspect or cancel daemon-owned training workers.")
     experiments = typer.Typer(help="Inspect durable offline training runs.")
-    active = typer.Typer(help="Inspect and explicitly manage domain-scoped active policies.")
+    active = typer.Typer(
+        help="Inspect and explicitly manage domain-scoped active policies.",
+        invoke_without_command=True,
+    )
 
     def client() -> LearningDaemonClient:
         return client_factory(settings)
@@ -407,6 +410,11 @@ def register_learning_commands(
             if key in item
         }
 
+    @active.callback()
+    def active_root(context: typer.Context) -> None:
+        if context.invoked_subcommand is None:
+            active_list()
+
     @active.command("list")
     def active_list(json_output: bool = typer.Option(False, "--json")) -> None:
         result = call(lambda value: value.active_policy_bindings())
@@ -477,6 +485,42 @@ def register_learning_commands(
         else:
             typer.echo(f"Policy binding: {summary.get('binding_id', 'unknown')}")
             typer.echo(f"State: {summary.get('status', 'unknown')}")
+
+    @learning.command("shadow")
+    def learning_shadow(json_output: bool = typer.Option(False, "--json")) -> None:
+        result = call(lambda value: value.policy_runtime_status())
+        if json_output:
+            emit(result, result, True)
+        else:
+            typer.echo(f"Shadow runtime: {result.get('shadow_only_domains', [])}")
+            typer.echo("Automatic promotion: disabled")
+
+    @learning.command("drift")
+    def learning_drift(json_output: bool = typer.Option(False, "--json")) -> None:
+        result = call(lambda value: value.request("GET", "/v1/adaptive/drift"))
+        if json_output:
+            emit(result, result, True)
+        else:
+            for key, value in result.items() if isinstance(result, dict) else []:
+                typer.echo(f"{key}: {value}")
+
+    @learning.command("readiness")
+    def learning_readiness(json_output: bool = typer.Option(False, "--json")) -> None:
+        async def status(value: LearningDaemonClient) -> dict[str, Any]:
+            learning_status = await value.learning_status()
+            runtime_status = await value.policy_runtime_status()
+            return {
+                "learning": learning_status,
+                "runtime": runtime_status,
+                "ready": bool(learning_status.get("enabled", True)),
+            }
+
+        result = call(status)
+        if json_output:
+            emit(result, result, True)
+        else:
+            typer.echo(f"Ready: {result.get('ready')}")
+            typer.echo(f"Learning: {result['learning']}")
 
     learning.add_typer(experiences, name="experiences")
     learning.add_typer(replay, name="replay")

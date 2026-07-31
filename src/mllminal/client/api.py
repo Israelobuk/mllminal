@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -63,6 +64,16 @@ class DaemonClient:
             return self.settings.token_path.read_text(encoding="utf-8").strip()
         except OSError as error:
             raise PermissionError("daemon authentication token is unavailable") from error
+
+    async def health(self) -> dict[str, str]:
+        """Read the unauthenticated liveness projection used by doctor/service status."""
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=8) as client:
+            response = await client.get("/v1/health")
+        response.raise_for_status()
+        value = response.json()
+        if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+            raise RuntimeError("daemon returned an invalid health response")
+        return {key: str(item) for key, item in value.items()}
 
     async def request(
         self,
@@ -177,8 +188,39 @@ class DaemonClient:
             "POST",
             f"/v1/sessions/{session_id}/messages",
             {"content": content},
-            idempotency_key=f"desktop-message-{session_id}-{hash(content)}",
+            idempotency_key=self._message_key(session_id, content),
         )
+
+    @staticmethod
+    def _message_key(session_id: str, content: str) -> str:
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:24]
+        return f"client-message-{session_id}-{digest}"
+
+    async def stream_chat(self, content: str) -> Any:
+        """Yield persisted provider events and the final pending projection."""
+        session_id = await self.ensure_session()
+        headers = {
+            "Authorization": f"Bearer {self._token()}",
+            "Idempotency-Key": self._message_key(session_id, content),
+        }
+        async with (
+            httpx.AsyncClient(base_url=self.base_url, timeout=None) as client,
+            client.stream(
+                "POST",
+                f"/v1/sessions/{session_id}/messages/stream",
+                json={"content": content},
+                headers=headers,
+            ) as response,
+        ):
+            if response.status_code == 401:
+                raise PermissionError("daemon authentication failed")
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line.strip():
+                    value = json.loads(line)
+                    if not isinstance(value, dict):
+                        raise RuntimeError("daemon returned an invalid stream item")
+                    yield value
 
     async def start_demonstration(self, label: str) -> dict[str, Any] | list[dict[str, Any]]:
         return await self.request(

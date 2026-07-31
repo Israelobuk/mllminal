@@ -197,6 +197,25 @@ class WorkflowService:
         self._save_idempotency(idempotency_key, "workflow.resume", run)
         return run
 
+    def cancel(self, run_id: str, *, idempotency_key: str) -> WorkflowRun:
+        """Cancel a durable run before or between bounded execution steps."""
+        cached = self._cached(idempotency_key, "workflow.cancel")
+        if cached is not None:
+            return WorkflowRun.model_validate(cached)
+        run = self.run_record(run_id)
+        if run.state in {
+            WorkflowRunState.SUCCEEDED,
+            WorkflowRunState.ROLLED_BACK,
+            WorkflowRunState.CANCELLED,
+        }:
+            raise RuntimeError(f"Workflow run is already terminal: {run.state.value}")
+        run.state = WorkflowRunState.CANCELLED
+        run.pending_approval_step_id = None
+        run.updated_at = utc_now()
+        self._persist_run(run, event_type="run.cancelled")
+        self._save_idempotency(idempotency_key, "workflow.cancel", run)
+        return run
+
     def approve(
         self,
         run_id: str,
