@@ -22,6 +22,7 @@ Source: "dist\mllminal-*.whl"; DestDir: "{app}\dist"; Flags: ignoreversion
 Source: "install.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "export-diagnostics.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "doctor.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\browser-extension\*"; DestDir: "{app}\browser-extension"; Flags: ignoreversion recursesubdirs createallsubdirs
 
