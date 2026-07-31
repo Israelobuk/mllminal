@@ -1,13 +1,6 @@
 # Security Findings
 
-Date: 2026-07-20
-
-## Fixed in validation hardening
-
-- **Workspace escape:** filesystem paths are resolved and rejected unless they remain under the configured workspace root. This applies to inspection and copy-draft source/destination plans.
-- **Emergency-stop bypass:** bridge execution and bounded actions consult the durable privacy emergency-stop state before accepting preview or execution requests.
-- **Workflow runtime crash:** mutable workflow runtime state is now represented by a non-frozen runtime model; a real non-preview fixture execution is regression-tested.
-- **Verification forgery:** application verification requires an exact persisted bridge execution result; modified caller payloads are rejected.
+Date: 2026-07-30
 
 ## Confirmed protections
 
@@ -16,17 +9,31 @@ Date: 2026-07-20
 - Raw coordinate-only interactions are marked non-replayable.
 - Replay requires separate authorization.
 - Pydantic contracts reject unknown fields and malformed enum/shape values.
-- Browser bridge and UI seams explicitly avoid credential/cookie/token reads.
-- Visual observations are semantic metadata only; no screenshot, OCR, camera, audio, or cloud upload pipeline exists.
+- Browser bridge and Windows UI seams avoid credential/cookie/token reads.
+- Visual observations are semantic metadata only; no screenshot, OCR, camera, audio, or cloud-upload pipeline exists.
 - All daemon routes are bearer-token protected except health.
+- Filesystem and attachment paths reject traversal, symlink, and junction escapes and remain within approved roots.
+- Mutations require preview, authorization, approval, idempotency, audit, and independent verification; destructive deletion uses the Recycle Bin where available.
+- Emergency stop is consulted by bridge execution, bounded actions, workflow execution, and runtime policy decisions.
+- Automatic policy promotion and retraining remain disabled during execution.
+- Diagnostics export uses an allowlist and excludes tokens, databases, credentials, and session material.
 
-## Open findings
+## Fixed in the delivered baseline
 
-1. **No real action executor:** the daemon’s bounded-action service has no default OS executor; approved requests return `action_executor_not_configured`. This prevents silent unsafe behavior but blocks real Windows acceptance.
-2. **External verification is absent:** workflow and adapter verification evaluate deterministic result payloads; they do not independently inspect real application state.
-3. **Device observer is disconnected:** daemon construction passes an empty adapter list. Existing Windows process and fake adapters are not part of the live daemon path.
-4. **Provider URL is configurable:** the local model provider can be pointed at a non-loopback URL; local-only data flow is not technically enforced by configuration.
-5. **Desktop dashboard is static:** it has no daemon authentication, streaming, approval, reconnect, or error-state path.
-6. **Filesystem read is bounded but not content-redacted:** directory names are returned to an authenticated local caller. A future policy decision should define filename sensitivity and retention.
+- Workspace escape and forged verification were rejected in validation hardening.
+- Bridge execution and bounded actions now honor durable emergency-stop state.
+- Non-preview workflow runtime persistence is regression-tested.
+- Generic capability discovery is bounded, provenance-bearing, and safe for unknown applications.
+- Windows observer construction uses the native adapter set and the target Windows CI suite exercises lifecycle, callback, backpressure, and shutdown paths.
+- The desktop client authenticates through the daemon, uses the daemon-owned state model, and cannot execute while disconnected or unauthorized.
+
+## Open release findings
+
+1. **Real external verification remains manual:** fixture and adapter verification are deterministic and persisted, but clean-machine acceptance must independently inspect real application state.
+2. **No default unrestricted action executor:** approved bounded actions remain unavailable when a real executor is not configured; this is a safety-preserving limitation, not permission to add a shell fallback.
+3. **Provider endpoint locality is configurable:** deployment policy must keep model/provider endpoints within the intended trust boundary.
+4. **Filename sensitivity and retention require product policy:** authenticated local callers can receive approved filesystem metadata; future releases should define sensitivity and retention rules for names.
+5. **Installer certification remains manual:** Inno compilation, signed-artifact review, clean install, startup, diagnostics, and uninstall behavior are not proven by repository CI.
+6. **Optional provider evidence remains deferred:** native document/draft provider acceptance is host-dependent and must not be represented as global completion.
 
 No credentials, tokens, cookies, passwords, or raw keystrokes were extracted during validation.
