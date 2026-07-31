@@ -39,11 +39,11 @@ Name: "{group}\MLLminal TUI"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Pa
 Name: "{group}\MLLminal daemon"; Filename: "{app}\runtime\Scripts\mllminald.exe"; WorkingDir: "{app}"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\install.ps1\" -InstallRoot \"{app}\" -DataDirectory \"{localappdata}\MLLminal\data\" -BackupDirectory \"{localappdata}\MLLminal\backups\" -Repair -Lightweight:{code:LightweightArg} -InstallOptionalProviders:{code:PortableProviderArg} -EnableStartup:{code:StartupArg}"; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{localappdata}\MLLminal\data"" -BackupDirectory ""{localappdata}\MLLminal\backups"" -Repair -Lightweight:{code:LightweightArg} -InstallOptionalProviders:{code:PortableProviderArg} -EnableStartup:{code:StartupArg}"; Flags: waituntilterminated
 Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "install status --json"; Flags: postinstall skipifsilent
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\uninstall.ps1\" -InstallRoot \"{app}\" -DataDirectory \"{localappdata}\MLLminal\data\" -BackupDirectory \"{localappdata}\MLLminal\backups\" -DeleteData:{code:DeleteDataArg}"; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{localappdata}\MLLminal\data"" -BackupDirectory ""{localappdata}\MLLminal\backups"" -DeleteData:{code:DeleteDataArg}"; Flags: waituntilterminated
 
 [Code]
 function LightweightArg(Param: String): String;

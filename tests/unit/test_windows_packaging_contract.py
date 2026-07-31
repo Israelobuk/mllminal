@@ -46,3 +46,19 @@ def test_windows_uninstall_preserves_data_without_explicit_delete() -> None:
     assert "mllminal" in uninstall
     assert "SetEnvironmentVariable" in uninstall
     assert "NativeMessagingHosts" in uninstall
+
+
+def test_installer_compiler_resolves_program_files_x86_safely() -> None:
+    build_installer = (PACKAGING / "build-installer.ps1").read_text(encoding="utf-8-sig")
+
+    assert "${env:ProgramFiles(x86)}" in build_installer
+    assert "${env:LOCALAPPDATA}" in build_installer
+    assert "$isccPath" in build_installer
+
+
+def test_inno_run_parameters_use_inno_quote_escaping() -> None:
+    installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
+
+    assert '-File ""{app}\\install.ps1""' in installer
+    assert '-File \\"{app}\\install.ps1\\"' not in installer
+    assert '-File ""{app}\\uninstall.ps1""' in installer
