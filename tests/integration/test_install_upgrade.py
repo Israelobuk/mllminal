@@ -94,3 +94,36 @@ def test_uninstall_script_has_scoped_retention_and_cleanup_contract() -> None:
     assert "if ($DeleteData)" in script
     assert "Refusing to delete an unscoped data directory" in script
     assert "User outputs were not touched" in script
+
+
+def test_update_mode_preserves_state_and_rejects_unsafe_downgrade(tmp_path: Path) -> None:
+    app_root = tmp_path / "Programs" / "MLLminal"
+    data_root = tmp_path / "MLLminal" / "data"
+    app_root.mkdir(parents=True)
+    settings = Settings(data_dir=data_root, workspace_root=tmp_path)
+    settings.ensure_data_dir()
+    upgrade_database(settings.database_path)
+    (data_root / "install-manifest.json").write_text(
+        json.dumps({"version": "0.1.0", "policy_binding": "backend"}), encoding="utf-8"
+    )
+    marker = data_root / "workflows" / "preserved.json"
+    marker.parent.mkdir(parents=True)
+    marker.write_text('{"workflow":"keep"}', encoding="utf-8")
+    lifecycle = InstallLifecycle(settings)
+
+    prepared = lifecycle.prepare_update("0.2.0")
+    assert prepared["mode"] == "update"
+    assert marker.read_text(encoding="utf-8") == '{"workflow":"keep"}'
+    assert (
+        json.loads((data_root / "install-manifest.json").read_text(encoding="utf-8"))[
+            "policy_binding"
+        ]
+        == "backend"
+    )
+
+    try:
+        lifecycle.install_mode("0.0.9")
+    except RuntimeError as error:
+        assert "downgrade" in str(error)
+    else:
+        raise AssertionError("unsafe downgrade was accepted")
