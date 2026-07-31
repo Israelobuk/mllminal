@@ -7,7 +7,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
@@ -41,10 +41,18 @@ class InstallLifecycle:
     def __init__(self, settings: Settings, *, app_root: Path | None = None) -> None:
         data_root = settings.data_dir.resolve()
         self.settings = settings
+        preferred_app_root = data_root.parent.parent / "Programs" / "MLLminal"
+        legacy_app_root = data_root.parent / "app"
+        selected_app_root = app_root or (
+            legacy_app_root
+            if legacy_app_root.is_dir() and not preferred_app_root.is_dir()
+            else preferred_app_root
+        )
+        selected_app_root = selected_app_root.resolve()
         self.paths = InstallPaths(
-            app_root=(app_root or data_root.parent / "app").resolve(),
+            app_root=selected_app_root,
             data_root=data_root,
-            runtime_root=(app_root or data_root.parent / "app").resolve() / "runtime",
+            runtime_root=selected_app_root / "runtime",
             backup_root=(data_root.parent / "backups").resolve(),
             manifest_path=data_root / "install-manifest.json",
         )
@@ -75,6 +83,38 @@ class InstallLifecycle:
             "data_root": str(self.paths.data_root),
             "database": str(self.settings.database_path),
             "backups": str(self.paths.backup_root),
+        }
+
+    def install_mode(
+        self, target_version: str | None = None
+    ) -> Literal["fresh", "repair", "update"]:
+        """Classify a setup run without mutating application or user state."""
+        manifest = self._read_manifest()
+        if not manifest or not self.paths.app_root.is_dir():
+            return "fresh"
+        installed_version = manifest.get("version")
+        if target_version is None or not installed_version:
+            return "repair"
+        installed_key = self._version_key(str(installed_version))
+        target_key = self._version_key(target_version)
+        if target_key < installed_key:
+            raise InstallLifecycleError(
+                f"unsafe downgrade from {installed_version} to {target_version}"
+            )
+        return "update" if target_key > installed_key else "repair"
+
+    def prepare_update(self, target_version: str | None = None) -> dict[str, Any]:
+        """Create the pre-migration backup required before replacing an install."""
+        mode = self.install_mode(target_version)
+        if mode != "update":
+            return {"status": "no_update", "mode": mode, "backup": None}
+        backup = self._backup_database()
+        return {
+            "status": "update_prepared",
+            "mode": mode,
+            "backup": str(backup) if backup is not None else None,
+            "version_before": self._read_manifest().get("version"),
+            "version_target": target_version,
         }
 
     def repair(self) -> dict[str, Any]:
@@ -117,6 +157,13 @@ class InstallLifecycle:
                 shutil.rmtree(target)
                 removed.append(str(target))
         return {"status": "purged", "removed": removed}
+
+    @staticmethod
+    def _version_key(version: str) -> tuple[int, ...]:
+        parts = version.split(".")
+        if not parts or any(not part.isdigit() for part in parts):
+            raise InstallLifecycleError(f"invalid MLLminal version: {version}")
+        return tuple(int(part) for part in parts)
 
     def _runtime_ready(self) -> bool:
         runtime = self.paths.runtime_root

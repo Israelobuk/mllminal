@@ -97,3 +97,11 @@ def test_installed_clients_use_bounded_daemon_readiness_and_diagnostics() -> Non
     assert "daemon_lock_path" in service
     assert "DaemonStartupError" in service
     assert "already_running" in service
+
+
+def test_install_script_detects_repair_and_update_before_migration() -> None:
+    install = (PACKAGING / "install.ps1").read_text(encoding="utf-8-sig")
+
+    assert "install_mode" in install
+    assert "prepare_update" in install
+    assert "backup" in install.lower()

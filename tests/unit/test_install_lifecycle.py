@@ -105,3 +105,48 @@ def test_purge_with_confirmation_removes_owned_roots_only(tmp_path: Path) -> Non
     assert not data_root.exists()
     assert not lifecycle.paths.backup_root.exists()
     assert outside.read_text(encoding="utf-8") == "keep"
+
+
+def test_default_app_root_matches_one_click_install_location(tmp_path: Path) -> None:
+    data_root = tmp_path / "MLLminal" / "data"
+    lifecycle = InstallLifecycle(Settings(data_dir=data_root, workspace_root=tmp_path))
+
+    assert lifecycle.paths.app_root == tmp_path / "Programs" / "MLLminal"
+
+
+def test_install_mode_detects_fresh_repair_update_and_blocks_downgrade(tmp_path: Path) -> None:
+    data_root = tmp_path / "MLLminal" / "data"
+    app_root = tmp_path / "Programs" / "MLLminal"
+    data_root.mkdir(parents=True)
+    app_root.mkdir(parents=True)
+    lifecycle = InstallLifecycle(Settings(data_dir=data_root, workspace_root=tmp_path))
+
+    assert lifecycle.install_mode("0.1.0") == "fresh"
+    (data_root / "install-manifest.json").write_text('{"version":"0.1.0"}', encoding="utf-8")
+
+    assert lifecycle.install_mode("0.1.0") == "repair"
+    assert lifecycle.install_mode("0.2.0") == "update"
+    try:
+        lifecycle.install_mode("0.0.9")
+    except InstallLifecycleError as error:
+        assert "downgrade" in str(error)
+    else:
+        raise AssertionError("unsafe downgrade was accepted")
+
+
+def test_prepare_update_backups_database_before_replacement(tmp_path: Path) -> None:
+    data_root = tmp_path / "MLLminal" / "data"
+    app_root = tmp_path / "Programs" / "MLLminal"
+    data_root.mkdir(parents=True)
+    app_root.mkdir(parents=True)
+    settings = Settings(data_dir=data_root, workspace_root=tmp_path)
+    upgrade_database(settings.database_path)
+    (data_root / "install-manifest.json").write_text('{"version":"0.1.0"}', encoding="utf-8")
+    lifecycle = InstallLifecycle(settings)
+
+    result = lifecycle.prepare_update("0.2.0")
+
+    assert result["status"] == "update_prepared"
+    assert result["mode"] == "update"
+    assert result["backup"] is not None
+    assert Path(result["backup"]).is_file()
