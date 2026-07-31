@@ -29,8 +29,8 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "MLLminal TUI" in installer
     assert "DefaultDirName={localappdata}\\MLLminal\\app" in installer
     assert "DataDirectory" in installer
-    assert 'Parameters: "/mil"' in installer
-    assert 'Parameters: "/tui"' in installer
+    assert 'Parameters: "mil"' in installer
+    assert 'Parameters: "tui"' in installer
     assert "Bundled runtime ready" in build_runtime
     assert "SetEnvironmentVariable" in install
     assert "install-manifest.json" in install
@@ -46,3 +46,4 @@ def test_windows_uninstall_preserves_data_without_explicit_delete() -> None:
     assert "mllminal" in uninstall
     assert "SetEnvironmentVariable" in uninstall
     assert "NativeMessagingHosts" in uninstall
+

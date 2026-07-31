@@ -34,8 +34,8 @@ Name: "portableprovider"; Description: "Allow optional portable spreadsheet prov
 Name: "startup"; Description: "Launch the MLLminal daemon at login"
 
 [Icons]
-Name: "{group}\Mil"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "/mil"; WorkingDir: "{app}"
-Name: "{group}\MLLminal TUI"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "/tui"; WorkingDir: "{app}"
+Name: "{group}\Mil"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "mil"; WorkingDir: "{app}"
+Name: "{group}\MLLminal TUI"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"
 Name: "{group}\MLLminal daemon"; Filename: "{app}\runtime\Scripts\mllminald.exe"; WorkingDir: "{app}"
 
 [Run]

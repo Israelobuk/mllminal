@@ -1,9 +1,57 @@
-# MLLminal Windows technical preview packaging
+# MLLminal Windows installer
 
-Build the wheel from the repository root with `uv build`, copy it under `packaging/windows/dist`, and compile `MLLminal.iss` with Inno Setup 6. The release installer carries a bundled Python runtime and installs the CLI, daemon, and Textual TUI entry points, initializes a provider-neutral first-run policy, and never enables observation, external submission, or model downloads automatically.
+The release installer is a normal per-user Inno Setup executable. It carries a bundled Python runtime, the MLLminal wheel and dependencies, the daemon, the CLI, Mil, and the Textual TUI. Installed users do not need Python, uv, Git, a source checkout, or manual environment variables.
 
-The first-run policy explains metadata-only observation, excluded capture classes, discovered application surfaces, bounded provider capabilities, disabled permissions, pause/emergency controls, local data location, and history deletion. The core inventory covers the Windows observer, workspace filesystem, browser bridge, and manual handoff. Optional provider-specific entries may appear when detected, but they never change the deterministic safety boundary.
+## Build the installer
 
-`install.ps1` writes `first-run.json` and a versioned `provider-inventory.json` with bounded capability lists, provenance, detection state, and safety notes. `doctor.ps1` produces a read-only JSON health report for the installed runtime. `export-diagnostics.ps1` includes those reports, Windows information, and hardware output while excluding tokens, databases, credentials, and session material.
+Build-time tools are intentionally separate from installed-user requirements:
 
-Startup-at-login is opt-in through `install.ps1 -EnableStartup`. Uninstall retains local history by default; `uninstall.ps1 -DeleteData` explicitly removes it. Lightweight mode skips optional portable providers and never silently downloads one.
+```powershell
+uv run ruff check src tests
+uv build --wheel --out-dir packaging/windows/dist
+powershell -ExecutionPolicy Bypass -File packaging/windows/build-runtime.ps1
+iscc packaging/windows/MLLminal.iss
+```
+
+Or run the release helper, which performs those steps and fails clearly if Inno Setup 6 is missing:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging/windows/build-installer.ps1
+```
+
+The runtime staging step uses Python only on the build machine. The resulting setup executable installs under `%LOCALAPPDATA%\MLLminal\app`; mutable state is stored separately under `%LOCALAPPDATA%\MLLminal\data`, with migration backups under `%LOCALAPPDATA%\MLLminal\backups`.
+
+## Install, repair, and upgrade
+
+Run setup as the current user. It adds the bundled `runtime\Scripts` directory to the user PATH, initializes local state, validates or upgrades SQLite migrations after creating a database backup, and optionally creates a daemon-at-login shortcut. Existing data, workflows, history, profiles, approvals, sessions, settings, and learning metadata remain outside the application directory during upgrades.
+
+After opening a new PowerShell window:
+
+```powershell
+mllminal --version
+mllminal doctor
+mllminal mil
+mllminal tui
+```
+
+Repair an existing installation with:
+
+```powershell
+mllminal install status
+mllminal install repair
+mllminal install data-path
+```
+
+An unknown database revision is rejected as an unsafe downgrade. The repair operation backs up the SQLite database and any WAL/SHM sidecars before migration.
+
+## Uninstall and data retention
+
+The normal uninstaller stops MLLminal-owned processes, removes the application, shortcuts, user PATH entry, startup shortcut, and owned browser-host registration. It retains local MLLminal data by default. The explicit CLI command below requires exact confirmation before removing only the MLLminal `data` and `backups` directories:
+
+```powershell
+mllminal install purge-data --confirm MLLMINAL
+```
+
+User-created documents, spreadsheets, PDFs, downloads, reports, and workflow outputs outside those owned directories are never targeted.
+
+`doctor.ps1` provides a read-only installed-runtime report. `export-diagnostics.ps1` exports diagnostics without tokens, credentials, databases, or session material.
