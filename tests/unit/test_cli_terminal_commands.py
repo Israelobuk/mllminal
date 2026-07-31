@@ -51,3 +51,70 @@ def test_status_supports_stable_json_from_authenticated_daemon(tmp_path, monkeyp
         "schema_version": "v1",
         "task_count": 0,
     }
+
+
+def test_doctor_starts_daemon_before_reporting_health(tmp_path, monkeypatch) -> None:
+    calls = []
+
+    class FakeClient:
+        async def health(self):
+            return {"status": "ok"}
+
+        async def request(self, method, path, payload=None, *, idempotency_key=None):
+            assert method == "GET"
+            assert path == "/v1/status"
+            return {"daemon": "Online"}
+
+    async def fake_ensure_daemon(settings, client_factory):
+        calls.append(settings.data_dir)
+        return {"status": "running"}
+
+    monkeypatch.setattr("mllminal.cli.terminal_commands.ensure_daemon", fake_ensure_daemon)
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    result = runner.invoke(app, ["doctor", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == [tmp_path]
+    assert json.loads(result.stdout)["health"]["status"] == "ok"
+
+
+def test_cli_version_flag_is_available_from_fresh_terminal(tmp_path) -> None:
+    app = create_app(Settings(data_dir=tmp_path, workspace_root=tmp_path))
+
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "0.1.0"
+
+
+def test_service_restart_waits_for_stop_before_starting(tmp_path, monkeypatch) -> None:
+    calls = []
+
+    class FakeClient:
+        async def request(self, method, path, payload=None, *, idempotency_key=None):
+            assert method == "POST"
+            assert path == "/v1/daemon/shutdown"
+            return {"status": "stopping"}
+
+        async def health(self):
+            raise OSError("daemon stopped")
+
+    async def fake_ensure_daemon(settings, client_factory):
+        calls.append(settings.data_dir)
+        return {"status": "running", "started": {"pid": 123}}
+
+    monkeypatch.setattr("mllminal.cli.terminal_commands.ensure_daemon", fake_ensure_daemon)
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    result = runner.invoke(app, ["service", "restart", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == [tmp_path]
+    assert json.loads(result.stdout)["status"] == "running"

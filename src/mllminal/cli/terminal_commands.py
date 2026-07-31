@@ -187,6 +187,7 @@ def register_terminal_commands(
     @app.command("doctor")
     def doctor(json_output: bool = typer.Option(False, "--json")) -> None:
         async def check() -> dict[str, Any]:
+            await ensure_daemon(settings, daemon_client_factory)
             client = daemon_client_factory(settings)
             health = await client.health()
             status_value = await client.request("GET", "/v1/status")
@@ -594,7 +595,22 @@ def register_terminal_commands(
                 "/v1/daemon/shutdown",
                 idempotency_key="cli-service-restart-stop",
             )
-        _emit(_start_daemon(settings), json_output)
+
+        async def restart() -> dict[str, Any]:
+            deadline = asyncio.get_running_loop().time() + 4.0
+            while asyncio.get_running_loop().time() < deadline:
+                try:
+                    await daemon_client_factory(settings).health()
+                except (OSError, RuntimeError, TimeoutError):
+                    return await ensure_daemon(settings, daemon_client_factory)
+                await asyncio.sleep(0.1)
+            raise RuntimeError("mllminald did not stop before restart")
+
+        try:
+            _emit(asyncio.run(restart()), json_output)
+        except (OSError, RuntimeError, TimeoutError) as error:
+            typer.echo(f"Error: {error}", err=True)
+            raise typer.Exit(code=3) from None
 
     app.add_typer(workflows, name="workflows")
     app.add_typer(executions, name="executions")
