@@ -1,6 +1,6 @@
 param(
-    [string]$InstallRoot = "$env:LOCALAPPDATA\MLLminal",
-    [string]$DataDirectory = "$env:LOCALAPPDATA\MLLminal",
+    [string]$InstallRoot = "$env:LOCALAPPDATA\MLLminal\app",
+    [string]$DataDirectory = "$env:LOCALAPPDATA\MLLminal\data",
     [string]$OutputPath = (Join-Path (Get-Location) "mllminal-diagnostics.zip")
 )
 
@@ -15,7 +15,7 @@ try {
     }
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptRoot "doctor.ps1") -InstallRoot $InstallRoot -DataDirectory $DataDirectory -OutputPath (Join-Path $temp "doctor.json") | Out-Null
     Get-ComputerInfo -Property WindowsProductName,WindowsVersion,OsBuildNumber | Out-File (Join-Path $temp "windows.txt")
-    $python = Join-Path $InstallRoot "venv\Scripts\python.exe"
+    $python = Join-Path $InstallRoot "runtime\Scripts\python.exe"
     if (Test-Path -LiteralPath $python) {
         & $python -m mllminal system hardware 2>&1 | Out-File (Join-Path $temp "hardware.txt")
     } else {

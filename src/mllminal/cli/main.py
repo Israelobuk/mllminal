@@ -24,7 +24,8 @@ from mllminal.assistance.contracts import (
 from mllminal.assistance.service import ProactiveAssistanceService
 from mllminal.automl.contracts import AutoMLRequest
 from mllminal.automl.service import LocalAutoMLService
-from mllminal.client.api import LearningDaemonClient
+from mllminal.cli.terminal_commands import register_terminal_commands
+from mllminal.client.api import DaemonClient, LearningDaemonClient
 from mllminal.compiler.contracts import CompilerRequest
 from mllminal.compiler.service import WorkflowCompilerService
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
@@ -100,6 +101,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     model_probe: ModelProbe | None = None,
+    daemon_client_factory: Callable[[Settings], DaemonClient] | None = None,
 ) -> typer.Typer:
     """Create the CLI with injectable settings and model probe for local tests."""
     resolved_settings = settings or Settings()
@@ -1357,7 +1359,6 @@ def create_app(
     app.add_typer(activity, name="activity")
     app.add_typer(workflow, name="workflow")
     app.add_typer(apps, name="apps")
-    app.add_typer(apps, name="applications")
     app.add_typer(visual, name="visual")
     app.add_typer(mining, name="mining")
     app.add_typer(actions, name="actions")
@@ -1370,6 +1371,11 @@ def create_app(
     adaptive.add_typer(adaptive_policy, name="policy")
     app.add_typer(adaptive, name="adaptive")
     app.add_typer(system, name="system")
+    register_terminal_commands(
+        app,
+        resolved_settings,
+        daemon_client_factory=daemon_client_factory or DaemonClient,
+    )
     return app
 
 
@@ -1386,10 +1392,13 @@ def _create_app_with_learning(
     daemon_client_factory: Callable[[Settings], LearningDaemonClient] | None = None,
 ) -> typer.Typer:
     from mllminal.cli.learning_commands import register_learning_commands
-    from mllminal.client.api import LearningDaemonClient
 
     resolved = settings or Settings()
-    value = _create_local_app(resolved, model_probe=model_probe)
+    value = _create_local_app(
+        resolved,
+        model_probe=model_probe,
+        daemon_client_factory=daemon_client_factory,
+    )
     factory = daemon_client_factory or LearningDaemonClient
     learning = next(
         group.typer_instance for group in value.registered_groups if group.name == "learning"
@@ -1399,6 +1408,6 @@ def _create_app_with_learning(
     return value
 
 
-create_app = _create_app_with_learning
+create_app = _create_app_with_learning  # type: ignore[assignment]
 
 app = create_app()

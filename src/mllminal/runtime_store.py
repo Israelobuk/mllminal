@@ -155,6 +155,12 @@ class RuntimeStore(Store):
             )
             return [self._approval(row) for row in rows]
 
+    def list_all_approvals(self) -> list[Approval]:
+        """Return the safe approval projection for authenticated clients."""
+        with DbSession(self.engine) as database:
+            rows = database.scalars(select(ApprovalRow).order_by(ApprovalRow.created_at))
+            return [self._approval(row) for row in rows]
+
     def decide_approval(
         self, approval_id: str, status: ApprovalStatus, decision_key: str
     ) -> tuple[Approval, bool]:

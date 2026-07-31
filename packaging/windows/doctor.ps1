@@ -1,11 +1,11 @@
 param(
-    [string]$InstallRoot = "$env:LOCALAPPDATA\MLLminal",
-    [string]$DataDirectory = "$env:LOCALAPPDATA\MLLminal",
+    [string]$InstallRoot = "$env:LOCALAPPDATA\MLLminal\app",
+    [string]$DataDirectory = "$env:LOCALAPPDATA\MLLminal\data",
     [string]$OutputPath = ""
 )
 
 $ErrorActionPreference = "Stop"
-$python = Join-Path $InstallRoot "venv\Scripts\python.exe"
+$python = Join-Path $InstallRoot "runtime\Scripts\python.exe"
 $firstRunPath = Join-Path $DataDirectory "first-run.json"
 $inventoryPath = Join-Path $DataDirectory "provider-inventory.json"
 $firstRun = $null
@@ -29,7 +29,7 @@ $report = [ordered]@{
         python_runtime = [bool](Test-Path -LiteralPath $python)
         first_run_policy = [bool]($null -ne $firstRun)
         provider_inventory = [bool]($null -ne $inventory)
-        daemon_entrypoint = [bool]($null -ne (Get-Command (Join-Path $InstallRoot "venv\Scripts\mllminald.exe") -ErrorAction SilentlyContinue))
+        daemon_entrypoint = [bool]($null -ne (Get-Command (Join-Path $InstallRoot "runtime\Scripts\mllminald.exe") -ErrorAction SilentlyContinue))
     }
     capability_discovery = [ordered]@{
         mode = "bounded_registered_adapters"

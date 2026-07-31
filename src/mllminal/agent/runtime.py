@@ -1,6 +1,7 @@
 """Stateful Mil orchestration with durable approvals and verification."""
 
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -58,7 +59,13 @@ class MilRuntime:
         self.tools = tools or ToolRegistry()
         self.advisor = advisor
 
-    async def submit(self, session_id: str, request: str, idempotency_key: str) -> PendingTask:
+    async def submit(
+        self,
+        session_id: str,
+        request: str,
+        idempotency_key: str,
+        event_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> PendingTask:
         existing = self.store.find_task_by_idempotency(session_id, idempotency_key)
         if existing is not None:
             return PendingTask(
@@ -95,7 +102,11 @@ class MilRuntime:
         plan: Plan | None = None
         detail: dict[str, Any] = {}
         async for event in self.provider.stream_response(provider_request):
-            self.store.append_event(session_id, event.event_type, event.model_dump(mode="json"))
+            envelope = self.store.append_event(
+                session_id, event.event_type, event.model_dump(mode="json")
+            )
+            if event_sink is not None:
+                await event_sink(envelope.model_dump(mode="json"))
             if event.event_type == "response.delta" and event.text is not None:
                 response_text += event.text
             if event.event_type == "plan.proposed":

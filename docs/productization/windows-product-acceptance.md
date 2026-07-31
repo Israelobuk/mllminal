@@ -7,7 +7,7 @@ Companion evidence documents:
 - acceptance-results.md: current certification state and evidence ledger
 - security-model.md: enforced and manual security boundaries
 - performance-baseline.md: required raw measurements
-- desktop-client.md: live synchronization acceptance
+- cli-tui-client.md: live terminal synchronization acceptance
 - packaging.md: clean install and uninstall acceptance
 
 Run scripts/windows/run-product-acceptance.ps1 on a clean Windows environment and record each stage through mllminal acceptance record or the authenticated acceptance API.

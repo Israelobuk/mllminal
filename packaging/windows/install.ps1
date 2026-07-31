@@ -2,23 +2,30 @@ param(
     [switch]$EnableStartup,
     [switch]$Lightweight,
     [switch]$InstallOptionalProviders,
-    [string]$InstallRoot = "$env:LOCALAPPDATA\MLLminal",
-    [string]$DataDirectory = "$env:LOCALAPPDATA\MLLminal"
+    [switch]$UseSystemPython,
+    [string]$InstallRoot = "$env:LOCALAPPDATA\MLLminal\app",
+    [string]$DataDirectory = "$env:LOCALAPPDATA\MLLminal\data"
 )
 
 $ErrorActionPreference = "Stop"
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$venv = Join-Path $InstallRoot "venv"
+$runtimeRoot = Join-Path $InstallRoot "runtime"
 $wheel = Get-ChildItem (Join-Path $scriptRoot "dist") -Filter "mllminal-*.whl" | Select-Object -First 1
 if (-not $wheel) { throw "No MLLminal wheel found under packaging/windows/dist." }
 
 New-Item -ItemType Directory -Force -Path $InstallRoot, $DataDirectory | Out-Null
-if (-not (Test-Path (Join-Path $venv "Scripts\python.exe"))) {
-    & py -3.12 -m venv $venv
+$bundledCandidates = @(
+    (Join-Path $runtimeRoot "Scripts\python.exe"),
+    (Join-Path $runtimeRoot "python.exe")
+)
+$python = $bundledCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $python -and $UseSystemPython) {
+    $venv = Join-Path $InstallRoot "venv"
+    if (-not (Test-Path (Join-Path $venv "Scripts\python.exe"))) { & py -3.12 -m venv $venv }
+    $python = Join-Path $venv "Scripts\python.exe"
 }
-$python = Join-Path $venv "Scripts\python.exe"
-& $python -m pip install --disable-pip-version-check --upgrade $wheel.FullName
-
+if (-not $python) { throw "This installer requires the bundled runtime under runtime. Use -UseSystemPython only for development packaging." }
+& $python -m pip install --disable-pip-version-check --no-index --upgrade $wheel.FullName
 $firstRun = [ordered]@{
     schema_version = 1
     mode = "windows_technical_preview"
@@ -135,7 +142,7 @@ if ($EnableStartup) {
     $shortcutPath = Join-Path $startup "MLLminal daemon.lnk"
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = (Join-Path $venv "Scripts\mllminald.exe")
+    $shortcut.TargetPath = (Join-Path (Split-Path $python -Parent) "mllminald.exe")
     $shortcut.WorkingDirectory = $InstallRoot
     $shortcut.WindowStyle = 7
     $shortcut.Save()

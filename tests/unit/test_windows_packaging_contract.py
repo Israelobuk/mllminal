@@ -7,6 +7,7 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     install = (PACKAGING / "install.ps1").read_text(encoding="utf-8-sig")
     doctor = (PACKAGING / "doctor.ps1").read_text(encoding="utf-8-sig")
     diagnostics = (PACKAGING / "export-diagnostics.ps1").read_text(encoding="utf-8-sig")
+    installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
 
     assert 'mode = "windows_technical_preview"' in install
     assert 'provider = "windows-observer"' in install
@@ -23,9 +24,17 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "provider-inventory.json" in diagnostics
     assert "mil-provider.json" not in diagnostics
 
+    assert "runtime\\*" in installer
+    assert "MLLminal TUI" in installer
+    assert "DefaultDirName={localappdata}\\MLLminal\\app" in installer
+    assert "DataDirectory" in installer
+
 
 def test_windows_uninstall_preserves_data_without_explicit_delete() -> None:
     uninstall = (PACKAGING / "uninstall.ps1").read_text(encoding="utf-8-sig")
 
     assert "[switch]$DeleteData" in uninstall
     assert "Local data was retained" in uninstall
+    assert "mllminald" in uninstall
+    assert "mllminal-ui" in uninstall
+    assert "mllminal" in uninstall
