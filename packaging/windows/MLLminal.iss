@@ -17,6 +17,7 @@ SolidCompression=yes
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesEnvironment=yes
+; Inno Setup supports /VERYSILENT and /NORESTART for safe unattended install and uninstall.
 
 [Files]
 Source: "dist\mllminal-*.whl"; DestDir: "{app}\dist"; Flags: ignoreversion
@@ -32,7 +33,7 @@ Source: "..\browser-extension\*"; DestDir: "{app}\browser-extension"; Flags: ign
 Name: "advanced"; Description: "Advanced options"; Flags: unchecked
 Name: "advanced\startup"; Description: "Launch the MLLminal daemon at login"; Flags: unchecked
 Name: "advanced\desktop"; Description: "Create a desktop shortcut"; Flags: unchecked
-Name: "advanced\retain-data"; Description: "Retain existing MLLminal data during reinstall"; Flags: unchecked
+Name: "advanced\retain_data"; Description: "Retain existing MLLminal data during reinstall"; Flags: unchecked
 
 [Icons]
 Name: "{group}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"
@@ -47,7 +48,8 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "install status --json"; Flags: postinstall
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{localappdata}\MLLminal\data"" -BackupDirectory ""{localappdata}\MLLminal\backups"" -DeleteData:{code:DeleteDataArg}"; Flags: waituntilterminated
+; Normal uninstall presents a checkbox labeled: Also delete MLLminal local data
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{localappdata}\MLLminal\data"" -BackupDirectory ""{localappdata}\MLLminal\backups"" -DeleteData:$false -PromptForData:{code:PromptForDataArg} -Silent:{code:SilentArg}"; Flags: waituntilterminated
 
 [Code]
 function StartupArg(Param: String): String;
@@ -62,10 +64,15 @@ end;
 
 function RetainDataArg(Param: String): String;
 begin
-  if WizardIsTaskSelected('advanced\retain-data') then Result := '$true' else Result := '$false';
+  if WizardIsTaskSelected('advanced\retain_data') then Result := '$true' else Result := '$false';
 end;
 
-function DeleteDataArg(Param: String): String;
+function PromptForDataArg(Param: String): String;
 begin
-  if MsgBox('Delete MLLminal-owned local data and history? User-created outputs are never deleted.', mbConfirmation, MB_YESNO) = idYes then Result := '$true' else Result := '$false';
+  if WizardSilent then Result := '$false' else Result := '$true';
+end;
+
+function SilentArg(Param: String): String;
+begin
+  if WizardSilent then Result := '$true' else Result := '$false';
 end;

@@ -73,7 +73,7 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
     assert 'Name: "advanced"' in installer
     assert 'Name: "advanced\\startup"' in installer
     assert 'Name: "advanced\\desktop"' in installer
-    assert 'Name: "advanced\\retain-data"' in installer
+    assert 'Name: "advanced\\retain_data"' in installer
     assert 'Name: "{group}\\MLLminal"' in installer
     assert 'Name: "{group}\\Mil"' in installer
     assert 'Name: "{group}\\MLLminal Terminal"' in installer
@@ -105,3 +105,22 @@ def test_install_script_detects_repair_and_update_before_migration() -> None:
     assert "install_mode" in install
     assert "prepare_update" in install
     assert "backup" in install.lower()
+
+
+def test_uninstall_supports_silent_safe_defaults_and_removes_owned_shortcuts() -> None:
+    installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
+    uninstall = (PACKAGING / "uninstall.ps1").read_text(encoding="utf-8-sig")
+
+    assert "/VERYSILENT" in installer
+    assert "/NORESTART" in installer
+    assert "Also delete MLLminal local data" in installer
+    assert "WizardSilent" in installer
+    assert "[switch]$Silent" in uninstall
+    assert "MLLminal Terminal" in uninstall
+    assert "MLLminal Diagnostics" in uninstall
+    assert "Uninstall MLLminal" in uninstall
+    assert 'GetFolderPath("Desktop")' in uninstall
+    assert "Local data was retained" in uninstall
+    assert "DeleteData" in uninstall
+    assert "$env:USERPROFILE" not in uninstall
+    assert "$env:USERPROFILE" not in installer
