@@ -28,4 +28,4 @@ Secure controls are classified before persistence. Secure keyboard input produce
 
 Automated coverage remains contract and fixture coverage in CI. Manual acceptance still requires a real Windows File Explorer routine: enable visible observation, start recording, select and rename a non-sensitive test file, pause/resume, stop, review the draft, and confirm the candidate is inactive and coordinate-only actions are marked fragile.
 
-This milestone does not execute candidates, capture screenshots, automate Excel/email, or infer final variables automatically. Those remain separate milestones.
+This milestone does not execute candidates, capture screenshots, submit or send external content, or infer final variables automatically. Compilation remains a separate inactive-draft milestone.

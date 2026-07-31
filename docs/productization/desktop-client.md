@@ -4,6 +4,8 @@
 
 The shipped mllminal-ui surface is a thin Textual client. It uses the authenticated daemon REST API and the /v1/events WebSocket, so task state, workflow state, approvals, observation state, privacy state, permissions, and verification remain daemon-owned. CLI-created work is refreshed into the client, and client actions use the same daemon commands.
 
+The shared application surface is provider-neutral: `mllminal applications discover` lists registered application surfaces, `mllminal applications capability-discovery <application>` returns bounded capabilities with provenance, and the authenticated daemon exposes `/v1/apps` plus `/v1/apps/{application}/capability-discovery`. The desktop status panel reports the discovered application count; detailed capability reports remain available through the same daemon API.
+
 ## Simulated, unsupported, and boundaries
 
 CI uses injected API and event clients; it does not prove a live Windows desktop session or synchronization during daemon restart. The client does not own execution, observation, model inference, vision inference, learning, approvals, or database state. A native Tauri/React shell is not claimed in this release. The daemon token is local, never displayed in the client log, and all consequential actions remain server-authorized. No desktop telemetry or screenshots are uploaded to an MLLminal service.
