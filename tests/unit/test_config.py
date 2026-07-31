@@ -11,3 +11,7 @@ def test_settings_create_portable_app_paths(tmp_path: Path) -> None:
     assert settings.pid_path == tmp_path / "daemon.json"
     assert settings.lock_path == tmp_path / "daemon.lock"
     assert settings.api_url == "http://127.0.0.1:7337"
+
+
+def test_default_data_dir_is_separate_mutable_child() -> None:
+    assert Settings().data_dir.name == "data"

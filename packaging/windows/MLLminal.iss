@@ -1,7 +1,7 @@
 #define MyAppName "MLLminal"
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "MLLminal"
-#define MyAppURL "https://github.com/Israelobuk/mllminal"
+#define MyAppExeName "mllminal.exe"
 
 [Setup]
 AppId={{C2EA8B9D-0E48-47AF-86C5-0A1B2C3D4E5F}
@@ -12,14 +12,15 @@ DefaultDirName={localappdata}\MLLminal\app
 DefaultGroupName=MLLminal
 OutputDir=dist
 OutputBaseFilename=MLLminal-Setup
-Compression=lzma
+Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
+ChangesEnvironment=yes
 
 [Files]
 Source: "dist\mllminal-*.whl"; DestDir: "{app}\dist"; Flags: ignoreversion
-Source: "runtime\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "runtime\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "install.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "export-diagnostics.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -33,16 +34,16 @@ Name: "portableprovider"; Description: "Allow optional portable spreadsheet prov
 Name: "startup"; Description: "Launch the MLLminal daemon at login"
 
 [Icons]
-Name: "{group}\Mil"; Filename: "{app}\runtime\Scripts\mllminal.exe"; WorkingDir: "{app}"
-Name: "{group}\MLLminal TUI"; Filename: "{app}\runtime\Scripts\mllminal-ui.exe"; WorkingDir: "{app}"
+Name: "{group}\Mil"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "/mil"; WorkingDir: "{app}"
+Name: "{group}\MLLminal TUI"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "/tui"; WorkingDir: "{app}"
 Name: "{group}\MLLminal daemon"; Filename: "{app}\runtime\Scripts\mllminald.exe"; WorkingDir: "{app}"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\install.ps1\" -InstallRoot \"{app}\" -DataDirectory \"{localappdata}\MLLminal\data\" -Lightweight:{code:LightweightArg} -InstallOptionalProviders:{code:PortableProviderArg} -EnableStartup:{code:StartupArg}"; Flags: waituntilterminated
-Filename: "notepad.exe"; Parameters: "\"{app}\README.md\""; Flags: postinstall skipifsilent
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\install.ps1\" -InstallRoot \"{app}\" -DataDirectory \"{localappdata}\MLLminal\data\" -BackupDirectory \"{localappdata}\MLLminal\backups\" -Repair -Lightweight:{code:LightweightArg} -InstallOptionalProviders:{code:PortableProviderArg} -EnableStartup:{code:StartupArg}"; Flags: waituntilterminated
+Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "install status --json"; Flags: postinstall skipifsilent
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\uninstall.ps1\" -InstallRoot \"{app}\" -DataDirectory \"{localappdata}\MLLminal\data\" -DeleteData:{code:DeleteDataArg}"; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\uninstall.ps1\" -InstallRoot \"{app}\" -DataDirectory \"{localappdata}\MLLminal\data\" -BackupDirectory \"{localappdata}\MLLminal\backups\" -DeleteData:{code:DeleteDataArg}"; Flags: waituntilterminated
 
 [Code]
 function LightweightArg(Param: String): String;
