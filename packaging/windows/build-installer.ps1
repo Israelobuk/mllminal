@@ -9,6 +9,8 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = [IO.Path]::GetFullPath($ProjectRoot)
 $DistributionDirectory = [IO.Path]::GetFullPath($DistributionDirectory)
 New-Item -ItemType Directory -Force -Path $DistributionDirectory | Out-Null
+$existingSetup = Get-Item -LiteralPath (Join-Path $DistributionDirectory "MLLminal-Setup.exe") -ErrorAction SilentlyContinue
+$beforeSetupBytes = if ($existingSetup) { [int64]$existingSetup.Length } else { [int64]0 }
 
 $uv = Get-Command uv -ErrorAction SilentlyContinue
 if (-not $SkipWheelBuild) {
@@ -47,4 +49,12 @@ if (-not $isccPath) {
 
 & $isccPath (Join-Path $PSScriptRoot "MLLminal.iss")
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup could not compile the MLLminal installer." }
+$auditPath = Join-Path $PSScriptRoot "package-audit.ps1"
+$reportPath = Join-Path $DistributionDirectory "MLLminal-package-audit.json"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $auditPath `
+    -DistributionDirectory $DistributionDirectory `
+    -RuntimeDirectory (Join-Path $PSScriptRoot "runtime") `
+    -ReportPath $reportPath `
+    -BeforeSetupBytes $beforeSetupBytes
+if ($LASTEXITCODE -ne 0) { throw "The installer package audit could not be generated." }
 Write-Output (Join-Path $DistributionDirectory "MLLminal-Setup.exe")

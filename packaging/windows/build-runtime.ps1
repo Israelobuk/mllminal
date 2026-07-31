@@ -31,4 +31,18 @@ foreach ($name in $required) {
         throw "Bundled runtime is missing entry point $name."
     }
 }
+
+# Remove only known development debris. Keep installed package data and entry points intact.
+$debrisDirectories = Get-ChildItem -LiteralPath $RuntimeDirectory -Directory -Recurse -Force |
+    Where-Object { $_.Name -in @("__pycache__", ".pytest_cache", "tests") } |
+    Sort-Object FullName -Descending
+foreach ($directory in $debrisDirectories) {
+    Remove-Item -LiteralPath $directory.FullName -Recurse -Force
+}
+$debrisFiles = Get-ChildItem -LiteralPath $RuntimeDirectory -File -Recurse -Force |
+    Where-Object { $_.Name -like "*.pyc" -or $_.Name -like "*.pyo" -or $_.Name -like "*.map" }
+foreach ($file in $debrisFiles) {
+    Remove-Item -LiteralPath $file.FullName -Force
+}
+Write-Output "Runtime cleanup complete: removed known development debris only."
 Write-Output "Bundled runtime ready at $RuntimeDirectory"
