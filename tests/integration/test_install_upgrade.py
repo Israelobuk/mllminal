@@ -88,10 +88,10 @@ def test_purge_requires_confirmation_and_never_touches_user_outputs(tmp_path: Pa
 
 def test_uninstall_script_has_scoped_retention_and_cleanup_contract() -> None:
     script = UNINSTALL_SCRIPT.read_text(encoding="utf-8")
-    assert "Stop-Process -Force" in script
+    assert "Stop-Process -Id" in script
     assert 'SetEnvironmentVariable("Path", ($keptPath -join ";"), "User")' in script
     assert "NativeMessagingHosts\\com.mllminal.bridge" in script
-    assert "if ($DeleteData)" in script
+    assert "if ($deleteOwnedData)" in script
     assert "Refusing to delete an unscoped data directory" in script
     assert "User outputs were not touched" in script
 
@@ -127,3 +127,14 @@ def test_update_mode_preserves_state_and_rejects_unsafe_downgrade(tmp_path: Path
         assert "downgrade" in str(error)
     else:
         raise AssertionError("unsafe downgrade was accepted")
+
+
+def test_uninstall_contract_keeps_data_by_default_and_limits_purge_to_owned_roots() -> None:
+    script = UNINSTALL_SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "[switch]$Silent" in script
+    assert "Also delete MLLminal local data" in script
+    assert "Split-Path $DataDirectory -Leaf" in script
+    assert "Remove-Item -LiteralPath $InstallRoot -Recurse -Force" in script
+    assert 'GetFolderPath("Desktop")' in script
+    assert "Startup" in script
