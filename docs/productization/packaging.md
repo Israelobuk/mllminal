@@ -2,7 +2,7 @@
 
 ## What is real
 
-packaging/windows/MLLminal.iss contains an Inno Setup installer definition. install.ps1 creates a private environment, installs the wheel and entry points, initializes first-run policy, and can add startup-at-login only when explicitly requested. uninstall.ps1 retains data by default and supports explicit deletion. export-diagnostics.ps1 excludes tokens, databases, and credentials.
+packaging/windows/MLLminal.iss contains an Inno Setup installer definition. install.ps1 creates a private environment, installs the wheel and entry points, initializes a provider-neutral first-run policy and bounded provider inventory, and can add startup-at-login only when explicitly requested. doctor.ps1 provides a read-only runtime and safety report. uninstall.ps1 retains data by default and supports explicit deletion. export-diagnostics.ps1 uses an allowlist and excludes tokens, databases, credentials, and session material.
 
 Observation remains disabled after installation. First-run policy explains observation, excluded data, applications, permissions, pause, emergency stop, local storage, and history deletion. Hardware detection is exposed through mllminal system hardware and the daemon hardware endpoint.
 
