@@ -124,3 +124,65 @@ def test_uninstall_supports_silent_safe_defaults_and_removes_owned_shortcuts() -
     assert "DeleteData" in uninstall
     assert "$env:USERPROFILE" not in uninstall
     assert "$env:USERPROFILE" not in installer
+
+
+def test_package_audit_emits_size_and_performance_json(tmp_path: Path) -> None:
+    import json
+    import subprocess
+
+    script = PACKAGING / "package-audit.ps1"
+    if not script.is_file():
+        raise AssertionError("package-audit.ps1 is not present")
+    distribution = tmp_path / "dist"
+    runtime = tmp_path / "runtime"
+    distribution.mkdir()
+    (runtime / "Scripts").mkdir(parents=True)
+    (distribution / "MLLminal-Setup.exe").write_bytes(b"MZfixture")
+    (runtime / "Scripts" / "mllminal.exe").write_bytes(b"runtime")
+    report = tmp_path / "audit.json"
+
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+            "-DistributionDirectory",
+            str(distribution),
+            "-RuntimeDirectory",
+            str(runtime),
+            "-ReportPath",
+            str(report),
+            "-ColdInstallSeconds",
+            "2.5",
+            "-FirstLaunchSeconds",
+            "1.5",
+            "-DaemonReadySeconds",
+            "0.5",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert payload["compressed_setup_bytes"] == 9
+    assert payload["runtime_bytes"] == 7
+    assert payload["installed_file_count"] == 1
+    assert payload["cold_install_seconds"] == 2.5
+    assert payload["first_launch_seconds"] == 1.5
+    assert payload["daemon_ready_seconds"] == 0.5
+
+
+def test_package_build_prunes_only_known_development_debris() -> None:
+    runtime = (PACKAGING / "build-runtime.ps1").read_text(encoding="utf-8-sig")
+    builder = (PACKAGING / "build-installer.ps1").read_text(encoding="utf-8-sig")
+
+    assert "__pycache__" in runtime
+    assert "*.pyc" in runtime
+    assert "*.pyo" in runtime
+    assert "package-audit.ps1" in builder
+    assert "ReportPath" in builder
