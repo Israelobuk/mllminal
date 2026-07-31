@@ -27,18 +27,24 @@ if (-not $SkipRuntimeBuild) {
     if ($LASTEXITCODE -ne 0) { throw "The bundled runtime could not be staged." }
 }
 
-$iscc = Get-Command iscc -ErrorAction SilentlyContinue
-if (-not $iscc) {
+$isccPath = $null
+$isccCommand = Get-Command iscc -ErrorAction SilentlyContinue
+if ($isccCommand) {
+    $isccPath = $isccCommand.Source
+    if (-not $isccPath) { $isccPath = $isccCommand.Path }
+}
+if (-not $isccPath) {
     $knownPaths = @(
-        "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
+        "${env:LOCALAPPDATA}\Programs\Inno Setup 6\ISCC.exe",
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
         "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
     ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-    if ($knownPaths) { $iscc = Get-Item -LiteralPath $knownPaths[0] }
+    $isccPath = $knownPaths | Select-Object -First 1
 }
-if (-not $iscc) {
+if (-not $isccPath) {
     throw "Inno Setup 6 (ISCC.exe) is required to compile the Windows setup executable."
 }
 
-& $iscc.Source (Join-Path $PSScriptRoot "MLLminal.iss")
+& $isccPath (Join-Path $PSScriptRoot "MLLminal.iss")
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup could not compile the MLLminal installer." }
 Write-Output (Join-Path $DistributionDirectory "MLLminal-Setup.exe")
