@@ -20,6 +20,14 @@ ClientFactory = Callable[[Settings], Any]
 def daemon_executable(settings: Settings) -> str | None:
     candidates = [
         shutil.which("mllminald"),
+        str(
+            settings.data_dir.parent.parent
+            / "Programs"
+            / "MLLminal"
+            / "runtime"
+            / "Scripts"
+            / "mllminald.exe"
+        ),
         str(settings.data_dir.parent / "app" / "runtime" / "Scripts" / "mllminald.exe"),
         str(Path(sys.executable).with_name("mllminald.exe")),
     ]

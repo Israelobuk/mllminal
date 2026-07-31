@@ -26,8 +26,8 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "mil-provider.json" not in diagnostics
 
     assert "runtime\\*" in installer
-    assert "MLLminal TUI" in installer
-    assert "DefaultDirName={localappdata}\\MLLminal\\app" in installer
+    assert "MLLminal Terminal" in installer
+    assert "DefaultDirName={localappdata}\\Programs\\MLLminal" in installer
     assert "DataDirectory" in installer
     assert 'Parameters: "mil"' in installer
     assert 'Parameters: "tui"' in installer
@@ -62,3 +62,25 @@ def test_inno_run_parameters_use_inno_quote_escaping() -> None:
     assert '-File ""{app}\\install.ps1""' in installer
     assert '-File \\"{app}\\install.ps1\\"' not in installer
     assert '-File ""{app}\\uninstall.ps1""' in installer
+
+
+def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None:
+    install = (PACKAGING / "install.ps1").read_text(encoding="utf-8-sig")
+    installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
+
+    assert '[string]$InstallRoot = "$env:LOCALAPPDATA\\Programs\\MLLminal"' in install
+    assert "DefaultDirName={localappdata}\\Programs\\MLLminal" in installer
+    assert 'Name: "advanced"' in installer
+    assert 'Name: "advanced\\startup"' in installer
+    assert 'Name: "advanced\\desktop"' in installer
+    assert 'Name: "advanced\\retain-data"' in installer
+    assert 'Name: "{group}\\MLLminal"' in installer
+    assert 'Name: "{group}\\Mil"' in installer
+    assert 'Name: "{group}\\MLLminal Terminal"' in installer
+    assert 'Name: "{group}\\MLLminal Diagnostics"' in installer
+    assert 'Name: "{group}\\Uninstall MLLminal"' in installer
+    assert 'Parameters: "tui"' in installer
+    assert 'Parameters: "mil"' in installer
+    assert "-NoExit" in installer
+    assert "doctor" in installer
+    assert "[switch]$CreateDesktopShortcut" in install

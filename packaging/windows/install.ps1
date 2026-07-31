@@ -4,7 +4,9 @@ param(
     [switch]$InstallOptionalProviders,
     [switch]$UseSystemPython,
     [switch]$Repair,
-    [string]$InstallRoot = "$env:LOCALAPPDATA\MLLminal\app",
+    [switch]$CreateDesktopShortcut,
+    [switch]$RetainExistingData,
+    [string]$InstallRoot = "$env:LOCALAPPDATA\Programs\MLLminal",
     [string]$DataDirectory = "$env:LOCALAPPDATA\MLLminal\data",
     [string]$BackupDirectory = "$env:LOCALAPPDATA\MLLminal\backups"
 )
@@ -101,6 +103,7 @@ $manifest = [ordered]@{
     path_registered = $pathRegistered
     startup_enabled = [bool]$EnableStartup
     repaired = [bool]$Repair
+    retained_existing_data = [bool]$RetainExistingData
     installed_at = [DateTime]::UtcNow.ToString("o")
 }
 $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $DataDirectory "install-manifest.json") -Encoding utf8
@@ -116,4 +119,14 @@ if ($EnableStartup) {
     $shortcut.Save()
 }
 
-Write-Output "MLLminal installed for the current user. Open a new terminal, then run: mllminal doctor"
+if ($CreateDesktopShortcut) {
+    $desktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "MLLminal.lnk"
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($desktopShortcut)
+    $shortcut.TargetPath = Join-Path $scriptDirectory "mllminal.exe"
+    $shortcut.Arguments = "tui"
+    $shortcut.WorkingDirectory = $InstallRoot
+    $shortcut.Save()
+}
+
+Write-Output "MLLminal installed for the current user. Open MLLminal or Mil from the Start Menu."
