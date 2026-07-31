@@ -129,4 +129,9 @@ if ($CreateDesktopShortcut) {
     $shortcut.Save()
 }
 
+$readiness = & $python -c "import asyncio; from mllminal.config import Settings; from mllminal.service_lifecycle import ensure_daemon; print(asyncio.run(ensure_daemon(Settings())))"
+if ($LASTEXITCODE -ne 0) {
+    throw "MLLminal could not start its local service. Your files were not changed. Open Diagnostics under $($DataDirectory | Split-Path -Parent)\\diagnostics."
+}
+Write-Output "MLLminal local service is ready: $readiness"
 Write-Output "MLLminal installed for the current user. Open MLLminal or Mil from the Start Menu."

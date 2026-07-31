@@ -1,5 +1,5 @@
 param(
-    [string]$InstallRoot = "$env:LOCALAPPDATA\MLLminal\app",
+    [string]$InstallRoot = "$env:LOCALAPPDATA\Programs\MLLminal",
     [string]$DataDirectory = "$env:LOCALAPPDATA\MLLminal\data",
     [string]$OutputPath = ""
 )
