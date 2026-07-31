@@ -36,6 +36,7 @@ async def test_ensure_daemon_starts_once_then_waits_for_health(
     assert result["started"] == {"status": "starting", "pid": 123}
     assert started == [settings.data_dir]
 
+
 def test_daemon_executable_uses_the_one_click_install_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -83,4 +83,4 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
     assert 'Parameters: "mil"' in installer
     assert "-NoExit" in installer
     assert "doctor" in installer
-    assert '[switch]$CreateDesktopShortcut' in install
+    assert "[switch]$CreateDesktopShortcut" in install
