@@ -46,6 +46,7 @@ Name: "{userdesktop}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{localappdata}\MLLminal\data"" -BackupDirectory ""{localappdata}\MLLminal\backups"" -Repair -Lightweight:$false -InstallOptionalProviders:$false -EnableStartup:{code:StartupArg} -CreateDesktopShortcut:{code:DesktopArg} -RetainExistingData:{code:RetainDataArg}"; Flags: waituntilterminated
 Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "install status --json"; Flags: postinstall
+Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "mil"; Description: "Launch Mil"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 ; Normal uninstall presents a checkbox labeled: Also delete MLLminal local data
