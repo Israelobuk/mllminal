@@ -35,3 +35,18 @@ async def test_ensure_daemon_starts_once_then_waits_for_health(
     assert result["status"] == "running"
     assert result["started"] == {"status": "starting", "pid": 123}
     assert started == [settings.data_dir]
+
+def test_daemon_executable_uses_the_one_click_install_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mllminal.service_lifecycle import daemon_executable
+
+    runtime_scripts = tmp_path / "Programs" / "MLLminal" / "runtime" / "Scripts"
+    runtime_scripts.mkdir(parents=True)
+    executable = runtime_scripts / "mllminald.exe"
+    executable.write_text("", encoding="utf-8")
+    settings = Settings(data_dir=tmp_path / "MLLminal" / "data", workspace_root=tmp_path)
+    monkeypatch.setattr("mllminal.service_lifecycle.shutil.which", lambda _name: None)
+    monkeypatch.setattr("mllminal.service_lifecycle.sys.executable", str(tmp_path / "python.exe"))
+
+    assert daemon_executable(settings) == str(executable)
