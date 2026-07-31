@@ -6,7 +6,7 @@ Validation base: `origin/main` at `ddc70ce5c4a465340db7300c48100670af0e22ca`
 
 ## Executive result
 
-The merged MLLminal subsystems are coherent as a local-first architecture and the repository is currently green, but they are not one fully usable real-world Windows automation product yet. The real paths are persistence, privacy filtering, deterministic modeling, approval state, bounded filesystem inspection, and typed workflow orchestration through injected handlers. Windows interaction capture, Excel/Outlook/browser control, screenshot analysis, desktop-daemon synchronization, and real action execution remain unavailable or simulated.
+The merged MLLminal subsystems are coherent as a local-first architecture and the repository is currently green, but they are not one fully usable real-world Windows automation product yet. The real paths are persistence, privacy filtering, deterministic modeling, approval state, bounded filesystem inspection, and typed workflow orchestration through injected handlers. Windows interaction capture, desktop/browser control, screenshot analysis, desktop-daemon synchronization, and real action execution remain unavailable or simulated; optional provider-specific evidence is tracked separately.
 
 ## Evidence collected
 

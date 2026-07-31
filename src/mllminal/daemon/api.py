@@ -830,6 +830,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             item.model_dump(mode="json") for item in await applications.capabilities(application)
         ]
 
+    @app.get("/v1/apps/{application}/capability-discovery", dependencies=protected)
+    async def application_capability_discovery(application: str) -> dict[str, Any]:
+        return (await applications.capability_discovery(application)).model_dump(mode="json")
+
     @app.post("/v1/apps/{application}/grant", dependencies=protected)
     async def application_grant(
         application: str,

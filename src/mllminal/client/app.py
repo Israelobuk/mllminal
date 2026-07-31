@@ -134,6 +134,7 @@ class MLLminalDesktopApp(App[None]):
         self.query_one("#shared-state", Static).update(
             f"Tasks: {len(snapshot.tasks)}\n"
             f"Workflows: {len(snapshot.workflows)}\n"
+            f"Applications: {len(snapshot.applications)}\n"
             f"Approvals: {approvals}\n"
             f"Verification failures: {verification}"
         )

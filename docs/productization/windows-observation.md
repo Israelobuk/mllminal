@@ -22,4 +22,4 @@ Automated repository coverage remains fixture-based and validates contracts, per
 
 ## Known limits
 
-The native observer is intentionally metadata-only. It does not yet compile demonstrations, inspect screenshots, drive Excel or email, or recover workflows. Those are later milestones and must remain separate branches and pull requests.
+The native observer is intentionally metadata-only. It does not execute external application actions, inspect screenshots, submit or send anything, or recover workflows. Those remain separate capability and provider milestones.

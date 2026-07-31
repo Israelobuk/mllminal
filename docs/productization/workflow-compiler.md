@@ -16,7 +16,7 @@ Milestone 7 turns repeated mined candidates into an inactive typed workflow draf
 
 Repeated ISO-date filename patterns such as `report-2026-07-06.xlsx`, `report-2026-07-13.xlsx`, and `report-2026-07-20.xlsx` infer a reviewable `reporting_date` input and preserve the filename template. Repeated differing file-operation values infer a `source_file` input. Stable repeated values remain constants; the compiler does not turn changing folders into wildcards without evidence.
 
-Email mappings stop at `email.create_draft`; there is no send capability. Consequential filesystem, Excel, and email steps require explicit approval in the generated draft. Unsupported observations remain visible as unsupported placeholders so the user must choose a bounded adapter before activation.
+Draft mappings stop at `email.create_draft`; there is no send capability. Consequential file, document, table, and draft steps require explicit approval in the generated draft. Unsupported observations remain visible as unsupported placeholders so the user must choose a bounded adapter before activation.
 
 ## Acceptance
 

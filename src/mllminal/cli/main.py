@@ -1084,6 +1084,12 @@ def create_app(
         for item in asyncio.run(application_service().capabilities(application)):
             typer.echo(item.model_dump_json())
 
+    @apps.command("capability-discovery")
+    def apps_capability_discovery(application: str) -> None:
+        typer.echo(
+            asyncio.run(application_service().capability_discovery(application)).model_dump_json()
+        )
+
     @apps.command("grant")
     def apps_grant(application: str, scope: str) -> None:
         typer.echo(

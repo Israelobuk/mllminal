@@ -37,6 +37,7 @@ class DesktopSnapshot:
     workflows: list[dict[str, Any]] = field(default_factory=list)
     workflow_runs: list[dict[str, Any]] = field(default_factory=list)
     permissions: list[dict[str, Any]] = field(default_factory=list)
+    applications: list[dict[str, Any]] = field(default_factory=list)
     visual: dict[str, Any] | None = None
     suggestions: list[dict[str, Any]] = field(default_factory=list)
     suggestion_preferences: list[dict[str, Any]] = field(default_factory=list)
@@ -93,6 +94,7 @@ class DaemonClient:
             workflows = await self.request("GET", "/v1/workflows")
             workflow_runs = await self.request("GET", "/v1/workflow-runs")
             permissions = await self.request("GET", "/v1/permissions")
+            applications = await self.request("GET", "/v1/apps")
             visual = await self.request("GET", "/v1/visual/latest")
             suggestions = await self.request("GET", "/v1/suggestions")
             suggestion_preferences = await self.request("GET", "/v1/suggestion-preferences")
@@ -121,6 +123,7 @@ class DaemonClient:
             workflows=_list(workflows),
             workflow_runs=_list(workflow_runs),
             permissions=_list(permissions),
+            applications=_list(applications),
             visual=None if visual is None else _dict(visual),
             suggestions=_list(suggestions),
             suggestion_preferences=_list(suggestion_preferences),
@@ -128,6 +131,9 @@ class DaemonClient:
             verification_policy=_dict(verification_policy),
             active_policies=_dict(active_policies),
         )
+
+    async def application_capability_discovery(self, application: str) -> dict[str, Any]:
+        return _dict(await self.request("GET", f"/v1/apps/{application}/capability-discovery"))
 
     async def ensure_session(self) -> str:
         if self.session_id is not None:

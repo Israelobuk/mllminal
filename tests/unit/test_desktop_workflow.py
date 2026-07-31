@@ -25,6 +25,7 @@ def test_desktop_snapshot_projects_workflow_runs_from_daemon(tmp_path: Path) -> 
             "/v1/workflows": [],
             "/v1/workflow-runs": [{"id": "run-1", "state": "running"}],
             "/v1/permissions": [],
+            "/v1/apps": [],
             "/v1/visual/latest": {},
             "/v1/suggestions": [],
             "/v1/suggestion-preferences": [],
