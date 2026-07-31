@@ -12,8 +12,6 @@ import contextlib
 import importlib.metadata
 import json
 import platform
-import shutil
-import subprocess
 import sys
 import zipfile
 from collections.abc import Callable
@@ -25,7 +23,7 @@ import typer
 from mllminal.client.api import DaemonClient
 from mllminal.config import Settings
 from mllminal.install_lifecycle import InstallLifecycle, InstallLifecycleError
-from mllminal.service_lifecycle import ensure_daemon
+from mllminal.service_lifecycle import daemon_executable, ensure_daemon, start_daemon
 
 ClientFactory = Callable[[Settings], DaemonClient]
 
@@ -85,38 +83,11 @@ def _stream_workflow(
 
 
 def _daemon_executable(settings: Settings) -> str | None:
-    candidates = [
-        shutil.which("mllminald"),
-        str(
-            settings.data_dir.parent.parent
-            / "Programs"
-            / "MLLminal"
-            / "runtime"
-            / "Scripts"
-            / "mllminald.exe"
-        ),
-        str(settings.data_dir.parent / "app" / "runtime" / "Scripts" / "mllminald.exe"),
-        str(Path(sys.executable).with_name("mllminald.exe")),
-    ]
-    return next((item for item in candidates if item and Path(item).is_file()), None)
+    return daemon_executable(settings)
 
 
 def _start_daemon(settings: Settings) -> dict[str, Any]:
-    executable = _daemon_executable(settings)
-    if executable is None:
-        raise RuntimeError("installed mllminald executable was not found")
-    flags = 0
-    if sys.platform == "win32":
-        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
-            subprocess, "DETACHED_PROCESS", 0
-        )
-    process = subprocess.Popen(
-        [executable],
-        cwd=str(settings.workspace_root),
-        creationflags=flags,
-        close_fds=True,
-    )
-    return {"status": "starting", "pid": process.pid}
+    return start_daemon(settings)
 
 
 def register_terminal_commands(

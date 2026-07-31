@@ -84,3 +84,16 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
     assert "-NoExit" in installer
     assert "doctor" in installer
     assert "[switch]$CreateDesktopShortcut" in install
+
+
+def test_installed_clients_use_bounded_daemon_readiness_and_diagnostics() -> None:
+    install = (PACKAGING / "install.ps1").read_text(encoding="utf-8-sig")
+    service = (Path(__file__).parents[2] / "src" / "mllminal" / "service_lifecycle.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "ensure_daemon" in install
+    assert "diagnostics" in install
+    assert "daemon_lock_path" in service
+    assert "DaemonStartupError" in service
+    assert "already_running" in service
