@@ -38,4 +38,4 @@ Unit tests cover configuration, selection, prompts, trimming, parsing, validatio
 
 ## Scope Boundaries
 
-This slice adds no training, learning, DuckDB/Parquet, MLflow, BentoML, Tauri, browser automation, arbitrary shell or URL access, autonomous execution, or write-capable tools.
+This provider design focuses on local conversational planning and intentionally grants no arbitrary shell or URL access, autonomous execution, or write-capable tools. Offline learning, DuckDB/Parquet analysis, MLflow provenance, and bounded provider adapters are layered elsewhere in the current product; none of them changes the provider or daemon safety boundary.
