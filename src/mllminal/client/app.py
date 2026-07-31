@@ -11,6 +11,8 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Footer, Header, Input, RichLog, Static, TabbedContent, TabPane
 
 from mllminal.client.api import DaemonClient, DesktopSnapshot, DesktopState
+from mllminal.config import Settings
+from mllminal.service_lifecycle import ensure_daemon
 
 
 class MLLminalDesktopApp(App[None]):
@@ -53,9 +55,10 @@ class MLLminalDesktopApp(App[None]):
         ("0", "show_settings", "Settings"),
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         super().__init__()
-        self.client = DaemonClient()
+        self.settings = settings or Settings()
+        self.client = DaemonClient(self.settings)
         self.snapshot = DesktopSnapshot(DesktopState.DAEMON_STARTING)
         self.last_event_sequence = 0
 
@@ -388,7 +391,12 @@ class MLLminalDesktopApp(App[None]):
 
 
 def main() -> None:
-    MLLminalDesktopApp().run()
+    settings = Settings()
+    try:
+        asyncio.run(ensure_daemon(settings))
+    except (OSError, RuntimeError, TimeoutError):
+        raise SystemExit(3) from None
+    MLLminalDesktopApp(settings).run()
 
 
 if __name__ == "__main__":

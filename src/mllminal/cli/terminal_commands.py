@@ -24,6 +24,8 @@ import typer
 
 from mllminal.client.api import DaemonClient
 from mllminal.config import Settings
+from mllminal.install_lifecycle import InstallLifecycle, InstallLifecycleError
+from mllminal.service_lifecycle import ensure_daemon
 
 ClientFactory = Callable[[Settings], DaemonClient]
 
@@ -124,6 +126,59 @@ def register_terminal_commands(
     capabilities = typer.Typer(help="Inspect bounded, typed capabilities.")
     diagnostics = typer.Typer(help="Collect and verify safe diagnostic projections.")
     service = typer.Typer(help="Control the local MLLminal daemon service.")
+    install = typer.Typer(help="Install, repair, and safely remove MLLminal-owned state.")
+
+    @app.callback(invoke_without_command=True)
+    def root_options(
+        version: bool = typer.Option(
+            False, "--version", help="Print the installed MLLminal version."
+        ),
+    ) -> None:
+        if version:
+            try:
+                value = importlib.metadata.version("mllminal")
+            except importlib.metadata.PackageNotFoundError:
+                value = "0.1.0"
+            typer.echo(value)
+            raise typer.Exit()
+
+    def lifecycle() -> InstallLifecycle:
+        return InstallLifecycle(settings)
+
+    def lifecycle_emit(action: Callable[[], object], json_output: bool) -> None:
+        try:
+            _emit(action(), json_output)
+        except InstallLifecycleError as error:
+            typer.echo(f"Error: {error}", err=True)
+            raise typer.Exit(code=2) from None
+        except (OSError, RuntimeError) as error:
+            typer.echo(f"Error: {error}", err=True)
+            raise typer.Exit(code=3) from None
+
+    @install.command("status")
+    def install_status(json_output: bool = typer.Option(False, "--json")) -> None:
+        lifecycle_emit(lifecycle().status, json_output)
+
+    @install.command("repair")
+    def install_repair(json_output: bool = typer.Option(False, "--json")) -> None:
+        lifecycle_emit(lifecycle().repair, json_output)
+
+    @install.command("data-path")
+    def install_data_path(json_output: bool = typer.Option(False, "--json")) -> None:
+        lifecycle_emit(lifecycle().data_path, json_output)
+
+    @install.command("purge-data")
+    def install_purge_data(
+        confirm: str | None = typer.Option(None, "--confirm"),
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        lifecycle_emit(lambda: lifecycle().purge(confirm), json_output)
+
+    @app.command("tui")
+    def tui() -> None:
+        from mllminal.client.app import main as run_tui
+
+        run_tui()
 
     @app.command("status")
     def status(json_output: bool = typer.Option(False, "--json")) -> None:
@@ -222,6 +277,11 @@ def register_terminal_commands(
             return
         from mllminal.client.mil import run_mil_terminal
 
+        try:
+            asyncio.run(ensure_daemon(settings, daemon_client_factory))
+        except (OSError, RuntimeError, TimeoutError) as error:
+            typer.echo(f"Error: {error}", err=True)
+            raise typer.Exit(code=3) from None
         run_mil_terminal(settings, daemon_client_factory)
 
     @workflows.command("list")
@@ -543,3 +603,4 @@ def register_terminal_commands(
     app.add_typer(capabilities, name="capabilities")
     app.add_typer(diagnostics, name="diagnostics")
     app.add_typer(service, name="service")
+    app.add_typer(install, name="install")

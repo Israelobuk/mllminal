@@ -26,7 +26,9 @@ class Settings(BaseSettings):
 
     host: str = "127.0.0.1"
     port: int = 7337
-    data_dir: Path = Field(default_factory=lambda: user_data_path("MLLminal", appauthor=False))
+    data_dir: Path = Field(
+        default_factory=lambda: user_data_path("MLLminal", appauthor=False) / "data"
+    )
     workspace_root: Path = Field(default_factory=Path.cwd)
 
     @property

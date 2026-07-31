@@ -8,6 +8,7 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     doctor = (PACKAGING / "doctor.ps1").read_text(encoding="utf-8-sig")
     diagnostics = (PACKAGING / "export-diagnostics.ps1").read_text(encoding="utf-8-sig")
     installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
+    build_runtime = (PACKAGING / "build-runtime.ps1").read_text(encoding="utf-8-sig")
 
     assert 'mode = "windows_technical_preview"' in install
     assert 'provider = "windows-observer"' in install
@@ -28,6 +29,11 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "MLLminal TUI" in installer
     assert "DefaultDirName={localappdata}\\MLLminal\\app" in installer
     assert "DataDirectory" in installer
+    assert 'Parameters: "/mil"' in installer
+    assert 'Parameters: "/tui"' in installer
+    assert "Bundled runtime ready" in build_runtime
+    assert "SetEnvironmentVariable" in install
+    assert "install-manifest.json" in install
 
 
 def test_windows_uninstall_preserves_data_without_explicit_delete() -> None:
@@ -38,3 +44,5 @@ def test_windows_uninstall_preserves_data_without_explicit_delete() -> None:
     assert "mllminald" in uninstall
     assert "mllminal-ui" in uninstall
     assert "mllminal" in uninstall
+    assert "SetEnvironmentVariable" in uninstall
+    assert "NativeMessagingHosts" in uninstall
