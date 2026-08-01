@@ -23,7 +23,7 @@ import typer
 from mllminal.client.api import DaemonClient
 from mllminal.config import Settings
 from mllminal.install_lifecycle import InstallLifecycle, InstallLifecycleError
-from mllminal.service_lifecycle import daemon_executable, ensure_daemon, start_daemon
+from mllminal.service_lifecycle import daemon_executable, ensure_daemon
 
 ClientFactory = Callable[[Settings], DaemonClient]
 
@@ -84,10 +84,6 @@ def _stream_workflow(
 
 def _daemon_executable(settings: Settings) -> str | None:
     return daemon_executable(settings)
-
-
-def _start_daemon(settings: Settings) -> dict[str, Any]:
-    return start_daemon(settings)
 
 
 def register_terminal_commands(
@@ -558,11 +554,10 @@ def register_terminal_commands(
     @service.command("start")
     def service_start(json_output: bool = typer.Option(False, "--json")) -> None:
         try:
-            health = asyncio.run(daemon_client_factory(settings).health())
-        except (OSError, RuntimeError, TimeoutError):
-            _emit(_start_daemon(settings), json_output)
-        else:
-            _emit({"status": "already_running", "health": health}, json_output)
+            _emit(asyncio.run(ensure_daemon(settings, daemon_client_factory)), json_output)
+        except (OSError, RuntimeError, TimeoutError) as error:
+            typer.echo(f"Error: {error}", err=True)
+            raise typer.Exit(code=3) from None
 
     @service.command("restart")
     def service_restart(json_output: bool = typer.Option(False, "--json")) -> None:
