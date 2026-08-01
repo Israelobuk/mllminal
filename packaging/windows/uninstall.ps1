@@ -76,11 +76,31 @@ if ($PromptForData -and -not $Silent) {
 
 $ownedRoot = $InstallRoot.TrimEnd("\") + "\"
 $ownedProcessIds = New-Object System.Collections.Generic.List[int]
+$daemonExecutable = [IO.Path]::GetFullPath((Join-Path $InstallRoot "runtime\Scripts\mllminald.exe"))
 $lockPath = Join-Path $DataDirectory "daemon.lock"
 if (Test-Path -LiteralPath $lockPath) {
     try {
         $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
-        if ($lock.pid) { $ownedProcessIds.Add([int]$lock.pid) }
+        $lockPid = if ($lock.pid) { [int]$lock.pid } else { 0 }
+        $lockExecutable = [string]$lock.executable
+        $normalizedLockExecutable = if ($lockExecutable) { [IO.Path]::GetFullPath($lockExecutable) } else { "" }
+        if ($lockPid -gt 0 -and $normalizedLockExecutable -ieq $daemonExecutable) {
+            $lockProcess = Get-Process -Id $lockPid -ErrorAction SilentlyContinue
+            if ($lockProcess) {
+                try {
+                    $lockProcessPath = $lockProcess.Path
+                    if ($lockProcessPath -and [IO.Path]::GetFullPath($lockProcessPath).StartsWith($ownedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                        $ownedProcessIds.Add([int]$lockProcess.Id)
+                    } else {
+                        Write-Diagnostic "Ignoring daemon lock for PID $lockPid because the live process is not under the installed MLLminal root."
+                    }
+                } catch {
+                    Write-Diagnostic "Ignoring daemon lock for PID $lockPid because its process path could not be verified. $($_.Exception.Message)"
+                }
+            }
+        } else {
+            Write-Diagnostic "Ignoring daemon lock because it does not identify the installed MLLminal daemon."
+        }
     } catch { Write-Diagnostic "Could not read daemon ownership lock: $($_.Exception.Message)" }
 }
 foreach ($processName in @("mllminald", "mllminal", "mllminal-ui")) {

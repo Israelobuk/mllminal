@@ -102,6 +102,9 @@ def test_uninstall_removes_only_a_path_entry_added_by_mllminal() -> None:
 def test_uninstall_script_has_scoped_retention_and_cleanup_contract() -> None:
     script = UNINSTALL_SCRIPT.read_text(encoding="utf-8")
     assert "Stop-Process -Id" in script
+    assert "lock.executable" in script
+    assert "lockProcess.Path" in script
+    assert "Ignoring daemon lock" in script
     assert 'SetEnvironmentVariable("Path", ($keptPath -join ";"), "User")' in script
     assert "NativeMessagingHosts\\com.mllminal.bridge" in script
     assert "if ($deleteOwnedData)" in script
