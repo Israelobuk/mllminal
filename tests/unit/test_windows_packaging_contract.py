@@ -84,6 +84,9 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
     assert "-NoExit" in installer
     assert "doctor" in installer
     assert 'Description: "Launch Mil"' in installer
+    assert "DataDirectoryArg" in installer
+    assert "BackupDirectoryArg" in installer
+    assert "MLLMINAL_WINDOWS_ACCEPTANCE" in installer
     assert "Flags: postinstall nowait skipifsilent" in installer
     assert "[switch]$CreateDesktopShortcut" in install
 

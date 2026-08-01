@@ -39,6 +39,15 @@ def test_readme_is_a_product_page_with_current_boundaries() -> None:
     assert "currently implementing the Windows-first foundation slice" not in readme
     assert "Tauri/React" not in readme
     assert "primarily Office automation" not in readme
+    installation = readme.split("## Windows installation", 1)[1].split(
+        "## Upgrade, repair, and uninstall", 1
+    )[0]
+    assert "Download the Windows setup executable" in installation
+    assert "Double-click it" in installation
+    assert "Start Menu" in installation
+    assert "mllminal doctor" not in installation
+    assert "/VERYSILENT /NORESTART" in readme
+    assert "Launch Mil" in readme
 
 
 def test_related_docs_use_cli_first_product_framing() -> None:

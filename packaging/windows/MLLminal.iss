@@ -44,15 +44,31 @@ Name: "{group}\Uninstall MLLminal"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"; Tasks: "advanced\desktop"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{localappdata}\MLLminal\data"" -BackupDirectory ""{localappdata}\MLLminal\backups"" -Repair -Lightweight:$false -InstallOptionalProviders:$false -EnableStartup:{code:StartupArg} -CreateDesktopShortcut:{code:DesktopArg} -RetainExistingData:{code:RetainDataArg}"; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{code:DataDirectoryArg}"" -BackupDirectory ""{code:BackupDirectoryArg}"" -Repair -Lightweight:$false -InstallOptionalProviders:$false -EnableStartup:{code:StartupArg} -CreateDesktopShortcut:{code:DesktopArg} -RetainExistingData:{code:RetainDataArg}"; Flags: waituntilterminated
 Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "install status --json"; Flags: postinstall
 Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "mil"; Description: "Launch Mil"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 ; Normal uninstall presents a checkbox labeled: Also delete MLLminal local data
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{localappdata}\MLLminal\data"" -BackupDirectory ""{localappdata}\MLLminal\backups"" -DeleteData:$false -PromptForData:{code:PromptForDataArg} -Silent:{code:SilentArg}"; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{code:DataDirectoryArg}"" -BackupDirectory ""{code:BackupDirectoryArg}"" -DeleteData:$false -PromptForData:{code:PromptForDataArg} -Silent:{code:SilentArg}"; Flags: waituntilterminated; RunOnceId: "MLLminalUninstall"
 
 [Code]
+function DataDirectoryArg(Param: String): String;
+begin
+  if (GetEnv('MLLMINAL_WINDOWS_ACCEPTANCE') = '1') and (GetEnv('MLLMINAL_ACCEPTANCE_DATA_DIR') <> '') then
+    Result := GetEnv('MLLMINAL_ACCEPTANCE_DATA_DIR')
+  else
+    Result := ExpandConstant('{localappdata}\MLLminal\data');
+end;
+
+function BackupDirectoryArg(Param: String): String;
+begin
+  if (GetEnv('MLLMINAL_WINDOWS_ACCEPTANCE') = '1') and (GetEnv('MLLMINAL_ACCEPTANCE_BACKUP_DIR') <> '') then
+    Result := GetEnv('MLLMINAL_ACCEPTANCE_BACKUP_DIR')
+  else
+    Result := ExpandConstant('{localappdata}\MLLminal\backups');
+end;
+
 function StartupArg(Param: String): String;
 begin
   if WizardIsTaskSelected('advanced\startup') then Result := '$true' else Result := '$false';
