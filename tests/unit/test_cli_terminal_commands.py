@@ -1,5 +1,6 @@
 import json
 
+import httpx
 from typer.testing import CliRunner
 
 from mllminal.cli.main import create_app
@@ -109,6 +110,29 @@ def test_service_status_reports_stopped_without_daemon(tmp_path, monkeypatch) ->
 
     assert result.exit_code == 0, result.stdout
     assert json.loads(result.stdout) == {"status": "stopped"}
+
+
+def test_service_status_handles_httpx_connect_error_without_traceback(
+    tmp_path, monkeypatch
+) -> None:
+    class FakeClient:
+        async def health(self):
+            raise httpx.ConnectError("daemon unavailable")
+
+    monkeypatch.setattr(
+        "mllminal.cli.terminal_commands.daemon_status",
+        lambda _settings: {"status": "stopped"},
+    )
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    result = runner.invoke(app, ["service", "status", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout) == {"status": "stopped"}
+    assert "Traceback" not in result.stdout
 
 
 def test_service_stop_is_idempotent_when_daemon_is_stopped(tmp_path, monkeypatch) -> None:
