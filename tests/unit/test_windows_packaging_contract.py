@@ -107,7 +107,7 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
     assert "Check: DesktopShortcutSelected" in installer
     assert "-NoExit" in installer
     assert "doctor" in installer
-    assert 'Description: "Launch Mil"' in installer
+
     assert "DataDirectoryArg" in installer
     assert "BackupDirectoryArg" in installer
     assert "MLLMINAL_WINDOWS_ACCEPTANCE" in installer
@@ -120,8 +120,13 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
     assert "-InstallOptionalProviders:0" not in installer
     assert "-DeleteData:0" not in installer
     assert "$false" not in installer
-    assert "Flags: postinstall nowait skipifsilent" in installer
     assert "[switch]$CreateDesktopShortcut" in install
+
+
+def test_installer_reaches_ready_without_auto_launching_a_terminal_or_mil() -> None:
+    installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
+
+    assert "[Run]" not in installer
 
 
 def test_installed_clients_use_bounded_daemon_readiness_and_diagnostics() -> None:
