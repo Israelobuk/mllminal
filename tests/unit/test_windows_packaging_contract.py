@@ -40,6 +40,9 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "Bundled runtime ready" in build_runtime
     assert "SetEnvironmentVariable" in install
     assert "install-manifest.json" in install
+    assert "trap {" in install
+    assert "install.log" in install
+    assert "MLLminal install failed" in install
 
 
 def test_windows_uninstall_preserves_data_without_explicit_delete() -> None:

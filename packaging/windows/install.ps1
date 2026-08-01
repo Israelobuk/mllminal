@@ -12,6 +12,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+trap {
+    $diagnosticsDirectory = Join-Path ([IO.Path]::GetFullPath($DataDirectory)) "..\diagnostics"
+    try {
+        New-Item -ItemType Directory -Force -Path $diagnosticsDirectory | Out-Null
+        Add-Content -LiteralPath (Join-Path $diagnosticsDirectory "install.log") -Value "$(Get-Date -Format o) MLLminal install failed: $($_.Exception.Message)"
+    } catch {
+        # Preserve the original failure when diagnostics storage is unavailable.
+    }
+    Write-Error "MLLminal install failed: $($_.Exception.Message)"
+    exit 1
+}
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $InstallRoot = [IO.Path]::GetFullPath($InstallRoot)
 $DataDirectory = [IO.Path]::GetFullPath($DataDirectory)
