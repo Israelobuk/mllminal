@@ -152,7 +152,20 @@ $manifest = [ordered]@{
     retained_existing_data = [bool]$RetainExistingData
     installed_at = [DateTime]::UtcNow.ToString("o")
 }
-$manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $DataDirectory "install-manifest.json") -Encoding utf8
+$manifestPath = Join-Path $DataDirectory "install-manifest.json"
+if (Test-Path -LiteralPath $manifestPath) {
+    try {
+        $existingManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        foreach ($property in $existingManifest.PSObject.Properties) {
+            if (-not $manifest.Contains($property.Name)) {
+                $manifest[$property.Name] = $property.Value
+            }
+        }
+    } catch {
+        Write-Output "Existing MLLminal install metadata could not be read; rebuilding the manifest."
+    }
+}
+$manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding utf8
 
 if ($EnableStartup) {
     $startup = [Environment]::GetFolderPath("Startup")
