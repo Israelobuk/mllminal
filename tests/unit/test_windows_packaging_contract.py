@@ -23,6 +23,7 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "first-run.json" in doctor
     assert "technical_preview" in doctor
     assert "credentials" in diagnostics
+    assert "$env:LOCALAPPDATA\\Programs\\MLLminal" in diagnostics
     assert "provider-inventory.json" in diagnostics
     assert "mil-provider.json" not in diagnostics
 
