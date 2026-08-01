@@ -91,6 +91,23 @@ def test_cli_version_flag_is_available_from_fresh_terminal(tmp_path) -> None:
     assert result.stdout.strip() == "0.1.0"
 
 
+def test_service_start_waits_for_bounded_readiness(tmp_path, monkeypatch) -> None:
+    calls = []
+
+    async def fake_ensure_daemon(settings, client_factory):
+        calls.append(settings.data_dir)
+        return {"status": "running", "health": {"status": "ok"}}
+
+    monkeypatch.setattr("mllminal.cli.terminal_commands.ensure_daemon", fake_ensure_daemon)
+    app = create_app(Settings(data_dir=tmp_path, workspace_root=tmp_path))
+
+    result = runner.invoke(app, ["service", "start", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == [tmp_path]
+    assert json.loads(result.stdout)["health"]["status"] == "ok"
+
+
 def test_service_restart_waits_for_stop_before_starting(tmp_path, monkeypatch) -> None:
     calls = []
 
