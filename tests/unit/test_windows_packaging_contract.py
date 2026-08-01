@@ -28,6 +28,12 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "runtime\\*" in installer
     assert "MLLminal Terminal" in installer
     assert "DefaultDirName={localappdata}\\Programs\\MLLminal" in installer
+    assert "DisableDirPage=yes" in installer
+    assert "DisableProgramGroupPage=yes" in installer
+    assert "RunInstallBootstrapper" in installer
+    assert "CurStepChanged" in installer
+    assert "ewWaitUntilTerminated" in installer
+    assert "ResultCode" in installer
     assert "DataDirectory" in installer
     assert 'Parameters: "mil"' in installer
     assert 'Parameters: "tui"' in installer
@@ -59,8 +65,7 @@ def test_installer_compiler_resolves_program_files_x86_safely() -> None:
 def test_inno_run_parameters_use_inno_quote_escaping() -> None:
     installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
 
-    assert '-File ""{app}\\install.ps1""' in installer
-    assert '-File \\"{app}\\install.ps1\\"' not in installer
+    assert "ExpandConstant('{app}\\install.ps1')" in installer
     assert '-File ""{app}\\uninstall.ps1""' in installer
 
 
