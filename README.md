@@ -109,39 +109,31 @@ The local daemon is authenticated even on loopback. Data and model artifacts rem
 
 ## Windows installation
 
-1. Download the Windows installer from the project’s release artifacts.
-2. Run setup. The per-user installer includes the daemon, CLI, Textual TUI, Mil, Python runtime, dependencies, migrations, shortcuts, and uninstall support.
-3. Open a new PowerShell window.
-4. Run `mllminal doctor`.
-5. Start Mil with `mllminal mil`.
+The normal-user flow is intentionally short:
 
-Installed users do not need Python, `uv`, Git, a source checkout, or manual environment variables. Mutable data lives outside the application directory so upgrades can replace binaries without deleting durable state.
+1. Download the Windows setup executable.
+2. Double-click it and keep the safe per-user defaults.
+3. Optionally open Advanced options for launch-at-login or a desktop shortcut.
+4. Click Install and wait for the Ready page.
+5. Leave Launch Mil selected, or open MLLminal, Mil, MLLminal Terminal, or MLLminal Diagnostics from the Start Menu.
 
-Useful lifecycle commands:
+The setup executable includes the daemon, CLI, Textual TUI, Mil, Python runtime, dependencies, migrations, shortcuts, and uninstall support. Users do not need Python, `uv`, Git, a source checkout, or manual environment variables. Mutable data lives outside the application directory.
 
-```powershell
-mllminal --version
-mllminal status
-mllminal doctor
-mllminal service start
-mllminal service stop
-mllminal service restart
-mllminal service status
-mllminal install status
-mllminal install repair
-mllminal install data-path
-```
+## Upgrade, repair, and uninstall
 
-Upgrades back up the SQLite database, including WAL/SHM sidecars when present, before migrations. They preserve workflows, execution history, checkpoints, application profiles, policy bindings, still-valid approvals, Mil sessions, settings, and learning metadata. Unsafe or unknown database revisions are rejected rather than silently downgraded.
+Run the same setup executable again to repair the current installation or update it to a newer version. Setup stops only MLLminal-owned processes, backs up SQLite state before migrations, preserves durable user state, and performs a bounded daemon readiness check. The setup supports unattended install with `/VERYSILENT /NORESTART`.
 
-To uninstall, use Windows Settings → Apps → MLLminal → Uninstall. Installed binaries, shortcuts, the user PATH entry, startup registration, owned browser-host registration, and owned processes are removed. Data is kept unless you explicitly choose deletion. To purge retained local state separately:
+Windows Settings -> Apps -> MLLminal -> Uninstall opens the normal uninstaller. It removes installed binaries, shortcuts, the user PATH entry, startup registration, owned browser-host registration, and owned processes. Local MLLminal data is kept unless you explicitly select deletion. Silent uninstall keeps data by default.
+
+To purge retained local state separately, use the explicit confirmation command:
 
 ```powershell
 mllminal install purge-data --confirm MLLMINAL
 ```
 
-That confirmation is required, and only MLLminal-owned local state is targeted.
+Only MLLminal-owned local state is targeted; user-created documents, spreadsheets, PDFs, downloads, reports, and workflow outputs outside those directories are not deleted.
 
+For troubleshooting after installation, open MLLminal Diagnostics from the Start Menu or run `mllminal doctor` in a new terminal. Lifecycle commands include `mllminal status`, `mllminal service status`, `mllminal install status`, `mllminal install repair`, and `mllminal install data-path`.
 ## Developer installation
 
 Developer installation is separate from the user installer and requires Python 3.12 and `uv`:

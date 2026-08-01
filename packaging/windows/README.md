@@ -44,29 +44,34 @@ powershell -ExecutionPolicy Bypass -File packaging/windows/package-audit.ps1 `
 
 Zero is the explicit “not measured” value; release evidence should replace it with observed timings rather than estimated values.
 
-## Install, repair, and upgrade
+## Install for normal users
 
-Run setup as the current user. The default application path is `%LOCALAPPDATA%\Programs\MLLminal`; mutable state is stored separately under `%LOCALAPPDATA%\MLLminal`. Setup adds the bundled `runtime\Scripts` directory to the user PATH, initializes local state, validates or upgrades SQLite migrations after creating a database backup, starts the local daemon, and optionally creates a daemon-at-login shortcut.
+1. Download the Windows setup executable.
+2. Double-click setup and keep the safe per-user defaults.
+3. Optionally choose Advanced options for launch-at-login or a desktop shortcut.
+4. Click Install and wait for the Ready page.
+5. Launch Mil, MLLminal, MLLminal Terminal, or MLLminal Diagnostics from the Start Menu.
 
-After opening a new PowerShell window:
+The installer includes the daemon, CLI, Textual TUI, Mil, Python runtime, dependencies, migrations, shortcuts, and uninstall support. Installed users do not need Python, uv, Git, a source checkout, or manual environment variables. The application lives under `%LOCALAPPDATA%\\Programs\\MLLminal`; mutable state lives under `%LOCALAPPDATA%\\MLLminal`.
+
+## Upgrade and repair
+
+Run the same setup executable again to repair the current installation or update it. Setup stops only packaged MLLminal processes, backs up SQLite state before migration, preserves durable state, and checks daemon readiness. `/VERYSILENT /NORESTART` is supported for unattended setup.
+
+Useful installed lifecycle commands:
 
 ```powershell
 mllminal --version
+mllminal status
 mllminal doctor
-mllminal mil
-mllminal tui
-```
-
-Repair an existing installation with:
-
-```powershell
+mllminal service start
+mllminal service stop
+mllminal service restart
+mllminal service status
 mllminal install status
 mllminal install repair
 mllminal install data-path
 ```
-
-An unknown database revision is rejected as an unsafe downgrade. Repair and update operations back up the SQLite database and any WAL/SHM sidecars before migration while preserving workflows, history, profiles, approvals, sessions, settings, and learning metadata.
-
 ## Uninstall and data retention
 
 The normal uninstaller stops MLLminal-owned processes, removes the application, shortcuts, user PATH entry, startup shortcut, and owned browser-host registration. It retains local MLLminal data by default. The explicit CLI command below requires exact confirmation before removing only the MLLminal `data` and `backups` directories:
