@@ -96,7 +96,11 @@ function Stop-OwnedProcesses {
 Stop-OwnedProcesses
 $pathRegistered = Add-UserPathEntry $scriptDirectory
 $env:MLLMINAL_DATA_DIR = $DataDirectory
-$packageVersion = "0.1.0"
+$packageVersion = & $python -c "import importlib.metadata; print(importlib.metadata.version('mllminal'))"
+if ($LASTEXITCODE -ne 0) { throw "The packaged MLLminal version could not be read." }
+$packageVersion = [string]($packageVersion | Select-Object -Last 1)
+$packageVersion = $packageVersion.Trim()
+if ($packageVersion -notmatch "^\d+(\.\d+)+$") { throw "The packaged MLLminal version is invalid: $packageVersion" }
 $installProjection = & $python -c "import json; from pathlib import Path; from mllminal.config import Settings; from mllminal.install_lifecycle import InstallLifecycle; lifecycle=InstallLifecycle(Settings(), app_root=Path(r'$InstallRoot')); mode=lifecycle.install_mode('$packageVersion'); prepared=lifecycle.prepare_update('$packageVersion'); repaired=lifecycle.repair(); print(json.dumps({'mode': mode, 'prepared': prepared, 'repaired': repaired}))"
 if ($LASTEXITCODE -ne 0) { throw "Database repair or migration failed. Existing data was backed up before migration." }
 Write-Output $installProjection
@@ -137,7 +141,7 @@ if (-not (Test-Path -LiteralPath $inventoryPath)) {
 
 $manifest = [ordered]@{
     schema_version = 1
-    version = "0.1.0"
+    version = $packageVersion
     app_root = $InstallRoot
     data_root = $DataDirectory
     backup_root = $BackupDirectory

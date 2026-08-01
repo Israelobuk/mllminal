@@ -28,6 +28,10 @@ if (-not $SkipRuntimeBuild) {
     & (Join-Path $PSScriptRoot "build-runtime.ps1") -WheelDirectory $DistributionDirectory
     if ($LASTEXITCODE -ne 0) { throw "The bundled runtime could not be staged." }
 }
+$wheel = Get-ChildItem -LiteralPath $DistributionDirectory -Filter "mllminal-*.whl" -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $wheel) { throw "A packaged MLLminal wheel is required to determine the installer version." }
+if ($wheel.BaseName -notmatch '^mllminal-(?<version>\d+(?:\.\d+)+)-') { throw "The MLLminal wheel filename does not contain a supported numeric version: $($wheel.Name)" }
+$packageVersion = $Matches.version
 
 $isccPath = $null
 $isccCommand = Get-Command iscc -ErrorAction SilentlyContinue
@@ -47,7 +51,7 @@ if (-not $isccPath) {
     throw "Inno Setup 6 (ISCC.exe) is required to compile the Windows setup executable."
 }
 
-& $isccPath (Join-Path $PSScriptRoot "MLLminal.iss")
+& $isccPath "/DMyAppVersion=$packageVersion" (Join-Path $PSScriptRoot "MLLminal.iss")
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup could not compile the MLLminal installer." }
 $auditPath = Join-Path $PSScriptRoot "package-audit.ps1"
 $reportPath = Join-Path $DistributionDirectory "MLLminal-package-audit.json"
