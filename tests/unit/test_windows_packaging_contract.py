@@ -69,6 +69,8 @@ def test_windows_uninstall_preserves_data_without_explicit_delete() -> None:
     assert "mllminal" in uninstall
     assert "SetEnvironmentVariable" in uninstall
     assert "NativeMessagingHosts" in uninstall
+    assert "uninstall.log" in uninstall
+    assert "MLLminal uninstall failed" in uninstall
 
 
 def test_installer_compiler_resolves_program_files_x86_safely() -> None:

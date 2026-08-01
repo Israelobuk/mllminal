@@ -19,6 +19,16 @@ function Write-Diagnostic([string]$Message) {
     Add-Content -LiteralPath $diagnosticsPath -Value "$(Get-Date -Format o) $Message"
 }
 
+trap {
+    try {
+        Write-Diagnostic "MLLminal uninstall failed: $($_.Exception.Message)"
+    } catch {
+        # Preserve the original failure when diagnostics storage is unavailable.
+    }
+    Write-Error "MLLminal uninstall failed: $($_.Exception.Message)"
+    exit 1
+}
+
 $deleteOwnedData = [bool]$DeleteData
 if ($PromptForData -and -not $Silent) {
     try {
