@@ -49,7 +49,7 @@ Name: "{userdesktop}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; 
 
 [UninstallRun]
 ; Normal uninstall presents a checkbox labeled: Also delete MLLminal local data
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{code:DataDirectoryArg}"" -BackupDirectory ""{code:BackupDirectoryArg}"" {code:PromptForDataArg} {code:SilentArg}"; Flags: waituntilterminated; RunOnceId: "MLLminalUninstall"
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{code:DataDirectoryArg}"" -BackupDirectory ""{code:BackupDirectoryArg}"" {code:PromptForDataArg} {code:SilentArg}"; Flags: waituntilterminated runhidden; RunOnceId: "MLLminalUninstall"
 
 [Code]
 
