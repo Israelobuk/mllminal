@@ -106,7 +106,13 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
     assert 'Parameters: "tui"' in installer
     assert 'Parameters: "mil"' in installer
     assert "Check: DesktopShortcutSelected" in installer
-    assert "-NoExit" in installer
+    assert 'Source: "diagnostics.vbs"; DestDir: "{app}"' in installer
+    assert 'Filename: "{sys}\\wscript.exe"' in installer
+    assert "-NoExit" not in installer
+    assert (
+        'Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -NoExit'
+        not in installer
+    )
     assert "doctor" in installer
 
     assert "DataDirectoryArg" in installer
@@ -272,3 +278,12 @@ def test_package_build_prunes_only_known_development_debris() -> None:
     assert "licenses\\third_party" in runtime
     assert "package-audit.ps1" in builder
     assert "ReportPath" in builder
+
+
+def test_diagnostics_launcher_is_hidden_and_does_not_use_powershell() -> None:
+    launcher = (PACKAGING / "diagnostics.vbs").read_text(encoding="utf-8-sig")
+
+    assert 'CreateObject("WScript.Shell")' in launcher
+    assert "doctor --json" in launcher
+    assert ", 0, True)" in launcher
+    assert "powershell" not in launcher.casefold()

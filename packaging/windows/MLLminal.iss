@@ -31,6 +31,7 @@ Source: "install.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "export-diagnostics.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "doctor.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "diagnostics.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\browser-extension\*"; DestDir: "{app}\browser-extension"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -39,7 +40,7 @@ Source: "..\browser-extension\*"; DestDir: "{app}\browser-extension"; Flags: ign
 Name: "{group}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"
 Name: "{group}\Mil"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "mil"; WorkingDir: "{app}"
 Name: "{group}\MLLminal Terminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "mil"; WorkingDir: "{app}"
-Name: "{group}\MLLminal Diagnostics"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -NoExit -Command ""& '{app}\runtime\Scripts\mllminal.exe' doctor"""; WorkingDir: "{app}"
+Name: "{group}\MLLminal Diagnostics"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\diagnostics.vbs"""; WorkingDir: "{app}"
 Name: "{group}\Uninstall MLLminal"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"; Check: DesktopShortcutSelected
 
