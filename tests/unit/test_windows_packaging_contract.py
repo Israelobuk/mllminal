@@ -155,6 +155,13 @@ def test_install_script_detects_repair_and_update_before_migration() -> None:
     assert "Start-Sleep -Milliseconds 100" in install
 
 
+def test_normal_uninstaller_hides_its_powerShell_bootstrapper() -> None:
+    installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
+
+    uninstall_run = installer.split("[UninstallRun]", 1)[1].split("[Code]", 1)[0]
+    assert "Flags: waituntilterminated runhidden" in uninstall_run
+
+
 def test_uninstall_supports_silent_safe_defaults_and_removes_owned_shortcuts() -> None:
     installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
     uninstall = (PACKAGING / "uninstall.ps1").read_text(encoding="utf-8-sig")
