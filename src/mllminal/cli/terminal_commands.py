@@ -18,6 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
 import typer
 
 from mllminal.client.api import DaemonClient
@@ -60,7 +61,7 @@ def _request(
     except PermissionError as error:
         typer.echo(f"Error: {error}", err=True)
         raise typer.Exit(code=2) from None
-    except (OSError, RuntimeError, TimeoutError) as error:
+    except (OSError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
         typer.echo(f"Error: {error}", err=True)
         raise typer.Exit(code=3) from None
 
@@ -77,7 +78,7 @@ def _stream_workflow(
 
     try:
         asyncio.run(stream())
-    except (OSError, RuntimeError, TimeoutError) as error:
+    except (OSError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
         typer.echo(f"Error: event stream unavailable: {error}", err=True)
         raise typer.Exit(code=3) from None
 
@@ -170,7 +171,7 @@ def register_terminal_commands(
 
         try:
             _emit(asyncio.run(check()), json_output)
-        except (OSError, PermissionError, RuntimeError, TimeoutError) as error:
+        except (OSError, PermissionError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
             typer.echo(f"Error: {error}", err=True)
             raise typer.Exit(code=3) from None
 
@@ -237,7 +238,7 @@ def register_terminal_commands(
             return
         try:
             result = asyncio.run(daemon_client_factory(settings).chat(message))
-        except (OSError, PermissionError, RuntimeError, TimeoutError) as error:
+        except (OSError, PermissionError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
             typer.echo(f"Error: {error}", err=True)
             raise typer.Exit(code=3) from None
         _emit(result, json_output)
@@ -255,7 +256,7 @@ def register_terminal_commands(
 
         try:
             asyncio.run(ensure_daemon(settings, daemon_client_factory))
-        except (OSError, RuntimeError, TimeoutError) as error:
+        except (OSError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
             typer.echo(f"Error: {error}", err=True)
             raise typer.Exit(code=3) from None
         run_mil_terminal(settings, daemon_client_factory)
@@ -539,12 +540,12 @@ def register_terminal_commands(
         async def query() -> object:
             try:
                 return await daemon_client_factory(settings).health()
-            except (OSError, RuntimeError, TimeoutError):
+            except (OSError, RuntimeError, TimeoutError, httpx.HTTPError):
                 return daemon_status(settings)
 
         try:
             _emit(asyncio.run(query()), json_output)
-        except (OSError, RuntimeError, TimeoutError) as error:
+        except (OSError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
             typer.echo(f"Error: {error}", err=True)
             raise typer.Exit(code=3) from None
 
@@ -557,7 +558,7 @@ def register_terminal_commands(
                     "/v1/daemon/shutdown",
                     idempotency_key="cli-service-stop",
                 )
-            except (OSError, RuntimeError, TimeoutError):
+            except (OSError, RuntimeError, TimeoutError, httpx.HTTPError):
                 observed = daemon_status(settings)
                 if observed.get("status") in {"stopped", "uninstalled"}:
                     return {"status": "already_stopped"}
@@ -565,7 +566,7 @@ def register_terminal_commands(
 
         try:
             _emit(asyncio.run(shutdown()), json_output)
-        except (OSError, RuntimeError, TimeoutError) as error:
+        except (OSError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
             typer.echo(f"Error: {error}", err=True)
             raise typer.Exit(code=3) from None
 
@@ -573,7 +574,7 @@ def register_terminal_commands(
     def service_start(json_output: bool = typer.Option(False, "--json")) -> None:
         try:
             _emit(asyncio.run(ensure_daemon(settings, daemon_client_factory)), json_output)
-        except (OSError, RuntimeError, TimeoutError) as error:
+        except (OSError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
             typer.echo(f"Error: {error}", err=True)
             raise typer.Exit(code=3) from None
 
@@ -593,14 +594,14 @@ def register_terminal_commands(
             while asyncio.get_running_loop().time() < deadline:
                 try:
                     await daemon_client_factory(settings).health()
-                except (OSError, RuntimeError, TimeoutError):
+                except (OSError, RuntimeError, TimeoutError, httpx.HTTPError):
                     return await ensure_daemon(settings, daemon_client_factory)
                 await asyncio.sleep(0.1)
             raise RuntimeError("mllminald did not stop before restart")
 
         try:
             _emit(asyncio.run(restart()), json_output)
-        except (OSError, RuntimeError, TimeoutError) as error:
+        except (OSError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
             typer.echo(f"Error: {error}", err=True)
             raise typer.Exit(code=3) from None
 
