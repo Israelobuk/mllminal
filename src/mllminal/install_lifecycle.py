@@ -179,7 +179,7 @@ class InstallLifecycle:
 
     def _read_manifest(self) -> dict[str, Any]:
         try:
-            value = json.loads(self.paths.manifest_path.read_text(encoding="utf-8"))
+            value = json.loads(self.paths.manifest_path.read_text(encoding="utf-8-sig"))
         except (OSError, ValueError):
             return {}
         return value if isinstance(value, dict) else {}
