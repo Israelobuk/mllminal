@@ -29,7 +29,14 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "runtime\\*" in installer
     assert "MLLminal Terminal" in installer
     assert "DefaultDirName={localappdata}\\Programs\\MLLminal" in installer
+    assert "DisableWelcomePage=no" in installer
     assert "DisableDirPage=yes" in installer
+    assert "[Tasks]" not in installer
+    assert "CreateCustomPage(wpWelcome" in installer
+    assert "ShouldSkipPage" in installer
+    assert "AdvancedToggle.Checked := False" in installer
+    assert "StartupCheck.Checked := False" in installer
+    assert "DesktopCheck.Checked := False" in installer
     assert "DisableProgramGroupPage=yes" in installer
     assert "RunInstallBootstrapper" in installer
     assert "CurStepChanged" in installer
@@ -37,6 +44,7 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "ResultCode" in installer
     assert "DataDirectory" in installer
     assert 'Parameters: "mil"' in installer
+    assert "Check: DesktopShortcutSelected" in installer
     assert 'Parameters: "tui"' in installer
     assert "Bundled runtime ready" in build_runtime
     assert "SetEnvironmentVariable" in install
@@ -84,10 +92,6 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
 
     assert '[string]$InstallRoot = "$env:LOCALAPPDATA\\Programs\\MLLminal"' in install
     assert "DefaultDirName={localappdata}\\Programs\\MLLminal" in installer
-    assert 'Name: "advanced"' in installer
-    assert 'Name: "advanced\\startup"' in installer
-    assert 'Name: "advanced\\desktop"' in installer
-    assert 'Name: "advanced\\retain_data"' in installer
     assert 'Name: "{group}\\MLLminal"' in installer
     assert 'Name: "{group}\\Mil"' in installer
     assert 'Name: "{group}\\MLLminal Terminal"' in installer
@@ -95,6 +99,7 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
     assert 'Name: "{group}\\Uninstall MLLminal"' in installer
     assert 'Parameters: "tui"' in installer
     assert 'Parameters: "mil"' in installer
+    assert "Check: DesktopShortcutSelected" in installer
     assert "-NoExit" in installer
     assert "doctor" in installer
     assert 'Description: "Launch Mil"' in installer
