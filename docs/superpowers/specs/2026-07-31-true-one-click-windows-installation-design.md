@@ -35,7 +35,7 @@ Shortcuts are:
 - `MLLminal` → Textual TUI
 - `Mil` → conversational terminal
 - `MLLminal Terminal` → interactive terminal entry point
-- `MLLminal Diagnostics` → a readable `mllminal doctor` terminal
+- `MLLminal Diagnostics` → a hidden `mllminal doctor --json` check that records `%LOCALAPPDATA%\\MLLminal\\diagnostics\\doctor-shortcut.json`
 - `Uninstall MLLminal` → the registered uninstaller
 
 ### Reinstall, repair, and update

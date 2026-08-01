@@ -52,6 +52,8 @@ Zero is the explicit “not measured” value; release evidence should replace i
 4. Click Install and wait for the Ready page.
 5. Launch Mil, MLLminal, MLLminal Terminal, or MLLminal Diagnostics from the Start Menu.
 
+The Diagnostics shortcut runs `mllminal doctor --json` without opening a shell window and records its output at `%LOCALAPPDATA%\\MLLminal\\diagnostics\\doctor-shortcut.json`.
+
 The installer includes the daemon, CLI, Textual TUI, Mil, Python runtime, dependencies, migrations, shortcuts, and uninstall support. Installed users do not need Python, uv, Git, a source checkout, or manual environment variables. The application lives under `%LOCALAPPDATA%\\Programs\\MLLminal`; mutable state lives under `%LOCALAPPDATA%\\MLLminal`.
 
 ## Upgrade and repair

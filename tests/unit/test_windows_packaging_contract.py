@@ -285,5 +285,8 @@ def test_diagnostics_launcher_is_hidden_and_does_not_use_powershell() -> None:
 
     assert 'CreateObject("WScript.Shell")' in launcher
     assert "doctor --json" in launcher
+    assert "%ComSpec%" in launcher
+    assert "doctor-shortcut.json" in launcher
+    assert "2>&1" in launcher
     assert ", 0, True)" in launcher
     assert "powershell" not in launcher.casefold()
