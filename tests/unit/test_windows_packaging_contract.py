@@ -30,7 +30,7 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "MLLminal Terminal" in installer
     assert "DefaultDirName={localappdata}\\Programs\\MLLminal" in installer
     assert "DisableWelcomePage=no" in installer
-    assert "DisableDirPage=yes" in installer
+    assert "DisableDirPage=no" in installer
     assert "[Tasks]" not in installer
     assert "CreateCustomPage(wpWelcome" in installer
     assert "ShouldSkipPage" in installer
@@ -185,6 +185,13 @@ def test_windows_acceptance_is_opt_in_and_headless() -> None:
     assert "MLLMINAL_SETUP_EXE" in acceptance
     assert "CREATE_NO_WINDOW" in acceptance
     assert "/VERYSILENT" in acceptance
+
+
+def test_advanced_options_can_select_install_location() -> None:
+    installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
+
+    assert "DisableDirPage=no" in installer
+    assert "(PageID = wpSelectDir) and (not AdvancedToggle.Checked)" in installer
 
 
 def test_windows_docs_describe_owned_path_cleanup() -> None:
