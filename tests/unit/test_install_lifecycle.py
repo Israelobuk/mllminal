@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from mllminal.cli.main import create_app
@@ -132,6 +133,19 @@ def test_install_mode_detects_fresh_repair_update_and_blocks_downgrade(tmp_path:
         assert "downgrade" in str(error)
     else:
         raise AssertionError("unsafe downgrade was accepted")
+
+
+def test_install_mode_reads_a_windows_utf8_bom_manifest(tmp_path: Path) -> None:
+    data_root = tmp_path / "MLLminal" / "data"
+    app_root = tmp_path / "Programs" / "MLLminal"
+    data_root.mkdir(parents=True)
+    app_root.mkdir(parents=True)
+    (data_root / "install-manifest.json").write_bytes(b'\xef\xbb\xbf{"version":"0.1.0"}')
+    lifecycle = InstallLifecycle(Settings(data_dir=data_root, workspace_root=tmp_path))
+
+    assert lifecycle.install_mode("0.2.0") == "update"
+    with pytest.raises(InstallLifecycleError, match="unsafe downgrade"):
+        lifecycle.install_mode("0.0.9")
 
 
 def test_prepare_update_backups_database_before_replacement(tmp_path: Path) -> None:
