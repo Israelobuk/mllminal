@@ -164,3 +164,10 @@ def test_install_stops_owned_processes_before_replacing_the_wheel() -> None:
     wheel_replacement = script.index("& $python -m pip install")
     assert stop_definition < wheel_replacement
     assert stop_invocation < wheel_replacement
+
+
+def test_uninstall_preserves_path_when_ownership_is_unknown() -> None:
+    script = UNINSTALL_SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$pathWasAddedByMllminal = $false" in script
+    assert "retaining the PATH entry because ownership is unknown" in script

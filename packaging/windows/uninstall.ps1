@@ -126,7 +126,7 @@ foreach ($processId in @($ownedProcessIds | Select-Object -Unique)) {
 }
 
 $scriptDirectory = Join-Path $InstallRoot "runtime\Scripts"
-$pathWasAddedByMllminal = $true
+$pathWasAddedByMllminal = $false
 $manifestPath = Join-Path $DataDirectory "install-manifest.json"
 if (Test-Path -LiteralPath $manifestPath) {
     try {
@@ -139,7 +139,7 @@ if (Test-Path -LiteralPath $manifestPath) {
             $pathWasAddedByMllminal = [bool]$manifest.path_registered
         }
     } catch {
-        Write-Diagnostic "Could not read PATH ownership metadata; retaining legacy cleanup behavior. $($_.Exception.Message)"
+        Write-Diagnostic "Could not read PATH ownership metadata; retaining the PATH entry because ownership is unknown. $($_.Exception.Message)"
     }
 }
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
