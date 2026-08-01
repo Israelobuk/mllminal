@@ -192,9 +192,9 @@ if ($CreateDesktopShortcut) {
     $shortcut.Save()
 }
 
-$readiness = & $python -c "import asyncio; from mllminal.config import Settings; from mllminal.service_lifecycle import ensure_daemon; print(asyncio.run(ensure_daemon(Settings())))"
-if ($LASTEXITCODE -ne 0) {
-    throw "MLLminal could not start its local service. Your files were not changed. Open Diagnostics under $($DataDirectory | Split-Path -Parent)\\diagnostics."
+$daemonExecutable = Join-Path $scriptDirectory "mllminald.exe"
+if (-not (Test-Path -LiteralPath $daemonExecutable)) {
+    throw "The packaged daemon entry point is missing: $daemonExecutable"
 }
-Write-Output "MLLminal local service is ready: $readiness"
+Write-Output "MLLminal runtime is ready. The daemon starts automatically when Mil, the TUI, or a CLI command opens."
 Write-Output "MLLminal installed for the current user. Open MLLminal or Mil from the Start Menu."

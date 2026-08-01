@@ -142,7 +142,8 @@ def test_installed_clients_use_bounded_daemon_readiness_and_diagnostics() -> Non
         encoding="utf-8-sig"
     )
 
-    assert "ensure_daemon" in install
+    assert "ensure_daemon" not in install
+    assert "daemon starts automatically when Mil, the TUI, or a CLI command opens" in install
     assert "diagnostics" in install
     assert "daemon_lock_path" in service
     assert "DaemonStartupError" in service
@@ -199,6 +200,20 @@ def test_windows_acceptance_is_opt_in_and_headless() -> None:
     assert "MLLMINAL_SETUP_EXE" in acceptance
     assert "CREATE_NO_WINDOW" in acceptance
     assert "/VERYSILENT" in acceptance
+
+
+def test_windows_ci_builds_and_runs_packaged_acceptance() -> None:
+    workflow = (Path(__file__).parents[2] / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8-sig"
+    )
+    assert "package_acceptance:" in workflow
+    job = workflow.split("package_acceptance:", 1)[1]
+    assert "runs-on: windows-latest" in job
+    assert "choco install innosetup" in job
+    assert "packaging/windows/build-installer.ps1" in job
+    assert "MLLMINAL_WINDOWS_ACCEPTANCE" in job
+    assert "MLLMINAL_SETUP_EXE" in job
+    assert "tests/acceptance/test_windows_one_click_install.py" in job
 
 
 def test_advanced_options_can_select_install_location() -> None:

@@ -152,17 +152,35 @@ def start_daemon(settings: Settings) -> dict[str, Any]:
         raise RuntimeError("another MLLminal daemon startup is already in progress")
 
     flags = 0
+    breakaway_flag = 0
     if sys.platform == "win32":
         flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
             subprocess, "DETACHED_PROCESS", 0
         )
+        breakaway_flag = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+        flags |= breakaway_flag
     try:
-        process = subprocess.Popen(
-            [executable],
-            cwd=str(settings.workspace_root),
-            creationflags=flags,
-            close_fds=True,
-        )
+
+        def spawn(creationflags: int) -> subprocess.Popen[Any]:
+            return subprocess.Popen(
+                [executable],
+                cwd=str(settings.workspace_root),
+                creationflags=creationflags,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+
+        try:
+            process = spawn(flags)
+        except OSError:
+            # Some hosts do not allow a child to break away from their job. Keep
+            # normal user installs functional while preferring a true breakaway
+            # for installer and CI-owned process trees.
+            if not breakaway_flag:
+                raise
+            process = spawn(flags & ~breakaway_flag)
         lock_handle.seek(0)
         lock_handle.truncate()
         json.dump({"status": "running", "pid": process.pid, "executable": executable}, lock_handle)
