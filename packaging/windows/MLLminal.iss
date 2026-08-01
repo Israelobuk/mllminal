@@ -12,6 +12,7 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\MLLminal
 DefaultGroupName=MLLminal
+DisableWelcomePage=no
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 OutputDir=dist
@@ -33,11 +34,6 @@ Source: "doctor.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\browser-extension\*"; DestDir: "{app}\browser-extension"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-[Tasks]
-Name: "advanced"; Description: "Advanced options"; Flags: unchecked
-Name: "advanced\startup"; Description: "Launch the MLLminal daemon at login"; Flags: unchecked
-Name: "advanced\desktop"; Description: "Create a desktop shortcut"; Flags: unchecked
-Name: "advanced\retain_data"; Description: "Retain existing MLLminal data during reinstall"; Flags: unchecked
 
 [Icons]
 Name: "{group}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"
@@ -45,7 +41,7 @@ Name: "{group}\Mil"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters:
 Name: "{group}\MLLminal Terminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "mil"; WorkingDir: "{app}"
 Name: "{group}\MLLminal Diagnostics"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -NoExit -Command ""& '{app}\runtime\Scripts\mllminal.exe' doctor"""; WorkingDir: "{app}"
 Name: "{group}\Uninstall MLLminal"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"; Tasks: "advanced\desktop"
+Name: "{userdesktop}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"; Check: DesktopShortcutSelected
 
 [Run]
 Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "install status --json"; Flags: postinstall
@@ -56,6 +52,51 @@ Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "mil"; Description: 
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{code:DataDirectoryArg}"" -BackupDirectory ""{code:BackupDirectoryArg}"" {code:PromptForDataArg} {code:SilentArg}"; Flags: waituntilterminated; RunOnceId: "MLLminalUninstall"
 
 [Code]
+
+var
+  AdvancedPage: TWizardPage;
+  AdvancedToggle: TNewCheckBox;
+  StartupCheck: TNewCheckBox;
+  DesktopCheck: TNewCheckBox;
+  RetainCheck: TNewCheckBox;
+
+procedure InitializeWizard;
+begin
+  AdvancedPage := CreateCustomPage(wpWelcome, 'Advanced options', 'Safe defaults are suitable for most users. Enable only the options you need.');
+  StartupCheck := TNewCheckBox.Create(WizardForm);
+  StartupCheck.Parent := AdvancedPage.Surface;
+  StartupCheck.Caption := 'Launch the MLLminal daemon at login';
+  StartupCheck.Left := ScaleX(0);
+  StartupCheck.Top := ScaleY(10);
+  StartupCheck.Width := ScaleX(440);
+  StartupCheck.Checked := False;
+  DesktopCheck := TNewCheckBox.Create(WizardForm);
+  DesktopCheck.Parent := AdvancedPage.Surface;
+  DesktopCheck.Caption := 'Create a desktop shortcut';
+  DesktopCheck.Left := ScaleX(0);
+  DesktopCheck.Top := ScaleY(42);
+  DesktopCheck.Width := ScaleX(440);
+  DesktopCheck.Checked := False;
+  RetainCheck := TNewCheckBox.Create(WizardForm);
+  RetainCheck.Parent := AdvancedPage.Surface;
+  RetainCheck.Caption := 'Retain existing MLLminal data during reinstall';
+  RetainCheck.Left := ScaleX(0);
+  RetainCheck.Top := ScaleY(74);
+  RetainCheck.Width := ScaleX(440);
+  RetainCheck.Checked := True;
+  AdvancedToggle := TNewCheckBox.Create(WizardForm);
+  AdvancedToggle.Parent := WizardForm.WelcomePage;
+  AdvancedToggle.Caption := 'Show advanced options before installing';
+  AdvancedToggle.Left := ScaleX(0);
+  AdvancedToggle.Top := ScaleY(220);
+  AdvancedToggle.Width := ScaleX(440);
+  AdvancedToggle.Checked := False;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = AdvancedPage.ID) and (not AdvancedToggle.Checked);
+end;
 function DataDirectoryArg(Param: String): String;
 begin
   if (GetEnv('MLLMINAL_WINDOWS_ACCEPTANCE') = '1') and (GetEnv('MLLMINAL_ACCEPTANCE_DATA_DIR') <> '') then
@@ -72,19 +113,24 @@ begin
     Result := ExpandConstant('{localappdata}\MLLminal\backups');
 end;
 
+function DesktopShortcutSelected(): Boolean;
+begin
+  Result := DesktopCheck.Checked;
+end;
+
 function StartupArg(Param: String): String;
 begin
-  if WizardIsTaskSelected('advanced\startup') then Result := '-EnableStartup' else Result := '';
+  if StartupCheck.Checked then Result := '-EnableStartup' else Result := '';
 end;
 
 function DesktopArg(Param: String): String;
 begin
-  if WizardIsTaskSelected('advanced\desktop') then Result := '-CreateDesktopShortcut' else Result := '';
+  if DesktopCheck.Checked then Result := '-CreateDesktopShortcut' else Result := '';
 end;
 
 function RetainDataArg(Param: String): String;
 begin
-  if WizardIsTaskSelected('advanced\retain_data') then Result := '-RetainExistingData' else Result := '';
+  if RetainCheck.Checked then Result := '-RetainExistingData' else Result := '';
 end;
 
 function PromptForDataArg(Param: String): String;
