@@ -129,6 +129,9 @@ def test_install_script_detects_repair_and_update_before_migration() -> None:
     assert "backup" in install.lower()
     assert "Stop-OwnedProcesses" in install
     assert "StartsWith($ownedRoot, [StringComparison]::OrdinalIgnoreCase)" in install
+    assert "did not exit before repair or update" in install
+    assert "AddSeconds(10)" in install
+    assert "Start-Sleep -Milliseconds 100" in install
 
 
 def test_uninstall_supports_silent_safe_defaults_and_removes_owned_shortcuts() -> None:
@@ -146,6 +149,9 @@ def test_uninstall_supports_silent_safe_defaults_and_removes_owned_shortcuts() -
     assert 'GetFolderPath("Desktop")' in uninstall
     assert "Local data was retained" in uninstall
     assert "DeleteData" in uninstall
+    assert "did not exit before uninstall cleanup" in uninstall
+    assert "AddSeconds(10)" in uninstall
+    assert "Start-Sleep -Milliseconds 100" in uninstall
     assert "$env:USERPROFILE" not in uninstall
     assert "$env:USERPROFILE" not in installer
 
