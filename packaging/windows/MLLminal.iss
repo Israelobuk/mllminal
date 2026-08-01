@@ -10,6 +10,8 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\MLLminal
 DefaultGroupName=MLLminal
+DisableDirPage=yes
+DisableProgramGroupPage=yes
 OutputDir=dist
 OutputBaseFilename=MLLminal-Setup
 Compression=lzma2
@@ -44,7 +46,6 @@ Name: "{group}\Uninstall MLLminal"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"; Tasks: "advanced\desktop"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{code:DataDirectoryArg}"" -BackupDirectory ""{code:BackupDirectoryArg}"" -Repair {code:StartupArg} {code:DesktopArg} {code:RetainDataArg}"; Flags: waituntilterminated
 Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "install status --json"; Flags: postinstall
 Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "mil"; Description: "Launch Mil"; Flags: postinstall nowait skipifsilent
 
@@ -92,4 +93,33 @@ end;
 function SilentArg(Param: String): String;
 begin
   if WizardSilent then Result := '-Silent' else Result := '';
+end;
+
+function RunInstallBootstrapper(): Boolean;
+var
+  ResultCode: Integer;
+  Parameters: String;
+begin
+  Parameters := '-NoProfile -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{app}\install.ps1') + '"' +
+    ' -InstallRoot "' + ExpandConstant('{app}') + '"' +
+    ' -DataDirectory "' + DataDirectoryArg('') + '"' +
+    ' -BackupDirectory "' + BackupDirectoryArg('') + '"' +
+    ' -Repair ' + StartupArg('') + ' ' + DesktopArg('') + ' ' + RetainDataArg('');
+  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    Parameters, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if (not Result) or (ResultCode <> 0) then begin
+    if WizardSilent then
+      Log('MLLminal bootstrapper failed with exit code ' + IntToStr(ResultCode))
+    else
+      MsgBox('MLLminal could not complete setup. Open MLLminal Diagnostics for details.', mbError, MB_OK);
+    Result := False;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    if not RunInstallBootstrapper() then
+      Abort;
 end;
