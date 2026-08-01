@@ -1,5 +1,7 @@
 #define MyAppName "MLLminal"
+#ifndef MyAppVersion
 #define MyAppVersion "0.1.0"
+#endif
 #define MyAppPublisher "MLLminal"
 #define MyAppExeName "mllminal.exe"
 

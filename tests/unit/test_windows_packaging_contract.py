@@ -9,6 +9,7 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     diagnostics = (PACKAGING / "export-diagnostics.ps1").read_text(encoding="utf-8-sig")
     installer = (PACKAGING / "MLLminal.iss").read_text(encoding="utf-8-sig")
     build_runtime = (PACKAGING / "build-runtime.ps1").read_text(encoding="utf-8-sig")
+    build_installer = (PACKAGING / "build-installer.ps1").read_text(encoding="utf-8-sig")
 
     assert 'mode = "windows_technical_preview"' in install
     assert 'provider = "windows-observer"' in install
@@ -39,6 +40,11 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert 'Parameters: "tui"' in installer
     assert "Bundled runtime ready" in build_runtime
     assert "SetEnvironmentVariable" in install
+    assert "importlib.metadata.version" in install
+    assert "version = $packageVersion" in install
+    assert "#ifndef MyAppVersion" in installer
+    assert "/DMyAppVersion=$packageVersion" in build_installer
+    assert "wheel.BaseName -notmatch" in build_installer
     assert "install-manifest.json" in install
     assert "trap {" in install
     assert "install.log" in install
