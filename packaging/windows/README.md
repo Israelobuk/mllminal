@@ -48,7 +48,7 @@ Zero is the explicit “not measured” value; release evidence should replace i
 
 1. Download the Windows setup executable.
 2. Double-click setup and keep the safe per-user defaults.
-3. Optionally choose Advanced options for launch-at-login or a desktop shortcut.
+3. Optionally choose Advanced options for a custom install location, launch-at-login, a desktop shortcut, or data-retention behavior.
 4. Click Install and wait for the Ready page.
 5. Launch Mil, MLLminal, MLLminal Terminal, or MLLminal Diagnostics from the Start Menu.
 

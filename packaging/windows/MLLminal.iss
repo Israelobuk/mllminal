@@ -13,7 +13,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\MLLminal
 DefaultGroupName=MLLminal
 DisableWelcomePage=no
-DisableDirPage=yes
+DisableDirPage=no
 DisableProgramGroupPage=yes
 OutputDir=dist
 OutputBaseFilename=MLLminal-Setup
@@ -95,7 +95,8 @@ end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := (PageID = AdvancedPage.ID) and (not AdvancedToggle.Checked);
+  Result := ((PageID = AdvancedPage.ID) and (not AdvancedToggle.Checked)) or
+    ((PageID = wpSelectDir) and (not AdvancedToggle.Checked));
 end;
 function DataDirectoryArg(Param: String): String;
 begin
