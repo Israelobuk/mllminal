@@ -77,7 +77,8 @@ function Stop-OwnedProcesses {
 }
 
 Stop-OwnedProcesses
-$pathRegistered = Add-UserPathEntry $scriptDirectory$env:MLLMINAL_DATA_DIR = $DataDirectory
+$pathRegistered = Add-UserPathEntry $scriptDirectory
+$env:MLLMINAL_DATA_DIR = $DataDirectory
 $packageVersion = "0.1.0"
 $installProjection = & $python -c "import json; from pathlib import Path; from mllminal.config import Settings; from mllminal.install_lifecycle import InstallLifecycle; lifecycle=InstallLifecycle(Settings(), app_root=Path(r'$InstallRoot')); mode=lifecycle.install_mode('$packageVersion'); prepared=lifecycle.prepare_update('$packageVersion'); repaired=lifecycle.repair(); print(json.dumps({'mode': mode, 'prepared': prepared, 'repaired': repaired}))"
 if ($LASTEXITCODE -ne 0) { throw "Database repair or migration failed. Existing data was backed up before migration." }

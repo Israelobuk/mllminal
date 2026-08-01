@@ -19,7 +19,7 @@ Or run the release helper, which performs those steps, generates a package audit
 powershell -ExecutionPolicy Bypass -File packaging/windows/build-installer.ps1
 ```
 
-The runtime staging step uses Python only on the build machine. Before packaging, it removes only known development debris (`__pycache__`, `.pytest_cache`, test directories, `.pyc`, `.pyo`, and source-map files); it does not remove installed package data or entry points.
+The runtime staging step uses Python only on the build machine. Before packaging, it removes known development debris (`__pycache__`, `.pytest_cache`, test directories, `.pyc`, `.pyo`, and source-map files) plus PyTorch header and third-party license source trees that local inference does not import; executable modules, installed package data, entry points, and the top-level PyTorch license are retained.
 
 ## Package audit
 

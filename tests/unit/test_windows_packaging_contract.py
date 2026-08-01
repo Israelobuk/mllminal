@@ -87,6 +87,15 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
     assert "DataDirectoryArg" in installer
     assert "BackupDirectoryArg" in installer
     assert "MLLMINAL_WINDOWS_ACCEPTANCE" in installer
+    assert "-EnableStartup" in installer
+    assert "-CreateDesktopShortcut" in installer
+    assert "-RetainExistingData" in installer
+    assert "-PromptForData" in installer
+    assert "-Silent" in installer
+    assert "-Lightweight:0" not in installer
+    assert "-InstallOptionalProviders:0" not in installer
+    assert "-DeleteData:0" not in installer
+    assert "$false" not in installer
     assert "Flags: postinstall nowait skipifsilent" in installer
     assert "[switch]$CreateDesktopShortcut" in install
 
@@ -191,5 +200,8 @@ def test_package_build_prunes_only_known_development_debris() -> None:
     assert "__pycache__" in runtime
     assert "*.pyc" in runtime
     assert "*.pyo" in runtime
+    assert "--force-reinstall" in runtime
+    assert "torch\\include" in runtime
+    assert "licenses\\third_party" in runtime
     assert "package-audit.ps1" in builder
     assert "ReportPath" in builder

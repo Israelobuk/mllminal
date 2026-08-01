@@ -44,13 +44,13 @@ Name: "{group}\Uninstall MLLminal"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"; Tasks: "advanced\desktop"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{code:DataDirectoryArg}"" -BackupDirectory ""{code:BackupDirectoryArg}"" -Repair -Lightweight:$false -InstallOptionalProviders:$false -EnableStartup:{code:StartupArg} -CreateDesktopShortcut:{code:DesktopArg} -RetainExistingData:{code:RetainDataArg}"; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{code:DataDirectoryArg}"" -BackupDirectory ""{code:BackupDirectoryArg}"" -Repair {code:StartupArg} {code:DesktopArg} {code:RetainDataArg}"; Flags: waituntilterminated
 Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "install status --json"; Flags: postinstall
 Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "mil"; Description: "Launch Mil"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 ; Normal uninstall presents a checkbox labeled: Also delete MLLminal local data
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{code:DataDirectoryArg}"" -BackupDirectory ""{code:BackupDirectoryArg}"" -DeleteData:$false -PromptForData:{code:PromptForDataArg} -Silent:{code:SilentArg}"; Flags: waituntilterminated; RunOnceId: "MLLminalUninstall"
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallRoot ""{app}"" -DataDirectory ""{code:DataDirectoryArg}"" -BackupDirectory ""{code:BackupDirectoryArg}"" {code:PromptForDataArg} {code:SilentArg}"; Flags: waituntilterminated; RunOnceId: "MLLminalUninstall"
 
 [Code]
 function DataDirectoryArg(Param: String): String;
@@ -71,25 +71,25 @@ end;
 
 function StartupArg(Param: String): String;
 begin
-  if WizardIsTaskSelected('advanced\startup') then Result := '$true' else Result := '$false';
+  if WizardIsTaskSelected('advanced\startup') then Result := '-EnableStartup' else Result := '';
 end;
 
 function DesktopArg(Param: String): String;
 begin
-  if WizardIsTaskSelected('advanced\desktop') then Result := '$true' else Result := '$false';
+  if WizardIsTaskSelected('advanced\desktop') then Result := '-CreateDesktopShortcut' else Result := '';
 end;
 
 function RetainDataArg(Param: String): String;
 begin
-  if WizardIsTaskSelected('advanced\retain_data') then Result := '$true' else Result := '$false';
+  if WizardIsTaskSelected('advanced\retain_data') then Result := '-RetainExistingData' else Result := '';
 end;
 
 function PromptForDataArg(Param: String): String;
 begin
-  if WizardSilent then Result := '$false' else Result := '$true';
+  if WizardSilent then Result := '' else Result := '-PromptForData';
 end;
 
 function SilentArg(Param: String): String;
 begin
-  if WizardSilent then Result := '$true' else Result := '$false';
+  if WizardSilent then Result := '-Silent' else Result := '';
 end;

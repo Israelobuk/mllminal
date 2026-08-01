@@ -10,8 +10,10 @@ with an explicit setup executable and an isolated acceptance environment:
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import time
 import winreg
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +54,13 @@ def _setup_executable() -> Path:
     return setup
 
 
+def _wait_for_absence(path: Path, *, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while path.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return not path.exists()
+
+
 def _run(
     command: list[str], env: dict[str, str], *, timeout: int = 180
 ) -> subprocess.CompletedProcess[str]:
@@ -78,6 +87,7 @@ def installed_fixture(tmp_path: Path) -> InstalledFixture:
             "MLLMINAL_WINDOWS_ACCEPTANCE": "1",
             "MLLMINAL_ACCEPTANCE_DATA_DIR": str(data),
             "MLLMINAL_ACCEPTANCE_BACKUP_DIR": str(backups),
+            "MLLMINAL_DATA_DIR": str(data),
         }
     )
     result = _run(
@@ -89,7 +99,7 @@ def installed_fixture(tmp_path: Path) -> InstalledFixture:
     try:
         yield fixture
     finally:
-        if fixture.uninstaller.is_file():
+        if fixture.uninstaller.is_file() and fixture.app.exists():
             result = _run([str(fixture.uninstaller), "/VERYSILENT", "/NORESTART"], fixture.env)
             assert result.returncode == 0, result.stdout + result.stderr
 
@@ -149,9 +159,9 @@ def test_optional_components_do_not_block_the_bounded_install(
     installed_fixture: InstalledFixture,
 ) -> None:
     inventory = installed_fixture.data / "provider-inventory.json"
-    payload = inventory.read_text(encoding="utf-8")
-    assert '"capabilities_are_bounded": true' in payload
-    assert '"enabled": false' in payload
+    payload = json.loads(inventory.read_text(encoding="utf-8-sig"))
+    assert payload["capabilities_are_bounded"] is True
+    assert any(provider["enabled"] is False for provider in payload["providers"])
 
 
 def test_repair_run_preserves_a_user_state_sentinel(installed_fixture: InstalledFixture) -> None:
@@ -172,6 +182,6 @@ def test_silent_uninstall_removes_owned_components_and_retains_data(
     sentinel.write_text("retain me", encoding="utf-8")
     result = _run([str(fixture.uninstaller), "/VERYSILENT", "/NORESTART"], fixture.env)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert not fixture.app.exists()
+    assert _wait_for_absence(fixture.app)
     assert sentinel.read_text(encoding="utf-8") == "retain me"
     assert not (fixture.root / "app" / "runtime" / "Scripts").exists()

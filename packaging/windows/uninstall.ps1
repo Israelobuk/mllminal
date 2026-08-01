@@ -122,7 +122,13 @@ foreach ($key in $browserHostKeys) {
     if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Recurse -Force }
 }
 
-if (Test-Path -LiteralPath $InstallRoot) { Remove-Item -LiteralPath $InstallRoot -Recurse -Force }
+if (Test-Path -LiteralPath $InstallRoot) {
+    Remove-Item -LiteralPath $InstallRoot -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $InstallRoot) {
+        $cleanupArgs = "/c timeout /t 2 /nobreak >nul & rmdir /s /q `"$InstallRoot`""
+        Start-Process -FilePath $env:ComSpec -ArgumentList $cleanupArgs -WindowStyle Hidden
+    }
+}
 if ($deleteOwnedData) {
     if ((Split-Path $DataDirectory -Leaf) -ine "data" -or (Split-Path $BackupDirectory -Leaf) -ine "backups") {
         throw "Refusing to delete an unscoped data directory."
