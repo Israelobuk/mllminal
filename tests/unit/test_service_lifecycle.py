@@ -74,9 +74,11 @@ def test_start_daemon_returns_already_running_for_a_live_owned_lock(
     daemon_lock_path(settings).write_text(
         json.dumps({"pid": os.getpid(), "executable": str(executable)}), encoding="utf-8"
     )
-    monkeypatch.setattr(
-        "mllminal.service_lifecycle.daemon_executable", lambda _settings: str(executable)
-    )
+
+    def fake_daemon_executable(_settings: Settings) -> str:
+        return str(executable)
+
+    monkeypatch.setattr("mllminal.service_lifecycle.daemon_executable", fake_daemon_executable)
     monkeypatch.setattr(
         "mllminal.service_lifecycle.subprocess.Popen",
         lambda *_args, **_kwargs: pytest.fail("a live owned daemon must not be started twice"),
@@ -101,9 +103,11 @@ def test_start_daemon_reclaims_stale_lock_and_records_ownership(
     daemon_lock_path(settings).write_text(
         json.dumps({"pid": 1234, "executable": str(executable)}), encoding="utf-8"
     )
-    monkeypatch.setattr(
-        "mllminal.service_lifecycle.daemon_executable", lambda _settings: str(executable)
-    )
+
+    def fake_daemon_executable(_settings: Settings) -> str:
+        return str(executable)
+
+    monkeypatch.setattr("mllminal.service_lifecycle.daemon_executable", fake_daemon_executable)
     monkeypatch.setattr("mllminal.service_lifecycle._process_is_alive", lambda _pid: False)
     monkeypatch.setattr(
         "mllminal.service_lifecycle.subprocess.Popen", lambda *_args, **_kwargs: FakeProcess()
@@ -117,6 +121,39 @@ def test_start_daemon_reclaims_stale_lock_and_records_ownership(
         "pid": 4567,
         "executable": str(executable),
     }
+
+
+def test_start_daemon_detaches_stdio_from_the_installer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    from mllminal.service_lifecycle import start_daemon
+
+    class FakeProcess:
+        pid = 4567
+
+    captured: dict[str, object] = {}
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    executable = tmp_path / "mllminald.exe"
+
+    def fake_popen(*_args: object, **kwargs: object) -> FakeProcess:
+        captured.update(kwargs)
+        return FakeProcess()
+
+    def fake_daemon_executable(_settings: Settings) -> str:
+        return str(executable)
+
+    monkeypatch.setattr("mllminal.service_lifecycle.daemon_executable", fake_daemon_executable)
+    monkeypatch.setattr("mllminal.service_lifecycle._process_is_alive", lambda _pid: False)
+    monkeypatch.setattr("mllminal.service_lifecycle.sys.platform", "win32")
+    monkeypatch.setattr("mllminal.service_lifecycle.subprocess.Popen", fake_popen)
+
+    start_daemon(settings)
+
+    assert captured["stdin"] is subprocess.DEVNULL
+    assert captured["stdout"] is subprocess.DEVNULL
+    assert captured["stderr"] is subprocess.DEVNULL
 
 
 @pytest.mark.asyncio

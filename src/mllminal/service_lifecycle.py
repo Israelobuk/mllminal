@@ -161,6 +161,9 @@ def start_daemon(settings: Settings) -> dict[str, Any]:
             [executable],
             cwd=str(settings.workspace_root),
             creationflags=flags,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             close_fds=True,
         )
         lock_handle.seek(0)
