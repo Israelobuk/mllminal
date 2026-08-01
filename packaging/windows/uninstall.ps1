@@ -85,8 +85,15 @@ foreach ($processName in @("mllminald", "mllminal", "mllminal-ui")) {
 }
 foreach ($processId in @($ownedProcessIds | Select-Object -Unique)) {
     Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ((Get-Process -Id $processId -ErrorAction SilentlyContinue) -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 100
+    }
+    if (Get-Process -Id $processId -ErrorAction SilentlyContinue) {
+        Write-Diagnostic "Owned MLLminal process $processId did not exit before uninstall cleanup."
+        throw "Owned MLLminal process $processId did not exit before uninstall cleanup."
+    }
 }
-Start-Sleep -Milliseconds 500
 
 $scriptDirectory = Join-Path $InstallRoot "runtime\Scripts"
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")

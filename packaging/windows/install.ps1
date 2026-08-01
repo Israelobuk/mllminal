@@ -83,8 +83,14 @@ function Stop-OwnedProcesses {
     }
     foreach ($processId in @($ownedIds | Select-Object -Unique)) {
         Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        while ((Get-Process -Id $processId -ErrorAction SilentlyContinue) -and [DateTime]::UtcNow -lt $deadline) {
+            Start-Sleep -Milliseconds 100
+        }
+        if (Get-Process -Id $processId -ErrorAction SilentlyContinue) {
+            throw "Owned MLLminal process $processId did not exit before repair or update."
+        }
     }
-    if ($ownedIds.Count -gt 0) { Start-Sleep -Milliseconds 500 }
 }
 
 Stop-OwnedProcesses
