@@ -165,6 +165,19 @@ def test_optional_components_do_not_block_the_bounded_install(
     assert any(provider["enabled"] is False for provider in payload["providers"])
 
 
+def test_repair_run_preserves_manifest_metadata(installed_fixture: InstalledFixture) -> None:
+    fixture = installed_fixture
+    manifest = fixture.data / "install-manifest.json"
+    payload = json.loads(manifest.read_text(encoding="utf-8-sig"))
+    payload["acceptance_metadata"] = "preserve-me"
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    setup = _setup_executable()
+    result = _run([str(setup), "/VERYSILENT", "/NORESTART", f"/DIR={fixture.app}"], fixture.env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    updated = json.loads(manifest.read_text(encoding="utf-8-sig"))
+    assert updated["acceptance_metadata"] == "preserve-me"
+
+
 def test_repair_run_preserves_a_user_state_sentinel(installed_fixture: InstalledFixture) -> None:
     fixture = installed_fixture
     sentinel = fixture.data / "acceptance-user-state.txt"

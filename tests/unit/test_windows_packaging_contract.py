@@ -50,6 +50,9 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "SetEnvironmentVariable" in install
     assert "importlib.metadata.version" in install
     assert "version = $packageVersion" in install
+    assert "existingManifest.PSObject.Properties" in install
+    assert "manifest.Contains($property.Name)" in install
+    assert "ConvertTo-Json -Depth 8" in install
     assert "#ifndef MyAppVersion" in installer
     assert "/DMyAppVersion=$packageVersion" in build_installer
     assert "wheel.BaseName -notmatch" in build_installer
