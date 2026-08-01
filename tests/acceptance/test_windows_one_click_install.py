@@ -98,10 +98,8 @@ def _result_output(result: subprocess.CompletedProcess[str]) -> str:
     return (result.stdout or "") + (result.stderr or "")
 
 
-@pytest.fixture
-def installed_fixture(tmp_path: Path) -> InstalledFixture:
+def _provision_fixture(root: Path) -> InstalledFixture:
     setup = _setup_executable()
-    root = tmp_path / "mllminal-acceptance"
     app = root / "app"
     data = root / "data"
     backups = root / "backups"
@@ -125,23 +123,41 @@ def installed_fixture(tmp_path: Path) -> InstalledFixture:
         capture_output=False,
     )
     assert result.returncode == 0, _result_output(result)
-    fixture = InstalledFixture(root, app, data, backups, env)
+    return InstalledFixture(root, app, data, backups, env)
+
+
+def _remove_fixture(fixture: InstalledFixture) -> None:
+    if fixture.uninstaller.is_file() and fixture.app.exists():
+        result = _run(
+            [str(fixture.uninstaller), "/VERYSILENT", "/NORESTART"],
+            fixture.env,
+            capture_output=False,
+        )
+        assert result.returncode == 0, _result_output(result)
+
+
+@pytest.fixture(scope="module")
+def installed_fixture(tmp_path_factory: pytest.TempPathFactory) -> InstalledFixture:
+    fixture = _provision_fixture(tmp_path_factory.mktemp("mllminal-acceptance"))
     try:
         yield fixture
     finally:
-        if fixture.uninstaller.is_file() and fixture.app.exists():
-            result = _run(
-                [str(fixture.uninstaller), "/VERYSILENT", "/NORESTART"],
-                fixture.env,
-                capture_output=False,
-            )
-            assert result.returncode == 0, _result_output(result)
+        _remove_fixture(fixture)
+
+
+@pytest.fixture
+def uninstall_fixture(tmp_path: Path) -> InstalledFixture:
+    fixture = _provision_fixture(tmp_path / "mllminal-uninstall")
+    try:
+        yield fixture
+    finally:
+        _remove_fixture(fixture)
 
 
 def test_fresh_install_provisions_runtime_and_local_state(
-    installed_fixture: InstalledFixture,
+    uninstall_fixture: InstalledFixture,
 ) -> None:
-    fixture = installed_fixture
+    fixture = uninstall_fixture
     assert fixture.app.is_dir()
     assert fixture.cli.is_file()
     assert (fixture.app / "runtime" / "Scripts" / "python.exe").is_file()
@@ -151,9 +167,9 @@ def test_fresh_install_provisions_runtime_and_local_state(
 
 
 def test_new_terminal_path_contains_only_the_bundled_cli_directory(
-    installed_fixture: InstalledFixture,
+    uninstall_fixture: InstalledFixture,
 ) -> None:
-    fixture = installed_fixture
+    fixture = uninstall_fixture
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
         user_path, _ = winreg.QueryValueEx(key, "Path")
     script_directory = str((fixture.app / "runtime" / "Scripts").resolve()).rstrip("\\").casefold()
@@ -240,9 +256,9 @@ def test_repair_run_preserves_a_user_state_sentinel(installed_fixture: Installed
 
 
 def test_silent_uninstall_removes_owned_components_and_retains_data(
-    installed_fixture: InstalledFixture,
+    uninstall_fixture: InstalledFixture,
 ) -> None:
-    fixture = installed_fixture
+    fixture = uninstall_fixture
     sentinel = fixture.data / "acceptance-user-state.txt"
     sentinel.write_text("retain me", encoding="utf-8")
     result = _run(
