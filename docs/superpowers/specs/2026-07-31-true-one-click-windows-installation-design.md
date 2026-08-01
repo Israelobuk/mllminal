@@ -20,7 +20,7 @@ Make the Windows release behave like a normal per-user application: download one
 
 ## Architecture
 
-The installer remains a thin orchestration layer. Inno Setup owns the user-facing wizard, shortcuts, Add/Remove Programs registration, and silent-mode switches. A bundled PowerShell bootstrapper owns deterministic install/update/repair work: it resolves the packaged Python runtime, installs the wheel without network access, initializes data directories, creates a migration backup, repairs the database, writes a versioned manifest, registers PATH/startup state, starts the daemon, and performs a bounded health check.
+The installer remains a thin orchestration layer. Inno Setup owns the user-facing wizard, shortcuts, Add/Remove Programs registration, and silent-mode switches. A bundled PowerShell bootstrapper owns deterministic install/update/repair work: it resolves the packaged Python runtime, installs the wheel without network access, initializes data directories, creates a migration backup, repairs the database, writes a versioned manifest, and registers PATH/startup state. Mil, the TUI, and CLI commands start the daemon through a shared bounded readiness helper when they open.
 
 The installed CLI, Mil terminal, and Textual TUI all call one shared daemon readiness helper. It first checks the authenticated local health endpoint, starts the packaged daemon only when unavailable, waits for a bounded readiness deadline, and reports a product-level error with a diagnostics path when startup fails. The daemon uses a packaged-runtime ownership lock or equivalent PID guard to avoid duplicate processes.
 

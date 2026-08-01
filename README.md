@@ -121,7 +121,7 @@ The setup executable includes the daemon, CLI, Textual TUI, Mil, Python runtime,
 
 ## Upgrade, repair, and uninstall
 
-Run the same setup executable again to repair the current installation or update it to a newer version. Setup stops only MLLminal-owned processes, backs up SQLite state before migrations, preserves durable user state, and performs a bounded daemon readiness check. The setup supports unattended install with `/VERYSILENT /NORESTART`.
+Run the same setup executable again to repair the current installation or update it to a newer version. Setup stops only MLLminal-owned processes, backs up SQLite state before migrations, and preserves durable user state. Mil, the TUI, and CLI commands perform bounded daemon readiness when opened. The setup supports unattended install with `/VERYSILENT /NORESTART`.
 
 Windows Settings -> Apps -> MLLminal -> Uninstall opens the normal uninstaller. It removes installed binaries, shortcuts, the PATH entry MLLminal added (while preserving pre-existing PATH entries), startup registration, owned browser-host registration, and owned processes. Local MLLminal data is kept unless you explicitly select deletion. Silent uninstall keeps data by default.
 

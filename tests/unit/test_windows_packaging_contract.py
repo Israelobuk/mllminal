@@ -142,7 +142,8 @@ def test_installed_clients_use_bounded_daemon_readiness_and_diagnostics() -> Non
         encoding="utf-8-sig"
     )
 
-    assert "ensure_daemon" in install
+    assert "ensure_daemon" not in install
+    assert "daemon starts automatically when Mil, the TUI, or a CLI command opens" in install
     assert "diagnostics" in install
     assert "daemon_lock_path" in service
     assert "DaemonStartupError" in service

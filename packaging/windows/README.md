@@ -58,7 +58,7 @@ The installer includes the daemon, CLI, Textual TUI, Mil, Python runtime, depend
 
 ## Upgrade and repair
 
-Run the same setup executable again to repair the current installation or update it. Setup stops only packaged MLLminal processes, backs up SQLite state before migration, preserves durable state, and checks daemon readiness. `/VERYSILENT /NORESTART` is supported for unattended setup.
+Run the same setup executable again to repair the current installation or update it. Setup stops only packaged MLLminal processes, backs up SQLite state before migration, preserves durable state, and validates the bundled runtime. Mil, the TUI, and CLI commands perform bounded daemon readiness when opened. `/VERYSILENT /NORESTART` is supported for unattended setup.
 
 Useful installed lifecycle commands:
 

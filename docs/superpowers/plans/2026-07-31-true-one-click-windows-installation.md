@@ -4,7 +4,7 @@
 
 **Goal:** Deliver a single per-user `MLLminal-Setup.exe` that installs, starts, repairs, updates, and removes MLLminal without requiring Python, Git, uv, a source checkout, or post-install terminal setup.
 
-**Architecture:** Inno Setup owns the minimal user wizard, Start Menu/Add/Remove Programs integration, and silent switches. A bundled PowerShell bootstrapper owns offline wheel installation, state initialization, safe migrations, manifest/version detection, process shutdown/startup, and bounded readiness diagnostics. CLI, Mil, and TUI share the Python `ensure_daemon` readiness path.
+**Architecture:** Inno Setup owns the minimal user wizard, Start Menu/Add/Remove Programs integration, and silent switches. A bundled PowerShell bootstrapper owns offline wheel installation, state initialization, safe migrations, manifest/version detection, and process shutdown. Mil, the TUI, and CLI commands own bounded daemon readiness when they open. CLI, Mil, and TUI share the Python `ensure_daemon` readiness path.
 
 **Tech Stack:** Inno Setup 6, PowerShell, bundled CPython runtime, Python/Typer/Textual, SQLite/SQLAlchemy/Alembic, pytest, Ruff, mypy, GitHub Actions.
 

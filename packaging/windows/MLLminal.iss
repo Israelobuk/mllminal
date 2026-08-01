@@ -44,8 +44,8 @@ Name: "{group}\MLLminal Diagnostics"; Filename: "{sys}\wscript.exe"; Parameters:
 Name: "{group}\Uninstall MLLminal"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"; Check: DesktopShortcutSelected
 
-; The bootstrapper performs daemon readiness before the Ready page. No interactive
-; client is auto-launched here; users choose Mil or the TUI from Start Menu.
+; The bootstrapper validates the bundled runtime without owning a long-lived daemon.
+; Mil, the TUI, and CLI commands start the daemon through bounded readiness.
 
 
 [UninstallRun]
