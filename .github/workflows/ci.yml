@@ -20,3 +20,36 @@ jobs:
       - run: uv run mypy src
       - run: uv run pytest
 
+  package_acceptance:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --all-groups --locked
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress --yes
+      - name: Build Windows installer
+        shell: pwsh
+        run: >-
+          powershell.exe -NoProfile -ExecutionPolicy Bypass
+          -File packaging/windows/build-installer.ps1
+      - name: Run packaged Windows acceptance
+        shell: pwsh
+        env:
+          MLLMINAL_WINDOWS_ACCEPTANCE: "1"
+          MLLMINAL_SETUP_EXE: "${{ github.workspace }}\\packaging\\windows\\dist\\MLLminal-Setup.exe"
+        run: uv run pytest tests/acceptance/test_windows_one_click_install.py -q
+      - name: Upload installer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mllminal-windows-installer
+          path: |
+            packaging/windows/dist/MLLminal-Setup.exe
+            packaging/windows/dist/MLLminal-package-audit.json
+          if-no-files-found: warn
