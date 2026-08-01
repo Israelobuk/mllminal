@@ -54,8 +54,30 @@ function Add-UserPathEntry([string]$Entry) {
 }
 
 $scriptDirectory = Split-Path $python -Parent
-$pathRegistered = Add-UserPathEntry $scriptDirectory
-$env:MLLMINAL_DATA_DIR = $DataDirectory
+
+function Stop-OwnedProcesses {
+    $ownedRoot = $InstallRoot.TrimEnd("\") + "\"
+    $ownedIds = @()
+    foreach ($processName in @("mllminald", "mllminal", "mllminal-ui")) {
+        Get-Process -Name $processName -ErrorAction SilentlyContinue | ForEach-Object {
+            try {
+                $processPath = $_.Path
+                if ($processPath -and $processPath.StartsWith($ownedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                    $ownedIds += [int]$_.Id
+                }
+            } catch {
+                Write-Output "Could not inspect existing MLLminal process $($_.Id); continuing safely."
+            }
+        }
+    }
+    foreach ($processId in @($ownedIds | Select-Object -Unique)) {
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+    }
+    if ($ownedIds.Count -gt 0) { Start-Sleep -Milliseconds 500 }
+}
+
+Stop-OwnedProcesses
+$pathRegistered = Add-UserPathEntry $scriptDirectory$env:MLLMINAL_DATA_DIR = $DataDirectory
 $packageVersion = "0.1.0"
 $installProjection = & $python -c "import json; from pathlib import Path; from mllminal.config import Settings; from mllminal.install_lifecycle import InstallLifecycle; lifecycle=InstallLifecycle(Settings(), app_root=Path(r'$InstallRoot')); mode=lifecycle.install_mode('$packageVersion'); prepared=lifecycle.prepare_update('$packageVersion'); repaired=lifecycle.repair(); print(json.dumps({'mode': mode, 'prepared': prepared, 'repaired': repaired}))"
 if ($LASTEXITCODE -ne 0) { throw "Database repair or migration failed. Existing data was backed up before migration." }

@@ -83,6 +83,8 @@ def test_one_click_installer_uses_safe_defaults_and_friendly_shortcuts() -> None
     assert 'Parameters: "mil"' in installer
     assert "-NoExit" in installer
     assert "doctor" in installer
+    assert 'Description: "Launch Mil"' in installer
+    assert "Flags: postinstall nowait skipifsilent" in installer
     assert "[switch]$CreateDesktopShortcut" in install
 
 
@@ -105,6 +107,8 @@ def test_install_script_detects_repair_and_update_before_migration() -> None:
     assert "install_mode" in install
     assert "prepare_update" in install
     assert "backup" in install.lower()
+    assert "Stop-OwnedProcesses" in install
+    assert "StartsWith($ownedRoot, [StringComparison]::OrdinalIgnoreCase)" in install
 
 
 def test_uninstall_supports_silent_safe_defaults_and_removes_owned_shortcuts() -> None:
