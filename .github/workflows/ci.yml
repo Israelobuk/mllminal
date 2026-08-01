@@ -43,7 +43,7 @@ jobs:
         env:
           MLLMINAL_WINDOWS_ACCEPTANCE: "1"
           MLLMINAL_SETUP_EXE: "${{ github.workspace }}\\packaging\\windows\\dist\\MLLminal-Setup.exe"
-        run: uv run pytest tests/acceptance/test_windows_one_click_install.py -q --maxfail=1
+        run: uv run pytest tests/acceptance/test_windows_one_click_install.py -q
       - name: Upload installer evidence
         if: always()
         uses: actions/upload-artifact@v4
