@@ -115,7 +115,7 @@ The normal-user flow is intentionally short:
 2. Double-click it and keep the safe per-user defaults.
 3. Optionally open Advanced options for launch-at-login or a desktop shortcut.
 4. Click Install and wait for the Ready page.
-5. Leave Launch Mil selected, or open MLLminal, Mil, MLLminal Terminal, or MLLminal Diagnostics from the Start Menu.
+5. Close setup at the Ready page, then open MLLminal, Mil, MLLminal Terminal, or MLLminal Diagnostics from the Start Menu.
 
 The setup executable includes the daemon, CLI, Textual TUI, Mil, Python runtime, dependencies, migrations, shortcuts, and uninstall support. Users do not need Python, `uv`, Git, a source checkout, or manual environment variables. Mutable data lives outside the application directory.
 
@@ -133,7 +133,7 @@ mllminal install purge-data --confirm MLLMINAL
 
 Only MLLminal-owned local state is targeted; user-created documents, spreadsheets, PDFs, downloads, reports, and workflow outputs outside those directories are not deleted.
 
-For troubleshooting after installation, open MLLminal Diagnostics from the Start Menu or run `mllminal doctor` in a new terminal. Lifecycle commands include `mllminal status`, `mllminal service status`, `mllminal install status`, `mllminal install repair`, and `mllminal install data-path`.
+For troubleshooting after installation, run `mllminal doctor` in a new terminal. The Start Menu Diagnostics shortcut runs `mllminal doctor --json` without opening a shell window and records JSON at `%LOCALAPPDATA%\\MLLminal\\diagnostics\\doctor-shortcut.json`. Lifecycle commands include `mllminal status`, `mllminal service status`, `mllminal install status`, `mllminal install repair`, and `mllminal install data-path`.
 ## Developer installation
 
 Developer installation is separate from the user installer and requires Python 3.12 and `uv`:

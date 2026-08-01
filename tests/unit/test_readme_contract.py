@@ -47,7 +47,7 @@ def test_readme_is_a_product_page_with_current_boundaries() -> None:
     assert "Start Menu" in installation
     assert "mllminal doctor" not in installation
     assert "/VERYSILENT /NORESTART" in readme
-    assert "Launch Mil" in readme
+    assert "Close setup at the Ready page" in readme
 
 
 def test_related_docs_use_cli_first_product_framing() -> None:
@@ -60,3 +60,22 @@ def test_related_docs_use_cli_first_product_framing() -> None:
     assert "CLI-first product" in productization
     assert "installed product has no frontend build prerequisite" in productization
     assert "current product layers" in foundation
+
+
+def test_install_docs_match_hidden_diagnostics_launcher() -> None:
+    paths = (
+        ROOT / "README.md",
+        ROOT / "packaging/windows/README.md",
+        ROOT / "docs/superpowers/specs/2026-07-31-true-one-click-windows-installation-design.md",
+        ROOT / "docs/superpowers/plans/2026-07-31-true-one-click-windows-installation.md",
+    )
+    documents = [path.read_text(encoding="utf-8-sig") for path in paths]
+
+    for document in documents:
+        assert "doctor --json" in document
+        assert "powershell.exe -NoExit" not in document
+        assert "readable `mllminal doctor` terminal" not in document
+
+    assert "doctor-shortcut.json" in documents[0]
+    assert "doctor-shortcut.json" in documents[1]
+    assert "doctor-shortcut.json" in documents[2]

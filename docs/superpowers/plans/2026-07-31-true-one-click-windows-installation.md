@@ -34,7 +34,7 @@
 
 - [ ] **Step 1: Write failing contract tests**
 
-Add assertions that the `.iss` file uses `DefaultDirName={localappdata}\\Programs\\MLLminal`, has no `lightweight` or `portableprovider` task, contains one Advanced page or equivalent single grouped options surface, defines the five friendly shortcut names, targets `mllminal.exe tui` for the main shortcut, targets `mllminal.exe mil` for Mil, and uses a diagnostics shortcut that runs `mllminal doctor` in a readable terminal.
+Add assertions that the `.iss` file uses `DefaultDirName={localappdata}\\Programs\\MLLminal`, has no `lightweight` or `portableprovider` task, contains one Advanced page or equivalent single grouped options surface, defines the five friendly shortcut names, targets `mllminal.exe tui` for the main shortcut, targets `mllminal.exe mil` for Mil, and uses a diagnostics shortcut that runs `mllminal doctor --json` through a hidden launcher and records its output in MLLminal-owned diagnostics.
 
 - [ ] **Step 2: Run the focused test and confirm the expected failure**
 
@@ -42,7 +42,7 @@ Run `uv run pytest tests/unit/test_windows_packaging_contract.py -q`. It must fa
 
 - [ ] **Step 3: Implement the minimal installer change**
 
-Replace technical tasks with one `Advanced` task/page containing only install location, startup-at-login, desktop shortcut, and retain-existing-data choices. Set safe defaults to no startup, no desktop shortcut, and retain data. Add Start Menu entries named `MLLminal`, `Mil`, `MLLminal Terminal`, `MLLminal Diagnostics`, and `Uninstall MLLminal`; point the first two to the packaged CLI with `tui` and `mil` parameters. Add an explicit `doctor` terminal shortcut using `powershell.exe -NoExit -Command ... mllminal doctor`.
+Replace technical tasks with one `Advanced` task/page containing only install location, startup-at-login, desktop shortcut, and retain-existing-data choices. Set safe defaults to no startup, no desktop shortcut, and retain data. Add Start Menu entries named `MLLminal`, `Mil`, `MLLminal Terminal`, `MLLminal Diagnostics`, and `Uninstall MLLminal`; point the first two to the packaged CLI with `tui` and `mil` parameters. Add an explicit `doctor` shortcut using a hidden launcher so no shell window is opened; retain the JSON result in MLLminal-owned diagnostics.
 
 - [ ] **Step 4: Run focused tests and a syntax check**
 
