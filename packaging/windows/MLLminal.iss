@@ -43,9 +43,9 @@ Name: "{group}\MLLminal Diagnostics"; Filename: "powershell.exe"; Parameters: "-
 Name: "{group}\Uninstall MLLminal"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\MLLminal"; Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "tui"; WorkingDir: "{app}"; Check: DesktopShortcutSelected
 
-[Run]
-Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "install status --json"; Flags: postinstall
-Filename: "{app}\runtime\Scripts\mllminal.exe"; Parameters: "mil"; Description: "Launch Mil"; Flags: postinstall nowait skipifsilent
+; The bootstrapper performs daemon readiness before the Ready page. No interactive
+; client is auto-launched here; users choose Mil or the TUI from Start Menu.
+
 
 [UninstallRun]
 ; Normal uninstall presents a checkbox labeled: Also delete MLLminal local data
