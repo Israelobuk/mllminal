@@ -48,25 +48,6 @@ if (-not $python -and $UseSystemPython) {
 }
 if (-not $python) { throw "This installer requires the bundled runtime under runtime. Use -UseSystemPython only for development packaging." }
 
-& $python -m pip install --disable-pip-version-check --no-index --no-deps --upgrade $wheel.FullName
-if ($LASTEXITCODE -ne 0) { throw "The packaged MLLminal wheel could not be installed into the bundled runtime." }
-
-function Add-UserPathEntry([string]$Entry) {
-    $current = [Environment]::GetEnvironmentVariable("Path", "User")
-    $entries = @($current -split ";" | Where-Object { $_ -and $_.Trim() })
-    $normalized = [IO.Path]::GetFullPath($Entry).TrimEnd("\")
-    $alreadyPresent = $entries | Where-Object {
-        try { [IO.Path]::GetFullPath($_).TrimEnd("\") -ieq $normalized } catch { $false }
-    }
-    if ($alreadyPresent) {
-        return $false
-    }
-    [Environment]::SetEnvironmentVariable("Path", (($entries + $Entry) -join ";"), "User")
-    return $true
-}
-
-$scriptDirectory = Split-Path $python -Parent
-
 function Stop-OwnedProcesses {
     $ownedRoot = $InstallRoot.TrimEnd("\") + "\"
     $ownedIds = @()
@@ -95,6 +76,26 @@ function Stop-OwnedProcesses {
 }
 
 Stop-OwnedProcesses
+
+& $python -m pip install --disable-pip-version-check --no-index --no-deps --upgrade $wheel.FullName
+if ($LASTEXITCODE -ne 0) { throw "The packaged MLLminal wheel could not be installed into the bundled runtime." }
+
+function Add-UserPathEntry([string]$Entry) {
+    $current = [Environment]::GetEnvironmentVariable("Path", "User")
+    $entries = @($current -split ";" | Where-Object { $_ -and $_.Trim() })
+    $normalized = [IO.Path]::GetFullPath($Entry).TrimEnd("\")
+    $alreadyPresent = $entries | Where-Object {
+        try { [IO.Path]::GetFullPath($_).TrimEnd("\") -ieq $normalized } catch { $false }
+    }
+    if ($alreadyPresent) {
+        return $false
+    }
+    [Environment]::SetEnvironmentVariable("Path", (($entries + $Entry) -join ";"), "User")
+    return $true
+}
+
+$scriptDirectory = Split-Path $python -Parent
+
 $pathAdded = Add-UserPathEntry $scriptDirectory
 $pathRegistered = $true
 $env:MLLMINAL_DATA_DIR = $DataDirectory

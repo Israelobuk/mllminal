@@ -154,3 +154,13 @@ def test_uninstall_contract_keeps_data_by_default_and_limits_purge_to_owned_root
     assert "Remove-Item -LiteralPath $InstallRoot -Recurse -Force" in script
     assert 'GetFolderPath("Desktop")' in script
     assert "Startup" in script
+
+
+def test_install_stops_owned_processes_before_replacing_the_wheel() -> None:
+    script = (PROJECT_ROOT / "packaging/windows/install.ps1").read_text(encoding="utf-8-sig")
+
+    stop_definition = script.index("function Stop-OwnedProcesses")
+    stop_invocation = script.index("Stop-OwnedProcesses", stop_definition)
+    wheel_replacement = script.index("& $python -m pip install")
+    assert stop_definition < wheel_replacement
+    assert stop_invocation < wheel_replacement
