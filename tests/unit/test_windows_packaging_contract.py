@@ -167,6 +167,16 @@ def test_uninstall_supports_silent_safe_defaults_and_removes_owned_shortcuts() -
     assert "$env:USERPROFILE" not in installer
 
 
+def test_windows_acceptance_is_opt_in_and_headless() -> None:
+    acceptance = (
+        Path(__file__).parents[2] / "tests" / "acceptance" / "test_windows_one_click_install.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "MLLMINAL_WINDOWS_ACCEPTANCE" in acceptance
+    assert "MLLMINAL_SETUP_EXE" in acceptance
+    assert "CREATE_NO_WINDOW" in acceptance
+    assert "/VERYSILENT" in acceptance
+
+
 def test_package_audit_emits_size_and_performance_json(tmp_path: Path) -> None:
     import json
     import subprocess
