@@ -82,16 +82,26 @@ def _run(
     # Inno Setup starts a bootstrapper and an owned daemon. Do not give those
     # descendants pytest's capture pipe: an inherited write handle can keep
     # communicate() blocked after setup itself has exited.
-    return subprocess.run(
-        command,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        timeout=timeout,
-        check=False,
-        creationflags=creationflags,
-    )
+    try:
+        return subprocess.run(
+            command,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=timeout,
+            check=False,
+            creationflags=creationflags,
+        )
+    except subprocess.TimeoutExpired as error:
+        log_details = ""
+        for argument in command:
+            if argument.startswith("/LOG="):
+                log_path = Path(argument[5:])
+                if log_path.is_file():
+                    log_details = log_path.read_text(encoding="utf-8", errors="replace")[-8000:]
+                break
+        raise RuntimeError(f"{error}\nInno Setup log:\n{log_details}") from error
 
 
 def _result_output(result: subprocess.CompletedProcess[str]) -> str:
@@ -115,7 +125,13 @@ def installed_fixture(tmp_path: Path) -> InstalledFixture:
         }
     )
     result = _run(
-        [str(setup), "/VERYSILENT", "/NORESTART", f"/DIR={app}"],
+        [
+            str(setup),
+            "/VERYSILENT",
+            "/NORESTART",
+            f"/DIR={app}",
+            f"/LOG={root / 'setup.log'}",
+        ],
         env,
         capture_output=False,
     )
@@ -201,7 +217,13 @@ def test_repair_run_preserves_manifest_metadata(installed_fixture: InstalledFixt
     manifest.write_text(json.dumps(payload), encoding="utf-8")
     setup = _setup_executable()
     result = _run(
-        [str(setup), "/VERYSILENT", "/NORESTART", f"/DIR={fixture.app}"],
+        [
+            str(setup),
+            "/VERYSILENT",
+            "/NORESTART",
+            f"/DIR={fixture.app}",
+            f"/LOG={fixture.root / 'setup.log'}",
+        ],
         fixture.env,
         capture_output=False,
     )
@@ -216,7 +238,13 @@ def test_repair_run_preserves_a_user_state_sentinel(installed_fixture: Installed
     sentinel.write_text("preserve me", encoding="utf-8")
     setup = _setup_executable()
     result = _run(
-        [str(setup), "/VERYSILENT", "/NORESTART", f"/DIR={fixture.app}"],
+        [
+            str(setup),
+            "/VERYSILENT",
+            "/NORESTART",
+            f"/DIR={fixture.app}",
+            f"/LOG={fixture.root / 'setup.log'}",
+        ],
         fixture.env,
         capture_output=False,
     )
