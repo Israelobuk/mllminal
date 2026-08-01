@@ -106,16 +106,34 @@ foreach ($processId in @($ownedProcessIds | Select-Object -Unique)) {
 }
 
 $scriptDirectory = Join-Path $InstallRoot "runtime\Scripts"
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($null -ne $userPath) {
-    $normalizedScriptDirectory = [IO.Path]::GetFullPath($scriptDirectory).TrimEnd("\")
-    $keptPath = @(
-        $userPath -split ";" | Where-Object {
-            if (-not $_ -or -not $_.Trim()) { return $false }
-            try { [IO.Path]::GetFullPath($_).TrimEnd("\") -ine $normalizedScriptDirectory } catch { $true }
+$pathWasAddedByMllminal = $true
+$manifestPath = Join-Path $DataDirectory "install-manifest.json"
+if (Test-Path -LiteralPath $manifestPath) {
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $manifestProperties = @($manifest.PSObject.Properties.Name)
+        if ($manifestProperties -contains "path_added") {
+            $pathWasAddedByMllminal = [bool]$manifest.path_added
+        } elseif ($manifestProperties -contains "path_registered") {
+            # Older manifests recorded registration but not ownership; preserve legacy cleanup.
+            $pathWasAddedByMllminal = [bool]$manifest.path_registered
         }
-    )
-    [Environment]::SetEnvironmentVariable("Path", ($keptPath -join ";"), "User")
+    } catch {
+        Write-Diagnostic "Could not read PATH ownership metadata; retaining legacy cleanup behavior. $($_.Exception.Message)"
+    }
+}
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($pathWasAddedByMllminal) {
+    if ($null -ne $userPath) {
+        $normalizedScriptDirectory = [IO.Path]::GetFullPath($scriptDirectory).TrimEnd("\")
+        $keptPath = @(
+            $userPath -split ";" | Where-Object {
+                if (-not $_ -or -not $_.Trim()) { return $false }
+                try { [IO.Path]::GetFullPath($_).TrimEnd("\") -ine $normalizedScriptDirectory } catch { $true }
+            }
+        )
+        [Environment]::SetEnvironmentVariable("Path", ($keptPath -join ";"), "User")
+    }
 }
 
 $programsRoot = [Environment]::GetFolderPath("Programs")

@@ -74,7 +74,7 @@ mllminal install data-path
 ```
 ## Uninstall and data retention
 
-The normal uninstaller stops MLLminal-owned processes, removes the application, shortcuts, user PATH entry, startup shortcut, and owned browser-host registration. It retains local MLLminal data by default. The explicit CLI command below requires exact confirmation before removing only the MLLminal `data` and `backups` directories:
+The normal uninstaller stops MLLminal-owned processes, removes the application, shortcuts, the PATH entry MLLminal added (while preserving pre-existing PATH entries), startup shortcut, and owned browser-host registration. It retains local MLLminal data by default. The explicit CLI command below requires exact confirmation before removing only the MLLminal `data` and `backups` directories:
 
 ```powershell
 mllminal install purge-data --confirm MLLMINAL
