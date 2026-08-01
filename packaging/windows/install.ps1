@@ -58,9 +58,10 @@ function Add-UserPathEntry([string]$Entry) {
     $alreadyPresent = $entries | Where-Object {
         try { [IO.Path]::GetFullPath($_).TrimEnd("\") -ieq $normalized } catch { $false }
     }
-    if (-not $alreadyPresent) {
-        [Environment]::SetEnvironmentVariable("Path", (($entries + $Entry) -join ";"), "User")
+    if ($alreadyPresent) {
+        return $false
     }
+    [Environment]::SetEnvironmentVariable("Path", (($entries + $Entry) -join ";"), "User")
     return $true
 }
 
@@ -94,7 +95,8 @@ function Stop-OwnedProcesses {
 }
 
 Stop-OwnedProcesses
-$pathRegistered = Add-UserPathEntry $scriptDirectory
+$pathAdded = Add-UserPathEntry $scriptDirectory
+$pathRegistered = $true
 $env:MLLMINAL_DATA_DIR = $DataDirectory
 $packageVersion = & $python -c "import importlib.metadata; print(importlib.metadata.version('mllminal'))"
 if ($LASTEXITCODE -ne 0) { throw "The packaged MLLminal version could not be read." }
@@ -147,6 +149,7 @@ $manifest = [ordered]@{
     backup_root = $BackupDirectory
     runtime_root = $runtimeRoot
     path_registered = $pathRegistered
+    path_added = [bool]$pathAdded
     startup_enabled = [bool]$EnableStartup
     repaired = [bool]$Repair
     retained_existing_data = [bool]$RetainExistingData

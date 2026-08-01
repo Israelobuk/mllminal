@@ -86,6 +86,19 @@ def test_purge_requires_confirmation_and_never_touches_user_outputs(tmp_path: Pa
     assert outside_output.read_text(encoding="utf-8") == "user output"
 
 
+def test_uninstall_removes_only_a_path_entry_added_by_mllminal() -> None:
+    install = (PROJECT_ROOT / "packaging" / "windows" / "install.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+    uninstall = UNINSTALL_SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$pathAdded = Add-UserPathEntry $scriptDirectory" in install
+    assert "path_added = [bool]$pathAdded" in install
+    assert "path_added" in uninstall
+    assert "pathWasAddedByMllminal" in uninstall
+    assert "if ($pathWasAddedByMllminal)" in uninstall
+
+
 def test_uninstall_script_has_scoped_retention_and_cleanup_contract() -> None:
     script = UNINSTALL_SCRIPT.read_text(encoding="utf-8")
     assert "Stop-Process -Id" in script

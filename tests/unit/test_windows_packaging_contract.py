@@ -187,6 +187,13 @@ def test_windows_acceptance_is_opt_in_and_headless() -> None:
     assert "/VERYSILENT" in acceptance
 
 
+def test_windows_docs_describe_owned_path_cleanup() -> None:
+    readme = (PACKAGING / "README.md").read_text(encoding="utf-8-sig")
+
+    assert "pre-existing PATH entries" in readme
+    assert "PATH entry MLLminal added" in readme
+
+
 def test_package_audit_emits_size_and_performance_json(tmp_path: Path) -> None:
     import json
     import subprocess
