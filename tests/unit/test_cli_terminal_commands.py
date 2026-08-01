@@ -91,6 +91,46 @@ def test_cli_version_flag_is_available_from_fresh_terminal(tmp_path) -> None:
     assert result.stdout.strip() == "0.1.0"
 
 
+def test_service_status_reports_stopped_without_daemon(tmp_path, monkeypatch) -> None:
+    class FakeClient:
+        async def health(self):
+            raise OSError("daemon unavailable")
+
+    monkeypatch.setattr(
+        "mllminal.cli.terminal_commands.daemon_status",
+        lambda _settings: {"status": "stopped"},
+    )
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    result = runner.invoke(app, ["service", "status", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout) == {"status": "stopped"}
+
+
+def test_service_stop_is_idempotent_when_daemon_is_stopped(tmp_path, monkeypatch) -> None:
+    class FakeClient:
+        async def request(self, *args, **kwargs):
+            raise OSError("daemon unavailable")
+
+    monkeypatch.setattr(
+        "mllminal.cli.terminal_commands.daemon_status",
+        lambda _settings: {"status": "stopped"},
+    )
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    result = runner.invoke(app, ["service", "stop", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout) == {"status": "already_stopped"}
+
+
 def test_service_start_waits_for_bounded_readiness(tmp_path, monkeypatch) -> None:
     calls = []
 

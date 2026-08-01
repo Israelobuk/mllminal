@@ -23,7 +23,7 @@ import typer
 from mllminal.client.api import DaemonClient
 from mllminal.config import Settings
 from mllminal.install_lifecycle import InstallLifecycle, InstallLifecycleError
-from mllminal.service_lifecycle import daemon_executable, ensure_daemon
+from mllminal.service_lifecycle import daemon_executable, daemon_status, ensure_daemon
 
 ClientFactory = Callable[[Settings], DaemonClient]
 
@@ -536,20 +536,38 @@ def register_terminal_commands(
 
     @service.command("status")
     def service_status(json_output: bool = typer.Option(False, "--json")) -> None:
-        _emit(_request(settings, daemon_client_factory, "GET", "/v1/health"), json_output)
+        async def query() -> object:
+            try:
+                return await daemon_client_factory(settings).health()
+            except (OSError, RuntimeError, TimeoutError):
+                return daemon_status(settings)
+
+        try:
+            _emit(asyncio.run(query()), json_output)
+        except (OSError, RuntimeError, TimeoutError) as error:
+            typer.echo(f"Error: {error}", err=True)
+            raise typer.Exit(code=3) from None
 
     @service.command("stop")
     def service_stop(json_output: bool = typer.Option(False, "--json")) -> None:
-        _emit(
-            _request(
-                settings,
-                daemon_client_factory,
-                "POST",
-                "/v1/daemon/shutdown",
-                idempotency_key="cli-service-stop",
-            ),
-            json_output,
-        )
+        async def shutdown() -> object:
+            try:
+                return await daemon_client_factory(settings).request(
+                    "POST",
+                    "/v1/daemon/shutdown",
+                    idempotency_key="cli-service-stop",
+                )
+            except (OSError, RuntimeError, TimeoutError):
+                observed = daemon_status(settings)
+                if observed.get("status") in {"stopped", "uninstalled"}:
+                    return {"status": "already_stopped"}
+                raise
+
+        try:
+            _emit(asyncio.run(shutdown()), json_output)
+        except (OSError, RuntimeError, TimeoutError) as error:
+            typer.echo(f"Error: {error}", err=True)
+            raise typer.Exit(code=3) from None
 
     @service.command("start")
     def service_start(json_output: bool = typer.Option(False, "--json")) -> None:
