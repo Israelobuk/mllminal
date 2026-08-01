@@ -6,6 +6,13 @@ from mllminal.config import Settings
 from mllminal.service_lifecycle import ensure_daemon
 
 
+def test_default_readiness_budget_covers_bundled_cold_start() -> None:
+    import inspect
+
+    parameter = inspect.signature(ensure_daemon).parameters["wait_seconds"]
+    assert parameter.default == 15.0
+
+
 class FakeClient:
     def __init__(self, _settings: Settings) -> None:
         self.calls = 0

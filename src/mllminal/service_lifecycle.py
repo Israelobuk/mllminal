@@ -188,7 +188,8 @@ async def ensure_daemon(
     settings: Settings,
     client_factory: ClientFactory | None = None,
     *,
-    wait_seconds: float = 4.0,
+    # Cold starts import the bundled ML stack; keep the wait bounded but usable on first launch.
+    wait_seconds: float = 15.0,
 ) -> dict[str, Any]:
     """Return a healthy daemon projection after one bounded owned start attempt."""
     if client_factory is None:
