@@ -41,8 +41,13 @@ $debrisDirectories = Get-ChildItem -LiteralPath $RuntimeDirectory -Directory -Re
 foreach ($directory in $debrisDirectories) {
     Remove-Item -LiteralPath $directory.FullName -Recurse -Force
 }
+# Type stubs, linker import libraries, and source maps are not needed by the bundled
+# runtime and only add extraction time and package files.
 $debrisFiles = Get-ChildItem -LiteralPath $RuntimeDirectory -File -Recurse -Force |
-    Where-Object { $_.Name -like "*.pyc" -or $_.Name -like "*.pyo" -or $_.Name -like "*.map" }
+    Where-Object {
+        $_.Name -like "*.pyc" -or $_.Name -like "*.pyo" -or $_.Name -like "*.map" -or
+        $_.Name -like "*.lib" -or $_.Name -like "*.pyi"
+    }
 foreach ($file in $debrisFiles) {
     Remove-Item -LiteralPath $file.FullName -Force
 }

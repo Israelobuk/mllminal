@@ -291,6 +291,8 @@ def test_package_build_prunes_only_known_development_debris() -> None:
     assert "--force-reinstall" in runtime
     assert "torch\\include" in runtime
     assert "licenses\\third_party" in runtime
+    assert "*.lib" in runtime
+    assert "*.pyi" in runtime
     assert "package-audit.ps1" in builder
     assert "ReportPath" in builder
 

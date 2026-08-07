@@ -145,19 +145,10 @@ def installed_fixture(tmp_path_factory: pytest.TempPathFactory) -> InstalledFixt
         _remove_fixture(fixture)
 
 
-@pytest.fixture
-def uninstall_fixture(tmp_path: Path) -> InstalledFixture:
-    fixture = _provision_fixture(tmp_path / "mllminal-uninstall")
-    try:
-        yield fixture
-    finally:
-        _remove_fixture(fixture)
-
-
 def test_fresh_install_provisions_runtime_and_local_state(
-    uninstall_fixture: InstalledFixture,
+    installed_fixture: InstalledFixture,
 ) -> None:
-    fixture = uninstall_fixture
+    fixture = installed_fixture
     assert fixture.app.is_dir()
     assert fixture.cli.is_file()
     assert (fixture.app / "runtime" / "Scripts" / "python.exe").is_file()
@@ -167,9 +158,9 @@ def test_fresh_install_provisions_runtime_and_local_state(
 
 
 def test_new_terminal_path_contains_only_the_bundled_cli_directory(
-    uninstall_fixture: InstalledFixture,
+    installed_fixture: InstalledFixture,
 ) -> None:
-    fixture = uninstall_fixture
+    fixture = installed_fixture
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
         user_path, _ = winreg.QueryValueEx(key, "Path")
     script_directory = str((fixture.app / "runtime" / "Scripts").resolve()).rstrip("\\").casefold()
@@ -202,7 +193,9 @@ def test_daemon_readiness_and_doctor_complete(installed_fixture: InstalledFixtur
     fixture = installed_fixture
     result = _run([str(fixture.cli), "doctor", "--json"], fixture.env)
     assert result.returncode == 0, _result_output(result)
-    assert "running" in result.stdout.casefold()
+    payload = json.loads(result.stdout)
+    assert payload["health"]["status"] == "ok"
+    assert payload["status"]["daemon"].casefold() == "online"
 
 
 def test_optional_components_do_not_block_the_bounded_install(
@@ -256,9 +249,9 @@ def test_repair_run_preserves_a_user_state_sentinel(installed_fixture: Installed
 
 
 def test_silent_uninstall_removes_owned_components_and_retains_data(
-    uninstall_fixture: InstalledFixture,
+    installed_fixture: InstalledFixture,
 ) -> None:
-    fixture = uninstall_fixture
+    fixture = installed_fixture
     sentinel = fixture.data / "acceptance-user-state.txt"
     sentinel.write_text("retain me", encoding="utf-8")
     result = _run(
