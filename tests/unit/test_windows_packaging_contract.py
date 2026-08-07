@@ -203,6 +203,8 @@ def test_windows_acceptance_is_opt_in_and_headless() -> None:
     assert "MLLMINAL_ACCEPTANCE_TIMINGS_PATH" in acceptance
     assert "cold_install_seconds" in acceptance
     assert "daemon_ready_seconds" in acceptance
+    assert '["mllminal.exe", "--version"]' in acceptance
+    assert 'env["Path"]' in acceptance
 
 
 def test_windows_ci_builds_and_runs_packaged_acceptance() -> None:

@@ -288,3 +288,19 @@ def test_silent_uninstall_removes_owned_components_and_retains_data(
     assert _wait_for_absence(fixture.app)
     assert sentinel.read_text(encoding="utf-8") == "retain me"
     assert not (fixture.root / "app" / "runtime" / "Scripts").exists()
+
+
+def test_new_terminal_resolves_bundled_cli_by_name(
+    installed_fixture: InstalledFixture,
+) -> None:
+    fixture = installed_fixture
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+        user_path, _ = winreg.QueryValueEx(key, "Path")
+    env = fixture.env.copy()
+    for key in tuple(env):
+        if key.casefold() == "path":
+            del env[key]
+    env["Path"] = user_path
+    result = _run(["mllminal.exe", "--version"], env)
+    assert result.returncode == 0, _result_output(result)
+    assert result.stdout.strip() == "0.1.0"
