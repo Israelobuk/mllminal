@@ -42,7 +42,22 @@ powershell -ExecutionPolicy Bypass -File packaging/windows/package-audit.ps1 `
   -DaemonReadySeconds 0
 ```
 
-Zero is the explicit “not measured” value; release evidence should replace it with observed timings rather than estimated values.
+Zero is reserved for unmeasured fields; the observed CI values below are recorded from the acceptance artifact.
+
+### Observed GitHub Actions evidence
+
+Run [31208825526](https://github.com/Israelobuk/mllminal/actions/runs/31208825526) on 2026-08-07 produced:
+
+| Measure | Observed value |
+| --- | ---: |
+| Compressed setup | 165,883,279 bytes |
+| Staged runtime | 918,735,826 bytes |
+| Installed file count | 18,212 files |
+| Cold install | 121.654 seconds |
+| First launch | 21.042 seconds |
+| Daemon readiness | 21.042 seconds |
+
+These are Windows CI observations for the current technical-preview package, not a clean-machine certification.
 
 ## Install for normal users
 

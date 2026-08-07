@@ -315,3 +315,15 @@ def test_diagnostics_launcher_is_hidden_and_does_not_use_powershell() -> None:
     assert "2>&1" in launcher
     assert ", 0, True)" in launcher
     assert "powershell" not in launcher.casefold()
+
+
+def test_packaging_readme_records_observed_ci_measurements() -> None:
+    readme = (PACKAGING / "README.md").read_text(encoding="utf-8-sig")
+
+    assert "Observed GitHub Actions evidence" in readme
+    assert "165,883,279 bytes" in readme
+    assert "918,735,826 bytes" in readme
+    assert "18,212 files" in readme
+    assert "121.654 seconds" in readme
+    assert "21.042 seconds" in readme
+    assert "31208825526" in readme
