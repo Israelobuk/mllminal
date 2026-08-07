@@ -155,9 +155,9 @@ def uninstall_fixture(tmp_path: Path) -> InstalledFixture:
 
 
 def test_fresh_install_provisions_runtime_and_local_state(
-    uninstall_fixture: InstalledFixture,
+    installed_fixture: InstalledFixture,
 ) -> None:
-    fixture = uninstall_fixture
+    fixture = installed_fixture
     assert fixture.app.is_dir()
     assert fixture.cli.is_file()
     assert (fixture.app / "runtime" / "Scripts" / "python.exe").is_file()
@@ -167,9 +167,9 @@ def test_fresh_install_provisions_runtime_and_local_state(
 
 
 def test_new_terminal_path_contains_only_the_bundled_cli_directory(
-    uninstall_fixture: InstalledFixture,
+    installed_fixture: InstalledFixture,
 ) -> None:
-    fixture = uninstall_fixture
+    fixture = installed_fixture
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
         user_path, _ = winreg.QueryValueEx(key, "Path")
     script_directory = str((fixture.app / "runtime" / "Scripts").resolve()).rstrip("\\").casefold()
@@ -202,7 +202,9 @@ def test_daemon_readiness_and_doctor_complete(installed_fixture: InstalledFixtur
     fixture = installed_fixture
     result = _run([str(fixture.cli), "doctor", "--json"], fixture.env)
     assert result.returncode == 0, _result_output(result)
-    assert "running" in result.stdout.casefold()
+    payload = json.loads(result.stdout)
+    assert payload["health"]["status"] == "ok"
+    assert payload["status"]["daemon"] == "online"
 
 
 def test_optional_components_do_not_block_the_bounded_install(
