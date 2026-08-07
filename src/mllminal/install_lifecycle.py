@@ -202,6 +202,12 @@ class InstallLifecycle:
         self.paths.backup_root.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         destination = self.paths.backup_root / f"mllminal-{stamp}.db"
+        candidate_index = 1
+        while destination.exists() or any(
+            Path(f"{destination}{sidecar}").exists() for sidecar in ("-wal", "-shm")
+        ):
+            destination = self.paths.backup_root / f"mllminal-{stamp}-{candidate_index}.db"
+            candidate_index += 1
         shutil.copy2(database, destination)
         for suffix in ("-wal", "-shm"):
             sidecar = Path(f"{database}{suffix}")
