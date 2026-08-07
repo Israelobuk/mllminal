@@ -171,3 +171,37 @@ def test_uninstall_preserves_path_when_ownership_is_unknown() -> None:
 
     assert "$pathWasAddedByMllminal = $false" in script
     assert "retaining the PATH entry because ownership is unknown" in script
+
+
+def test_repeated_update_backups_are_unique_and_include_sidecars(tmp_path: Path) -> None:
+    app_root = tmp_path / "Programs" / "MLLminal"
+    data_root = tmp_path / "MLLminal" / "data"
+    app_root.mkdir(parents=True)
+    settings = Settings(data_dir=data_root, workspace_root=tmp_path)
+    settings.ensure_data_dir()
+    upgrade_database(settings.database_path)
+    (data_root / "install-manifest.json").write_text(
+        json.dumps({"version": "0.1.0", "state_marker": "preserve"}), encoding="utf-8"
+    )
+    (data_root / "workflows").mkdir()
+    (data_root / "workflows" / "workflow.json").write_text("keep", encoding="utf-8")
+    Path(f"{settings.database_path}-wal").write_bytes(b"wal")
+    Path(f"{settings.database_path}-shm").write_bytes(b"shm")
+    lifecycle = InstallLifecycle(settings)
+
+    first = lifecycle.prepare_update("0.2.0")
+    second = lifecycle.prepare_update("0.2.0")
+
+    first_backup = Path(first["backup"])
+    second_backup = Path(second["backup"])
+    assert first_backup != second_backup
+    assert first_backup.is_file()
+    assert second_backup.is_file()
+    assert Path(f"{first_backup}-wal").read_bytes() == b"wal"
+    assert Path(f"{first_backup}-shm").read_bytes() == b"shm"
+    assert Path(f"{second_backup}-wal").read_bytes() == b"wal"
+    assert Path(f"{second_backup}-shm").read_bytes() == b"shm"
+    assert (
+        json.loads((data_root / "install-manifest.json").read_text())["state_marker"] == "preserve"
+    )
+    assert (data_root / "workflows" / "workflow.json").read_text() == "keep"
