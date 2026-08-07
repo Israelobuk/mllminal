@@ -2,29 +2,65 @@
 
 MLLminal is a private, local workflow-intelligence system that learns how you work across your computer and turns recurring, approved behavior into safe, inspectable automation.
 
-It is application-agnostic: MLLminal is not an Excel automation product or an Outlook automation product. It provides bounded capabilities for applications, browsers, files, and documents through one local daemon. Mil is the conversational interface; the CLI and Textual TUI are the dependable control surfaces.
+Mil is the conversational interface. MLLminal observes only approved activity, represents reusable workflows as typed capabilities, keeps actions permission- and approval-controlled, ensures effects are independently verified, and supports recovery or rollback where a provider allows it. Your data and model execution stay local. MLLminal is application-agnostic: it is not an Excel or Outlook automation product.
 
-## What MLLminal does
+## Install for Windows
 
-When you explicitly enable observation, MLLminal records minimized metadata about approved activity. It can then help you:
+The normal-user installation is intentionally short:
 
-- discover available application capabilities;
-- learn repeatable workflows from demonstrations;
-- move structured information between applications;
-- organize and transform files inside an attached workspace;
+1. Download the Windows installer.
+2. Run setup.
+3. Open PowerShell in a new terminal.
+4. Run mllminal doctor.
+5. Start Mil: mllminal mil.
+
+The installer includes the MLLminal daemon, mllminal CLI, Textual TUI, Mil terminal, bundled Python runtime, dependencies, database migrations, Start Menu shortcuts, and uninstall support. Python, uv, Git, a source checkout, and manual environment variables are not required.
+
+The installer uses a per-user location where practical, adds only its own CLI entry to the user PATH, keeps mutable data outside the installation directory, detects existing installations, and supports repair and reinstall. Mil and the TUI start or verify the local daemon when they open. Launch-at-login is optional.
+
+## Start using MLLminal
+
+These are the commands most people need:
+
+~~~text
+mllminal                  Open Mil
+mllminal chat             Open the same Mil interface
+mllminal run              Choose a workflow and run it
+mllminal status           Show a concise health summary
+mllminal apps             List discovered applications
+mllminal workflows       List workflows and recent runs
+mllminal approvals       Review pending approvals
+mllminal doctor           Diagnose the local installation
+mllminal stop             Emergency stop, with confirmation
+mllminal start            Re-enable normal operation
+mllminal help             Show common commands
+~~~
+
+With a TTY, run and approval review support numbered and arrow-key selection. In a non-interactive terminal they print numbered choices and return a stable nonzero exit code when a choice is required. Workflow names, short IDs, and exact IDs are accepted.
+
+Useful aliases are apps for applications, flows for workflows, runs for executions, approve and deny for approval decisions, chat for Mil, and stop for emergency stop. Advanced command trees remain available for scripts and operators.
+
+## What MLLminal can do
+
+MLLminal can help you:
+
+- discover application capabilities on the local computer;
+- learn repeatable workflows from explicit demonstrations;
+- move structured information between eligible applications;
+- organize and transform files inside approved locations;
 - generate reports and create drafts without sending them;
-- execute bounded multi-application workflows after permission and approval;
+- execute bounded multi-application workflows;
 - recover after interruptions from durable checkpoints;
-- explain what happened, which policy was used, and why;
+- explain what happened, which provider or policy was selected, and why;
 - improve provider ranking from verified outcomes through offline learning.
 
-Workflows are represented as typed capabilities. Actions remain permission- and approval-controlled, effects are independently verified, and recovery or rollback is used where a provider can support it. Observation has no execution authority.
+A workflow is proposed before it runs. Permission, approval, eligibility, execution, verification, and audit state remain daemon-owned. Observation can inform a proposal but never has execution authority.
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    A["CLI / Textual TUI / Mil"] --> B["Authenticated local daemon"]
+    A["CLI / Textual / Mil"] --> B["Authenticated local daemon"]
     B --> C["Workflow compiler and safety gates"]
     C --> D["Capability and provider resolution"]
     D --> E["Application, browser, filesystem, and document providers"]
@@ -43,7 +79,27 @@ The runtime follows this sequence:
 7. Independently verify the effects.
 8. Checkpoint the result and learn only from verified outcomes.
 
-The deterministic safety path remains authoritative. A learned policy can advise ranking or suggestions, but it cannot introduce an ineligible action, bypass approval, weaken permissions, suppress verification, promote itself, or retrain during execution.
+A learned policy may advise ranking or suggestions. It cannot introduce an ineligible action, bypass approval, weaken permissions, suppress verification, retrain online, or promote itself.
+
+## Safety and privacy
+
+MLLminal is local-first. No MLLminal cloud offloading occurs: data and model execution stay local. Observation requires explicit consent and stays metadata-oriented.
+
+There is no password or credential capture. MLLminal does not capture passwords, credentials, cookies, tokens, private keys, secure fields, clipboard contents, raw typed text, microphone input, camera input, or unrestricted screen content. There is no unrestricted shell execution. It does not provide automatic email sending, automatic form submission, purchasing, or online model training during live execution.
+
+The emergency stop remains authoritative. Deterministic safety filtering occurs before learned ranking. There is no automatic policy promotion. Policies are never automatically promoted. Every consequential effect requires independent verification, and recovery or rollback is used where the selected provider supports it.
+
+## Technology and why it exists
+
+- SQLAlchemy 2 + Alembic provide durable typed database access and safe, versioned schema migrations.
+- SQLite stores workflow, policy, approval, execution, checkpoint, profile, and Mil session state locally.
+- PyTorch trains offline advisory policies and runs bounded local inference for validated promoted artifacts.
+- scikit-learn provides preprocessing, evaluation, calibration, clustering, drift analysis, and lightweight classical ML baselines.
+- LangGraph is an optional way to structure Mil reasoning flows; it never becomes the execution authority.
+- Ollama + Qwen provide local conversational reasoning and structured plan generation without hosted model calls.
+- MLflow records local experiments, candidate comparisons, and policy provenance so promotion decisions are inspectable.
+- DuckDB + Parquet make replay datasets and offline analysis efficient without changing authoritative SQLite state.
+- FastAPI exposes authenticated daemon contracts, Typer provides the CLI, and Textual provides the keyboard-first TUI.
 
 ## Product status
 
@@ -51,140 +107,126 @@ MLLminal is a technical preview. The categories below describe the current bound
 
 ### Implemented
 
-- Local authenticated daemon with SQLite persistence and Alembic migrations.
-- `mllminal` CLI, Textual TUI, and Mil interactive terminal.
-- Typed workflows, permissions, approvals, emergency stop, execution checkpoints, verification, and recovery paths.
+- Authenticated local daemon with durable SQLite state and Alembic migrations.
+- mllminal CLI, Textual TUI, and Mil interactive terminal.
+- Typed workflow compilation, permissions, approvals, emergency stop, checkpoints, verification, and recovery paths.
 - Bounded filesystem, application, browser-bridge, and manual-handoff capability contracts.
-- Metadata-only Windows observation with privacy exclusions and explicit consent.
-- Local Ollama/Qwen provider support plus deterministic fixtures.
-- Offline training, evaluation, explicit policy promotion/rollback, backend ranking, suggestion ranking, and decision provenance.
-- Per-user Windows installer, repair, upgrade migration backups, data-retaining uninstall, and explicit data purge command.
+- Metadata-only Windows observation with consent and privacy exclusions.
+- Local Ollama/Qwen support plus deterministic fixtures.
+- Offline training, evaluation, explicit policy promotion and rollback, provider ranking, suggestion ranking, and decision provenance.
+- Per-user Windows install, repair, upgrade migration backups, data-retaining uninstall, and explicit purge command.
 
 ### Optional
 
-- Ollama and a locally installed Qwen model for conversational planning.
+- Ollama and a local Qwen model for conversational planning.
 - Launch-at-login daemon startup.
-- Browser bridge and provider-specific adapters when explicitly configured and available.
-- Local MLflow tracking and DuckDB/Parquet replay analysis for learning workflows.
+- Browser bridge and provider-specific adapters when configured and available.
+- Local MLflow tracking and DuckDB/Parquet replay analysis.
 
 ### Experimental
 
+- Learned advisory ranking in live runtime decisions. Deterministic eligibility and safety checks remain authoritative.
 - Windows UI Automation and native observer adapters across unfamiliar applications.
-- Learned advisory ranking in live runtime decisions. Deterministic eligibility and safety checks still decide what may execute.
-- Recovery and rollback for providers whose effects can be independently checked.
+- Provider-specific recovery and rollback where effects can be independently checked.
 
 ### Deferred
 
-- Broad, universal application compatibility.
-- Signed release distribution and a clean-machine certification matrix.
-- Rich provider-specific document semantics beyond the bounded capability contracts.
+- Universal compatibility with every desktop application.
+- Signed release distribution and clean-machine certification.
+- Rich provider-specific document semantics beyond bounded capability contracts.
 - Automatic workflow discovery from unrestricted screen or content capture.
 
 ### Unsupported
 
-- Credential, password, cookie, token, private-key, secure-field, clipboard, microphone, camera, or unrestricted screen capture.
+- Credential or secure-field learning.
 - Unrestricted shell, PowerShell, CMD, Python, SQL, or arbitrary URL execution.
-- Automatic email sending, form submission, purchasing, or other external submission.
+- Automatic sending, form submission, purchasing, or other external submission.
 - Cloud execution or online model training during live execution.
-
-## Technology and why it exists
-
-- **SQLAlchemy 2 + Alembic** provide durable typed database access and safe, versioned schema migrations.
-- **SQLite** keeps workflow, policy, approval, execution, profile, and session state local and recoverable without a hosted database.
-- **PyTorch** trains offline advisory policies and runs bounded local inference for promoted artifacts.
-- **scikit-learn** supplies preprocessing, evaluation, calibration, clustering, drift analysis, and lightweight classical ML baselines.
-- **LangGraph** is an optional way to structure Mil reasoning flows; it never becomes the execution authority.
-- **Ollama + Qwen** provide local conversational reasoning and structured plan generation without sending prompts to a hosted model.
-- **MLflow** records local experiments, candidate comparisons, and policy provenance so promotion decisions are inspectable.
-- **DuckDB + Parquet** make local replay datasets and offline analysis efficient without changing the authoritative SQLite state.
-- **FastAPI** exposes authenticated daemon contracts; **Typer** provides stable CLI commands; **Textual** provides the keyboard-first TUI.
-
-## Safety and privacy
-
-MLLminal is local-first. No MLLminal cloud offloading occurs: data and model execution stay local. Observation is disabled until explicitly enabled. There is no password or credential capture; cookies, tokens, private keys, secure fields, clipboard contents, raw typed text, pixels, audio, and camera input are excluded.
-
-There is no unrestricted shell execution, automatic email sending, automatic form submission, purchasing, or online model training during live execution. Policies are never automatically promoted. Deterministic safety filtering runs before learned ranking, the emergency stop remains authoritative, and every consequential effect requires independent verification.
-
-The local daemon is authenticated even on loopback. Data and model artifacts remain under the user’s local MLLminal directories. The default uninstall keeps that data; an explicit, confirmed purge removes only MLLminal-owned `data` and `backups` directories, never user-created files outside them.
-
-## Windows installation
-
-The normal-user flow is intentionally short:
-
-1. Download the Windows setup executable.
-2. Double-click it and keep the safe per-user defaults.
-3. Optionally open Advanced options for launch-at-login or a desktop shortcut.
-4. Click Install and wait for the Ready page.
-5. Close setup at the Ready page, then open MLLminal, Mil, MLLminal Terminal, or MLLminal Diagnostics from the Start Menu.
-
-The setup executable includes the daemon, CLI, Textual TUI, Mil, Python runtime, dependencies, migrations, shortcuts, and uninstall support. Users do not need Python, `uv`, Git, a source checkout, or manual environment variables. Mutable data lives outside the application directory.
-
-## Upgrade, repair, and uninstall
-
-Run the same setup executable again to repair the current installation or update it to a newer version. Setup stops only MLLminal-owned processes, backs up SQLite state before migrations, and preserves durable user state. Mil, the TUI, and CLI commands perform bounded daemon readiness when opened. The setup supports unattended install with `/VERYSILENT /NORESTART`.
-
-Windows Settings -> Apps -> MLLminal -> Uninstall opens the normal uninstaller. It removes installed binaries, shortcuts, the PATH entry MLLminal added (while preserving pre-existing PATH entries), startup registration, owned browser-host registration, and owned processes. Local MLLminal data is kept unless you explicitly select deletion. Silent uninstall keeps data by default.
-
-To purge retained local state separately, use the explicit confirmation command:
-
-```powershell
-mllminal install purge-data --confirm MLLMINAL
-```
-
-Only MLLminal-owned local state is targeted; user-created documents, spreadsheets, PDFs, downloads, reports, and workflow outputs outside those directories are not deleted.
-
-For troubleshooting after installation, run `mllminal doctor` in a new terminal. The Start Menu Diagnostics shortcut runs `mllminal doctor --json` without opening a shell window and records JSON at `%LOCALAPPDATA%\\MLLminal\\diagnostics\\doctor-shortcut.json`. Lifecycle commands include `mllminal status`, `mllminal service status`, `mllminal install status`, `mllminal install repair`, and `mllminal install data-path`.
-## Developer installation
-
-Developer installation is separate from the user installer and requires Python 3.12 and `uv`:
-
-```powershell
-git clone https://github.com/Israelobuk/mllminal.git
-cd mllminal
-uv sync --all-groups
-uv run mllminal doctor
-uv run mllminal mil
-```
-
-The local Qwen provider is optional. For it, run Ollama separately and configure a local model:
-
-```powershell
-ollama serve
-ollama pull qwen3:4b
-uv run mllminal models use qwen
-uv run mllminal models status
-uv run mllminal models test
-```
-
-For deterministic fixtures and tests, use `uv run mllminal models use deterministic`.
 
 ## CLI examples
 
-```powershell
-mllminal status --json
+~~~powershell
+mllminal status
 mllminal doctor
 mllminal mil
-mllminal applications discover <application>
+mllminal applications discover
 mllminal capabilities list
 mllminal workflows list
 mllminal executions watch <id>
 mllminal approvals list
 mllminal emergency-stop
 mllminal tui
-```
+~~~
 
-Readable output is the default; commands that project daemon state support `--json` for scripts. Consequential operations remain authenticated, idempotent, approval-gated, and daemon-owned.
+Human-readable output is the default. Supported projections also accept --json for scripts. The JSON shape remains daemon-owned and stable; use advanced command trees when you need detailed records.
+
+Service and installation commands are available for repair and automation:
+
+~~~powershell
+mllminal service start
+mllminal service stop
+mllminal service restart
+mllminal service status
+mllminal install status
+mllminal install repair
+mllminal install data-path
+mllminal install purge-data
+~~~
+
+## Windows installation
+
+Download the Windows setup executable. Double-click it and use the safe per-user defaults. Start Menu shortcuts are created for Mil, the TUI, and diagnostics. Close setup at the Ready page. For unattended setup, use /VERYSILENT /NORESTART.
+## Upgrade, repair, and uninstall
+
+Run a newer installer over an existing installation to upgrade. Before migrations, MLLminal backs up the SQLite database. Upgrades preserve workflows, execution history, checkpoints, application profiles, policy bindings, still-valid approvals, Mil sessions, settings, and learning metadata. Unsafe database downgrades are blocked.
+
+Run the same setup executable again to repair an installation. Repair validates the runtime, dependencies, PATH entry, shortcuts, daemon registration, and migrations without replacing mutable user data.
+
+The normal Windows uninstaller stops MLLminal-owned processes and removes installed binaries, shortcuts, its own PATH entry, startup registration, owned browser-host registration, and orphaned MLLminal processes. It asks whether to keep local MLLminal data or delete MLLminal-owned state.
+
+Uninstall never deletes user-created documents, spreadsheets, PDFs, downloads, reports, or workflow outputs outside MLLminal-owned directories. To remove retained local state separately, use the explicit confirmation command:
+
+~~~powershell
+mllminal install purge-data --confirm MLLMINAL
+~~~
+
+Purge targets only MLLminal-owned data and backups.
+
+## Developer installation
+
+Developer installation is separate from the normal-user installer and requires Python 3.12 and uv:
+
+~~~powershell
+git clone https://github.com/Israelobuk/mllminal.git
+cd mllminal
+uv sync --all-groups
+uv run mllminal doctor
+uv run mllminal mil
+~~~
+
+The local Qwen provider is optional:
+
+~~~powershell
+ollama serve
+ollama pull qwen3:4b
+uv run mllminal models use qwen
+uv run mllminal models status
+uv run mllminal models test
+~~~
+
+For deterministic fixtures and tests, use uv run mllminal models use deterministic.
 
 ## Troubleshooting
 
-- If a command cannot find the daemon, open a new terminal after installation and run `mllminal doctor`; `doctor`, Mil, and the TUI start the bundled daemon when needed.
-- If Qwen is unavailable, start Ollama, confirm `qwen3:4b` is installed, or switch to deterministic mode for local fixtures.
-- If an upgrade reports an unsafe database revision, restore the latest backup under the MLLminal backups directory and use the matching installer version; do not force a downgrade.
-- If an adapter is unavailable, inspect `mllminal capabilities list` and `mllminal diagnostics collect --json`. Unsupported applications degrade to bounded discovery or manual handoff.
-- Use `mllminal emergency-stop` whenever an execution must halt immediately.
+- After installation, open a new terminal and run mllminal doctor if a command cannot find the daemon.
+- If Qwen is unavailable, start Ollama, confirm the model is installed, or switch to deterministic mode.
+- If an upgrade reports an unsafe database revision, restore the latest backup and use a matching installer version. Do not force a downgrade.
+- If an adapter is unavailable, inspect mllminal capabilities list and mllminal diagnostics collect --json; unsupported applications degrade to bounded discovery or manual handoff.
+- Use mllminal emergency-stop whenever an execution must halt immediately.
+- The Start Menu Diagnostics shortcut runs mllminal doctor --json without requiring a manually opened shell and records doctor-shortcut.json.
 
 ## Project status and limitations
 
-MLLminal is a technical preview, not a production-certified automation platform. It has not been certified on every Windows build or clean machine, the installer is not yet code-signed, and application compatibility is not universal. Office-specific verification is not claimed; Excel and Outlook are examples of applications that may require provider-specific capability work rather than special product authority. Review every proposed plan and consequential effect.
+MLLminal is a technical preview, not a production-certified automation platform. It is not certified on every Windows build or clean machine, the installer is not yet code-signed, and application compatibility is not universal. Real Office-specific verification is not claimed; Excel and Outlook may require provider-specific capability work. Review every proposed plan and consequential effect.
 
-Further engineering details, design records, and acceptance evidence live under [`docs/`](docs/). The root README stays focused on the product, its boundaries, and how to use it safely.
+Deeper engineering details, design records, and acceptance evidence live under [docs/](docs/). The root README stays focused on the product, its boundaries, and how to use it safely.
