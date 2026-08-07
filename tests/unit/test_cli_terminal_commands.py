@@ -199,3 +199,55 @@ def test_service_restart_waits_for_stop_before_starting(tmp_path, monkeypatch) -
     assert result.exit_code == 0, result.stdout
     assert calls == [tmp_path]
     assert json.loads(result.stdout)["status"] == "running"
+
+
+def test_cli_exposes_simple_common_commands(tmp_path) -> None:
+    app = create_app(Settings(data_dir=tmp_path, workspace_root=tmp_path))
+
+    for command in (
+        "help",
+        "run",
+        "apps",
+        "flows",
+        "runs",
+        "approve",
+        "deny",
+        "stop",
+        "start",
+    ):
+        result = runner.invoke(app, [command, "--help"])
+        assert result.exit_code == 0, result.stdout
+
+
+def test_cli_help_prioritizes_normal_user_actions(tmp_path) -> None:
+    app = create_app(Settings(data_dir=tmp_path, workspace_root=tmp_path))
+
+    result = runner.invoke(app, ["help"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "MLLminal - local workflow intelligence" in result.stdout
+    assert "mllminal              Open Mil" in result.stdout
+    assert "mllminal run          Run a workflow" in result.stdout
+    assert "Advanced commands:" in result.stdout
+    assert result.stdout.index("Common commands:") < result.stdout.index("Advanced commands:")
+
+
+def test_cli_root_and_chat_open_the_same_mil_terminal(tmp_path, monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def fake_ensure_daemon(settings, client_factory):
+        calls.append("ensure")
+        return {"status": "running"}
+
+    def fake_mil_terminal(settings, client_factory) -> None:
+        calls.append("mil")
+
+    monkeypatch.setattr("mllminal.cli.terminal_commands.ensure_daemon", fake_ensure_daemon)
+    monkeypatch.setattr("mllminal.client.mil.run_mil_terminal", fake_mil_terminal)
+    app = create_app(Settings(data_dir=tmp_path, workspace_root=tmp_path))
+
+    for args in ([], ["chat"], ["mil"]):
+        calls.clear()
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, result.stdout
+        assert calls == ["ensure", "mil"]

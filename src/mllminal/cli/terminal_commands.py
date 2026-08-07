@@ -104,8 +104,19 @@ def register_terminal_commands(
     service = typer.Typer(help="Control the local MLLminal daemon service.")
     install = typer.Typer(help="Install, repair, and safely remove MLLminal-owned state.")
 
+    def open_mil() -> None:
+        from mllminal.client.mil import run_mil_terminal
+
+        try:
+            asyncio.run(ensure_daemon(settings, daemon_client_factory))
+        except (OSError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
+            typer.echo(f"Error: {error}", err=True)
+            raise typer.Exit(code=3) from None
+        run_mil_terminal(settings, daemon_client_factory)
+
     @app.callback(invoke_without_command=True)
     def root_options(
+        context: typer.Context,
         version: bool = typer.Option(
             False, "--version", help="Print the installed MLLminal version."
         ),
@@ -117,6 +128,79 @@ def register_terminal_commands(
                 value = "0.1.0"
             typer.echo(value)
             raise typer.Exit()
+        if context.invoked_subcommand is None:
+            open_mil()
+
+    @app.command("help")
+    def help_command() -> None:
+        typer.echo("MLLminal - local workflow intelligence")
+        typer.echo("")
+        typer.echo("Common commands:")
+        typer.echo("  mllminal              Open Mil")
+        typer.echo("  mllminal chat         Chat with Mil")
+        typer.echo("  mllminal run          Run a workflow")
+        typer.echo("  mllminal workflows    View workflows")
+        typer.echo("  mllminal apps         View discovered apps")
+        typer.echo("  mllminal approvals    Review approvals")
+        typer.echo("  mllminal status       Check system status")
+        typer.echo("  mllminal doctor       Diagnose problems")
+        typer.echo("  mllminal stop         Emergency stop")
+        typer.echo("  mllminal start        Re-enable operation")
+        typer.echo("")
+        typer.echo("Advanced commands:")
+        typer.echo("  applications          Inspect application capabilities")
+        typer.echo("  capabilities          Inspect providers")
+        typer.echo("  executions            Inspect workflow runs")
+        typer.echo("  learning              Train and inspect local policies")
+        typer.echo("  diagnostics           Collect safe diagnostics")
+        typer.echo("  service               Control the local daemon")
+        typer.echo("  install               Repair or remove the installation")
+
+    @app.command("run")
+    def run_workflow(
+        workflow_id: str | None = typer.Argument(default=None),
+        inputs: str = typer.Option("{}", "--inputs"),
+        live: bool = typer.Option(False, "--live"),
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        if workflow_id is None:
+            typer.echo("Choose a workflow with: mllminal run <workflow>", err=True)
+            raise typer.Exit(code=2)
+        workflows_run(workflow_id, inputs, live, json_output)
+
+    @app.command("apps")
+    def apps_command(json_output: bool = typer.Option(False, "--json")) -> None:
+        applications_list(json_output)
+
+    @app.command("flows")
+    def flows_command(json_output: bool = typer.Option(False, "--json")) -> None:
+        workflows_list(json_output)
+
+    @app.command("runs")
+    def runs_command(json_output: bool = typer.Option(False, "--json")) -> None:
+        executions_list(json_output)
+
+    @app.command("approve")
+    def approve_command(
+        approval_id: str,
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        approvals_approve(approval_id, json_output)
+
+    @app.command("deny")
+    def deny_command(
+        approval_id: str,
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        approvals_deny(approval_id, json_output)
+
+    @app.command("stop")
+    def stop_command(json_output: bool = typer.Option(False, "--json")) -> None:
+        emergency_stop(json_output)
+
+    @app.command("start")
+    def start_command(json_output: bool = typer.Option(False, "--json")) -> None:
+        emergency_reset(json_output)
 
     def lifecycle() -> InstallLifecycle:
         return InstallLifecycle(settings)
@@ -149,6 +233,30 @@ def register_terminal_commands(
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
         lifecycle_emit(lambda: lifecycle().purge(confirm), json_output)
+
+    @workflows.callback(invoke_without_command=True)
+    def workflows_root(
+        context: typer.Context,
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        if context.invoked_subcommand is None:
+            workflows_list(json_output)
+
+    @approvals.callback(invoke_without_command=True)
+    def approvals_root(
+        context: typer.Context,
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        if context.invoked_subcommand is None:
+            approvals_list(json_output)
+
+    @applications.callback(invoke_without_command=True)
+    def applications_root(
+        context: typer.Context,
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        if context.invoked_subcommand is None:
+            applications_list(json_output)
 
     @app.command("tui")
     def tui() -> None:
@@ -234,7 +342,7 @@ def register_terminal_commands(
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
         if message is None:
-            typer.echo("Use 'mllminal mil' for the interactive terminal, or pass --message.")
+            open_mil()
             return
         try:
             result = asyncio.run(daemon_client_factory(settings).chat(message))
@@ -252,14 +360,9 @@ def register_terminal_commands(
         if message is not None:
             chat(message=message, json_output=json_output)
             return
-        from mllminal.client.mil import run_mil_terminal
-
-        try:
-            asyncio.run(ensure_daemon(settings, daemon_client_factory))
-        except (OSError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
-            typer.echo(f"Error: {error}", err=True)
-            raise typer.Exit(code=3) from None
-        run_mil_terminal(settings, daemon_client_factory)
+        if message is None:
+            open_mil()
+            return
 
     @workflows.command("list")
     def workflows_list(json_output: bool = typer.Option(False, "--json")) -> None:
