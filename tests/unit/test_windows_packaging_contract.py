@@ -200,6 +200,9 @@ def test_windows_acceptance_is_opt_in_and_headless() -> None:
     assert "MLLMINAL_SETUP_EXE" in acceptance
     assert "CREATE_NO_WINDOW" in acceptance
     assert "/VERYSILENT" in acceptance
+    assert "MLLMINAL_ACCEPTANCE_TIMINGS_PATH" in acceptance
+    assert "cold_install_seconds" in acceptance
+    assert "daemon_ready_seconds" in acceptance
 
 
 def test_windows_ci_builds_and_runs_packaged_acceptance() -> None:
@@ -214,6 +217,9 @@ def test_windows_ci_builds_and_runs_packaged_acceptance() -> None:
     assert "MLLMINAL_WINDOWS_ACCEPTANCE" in job
     assert "MLLMINAL_SETUP_EXE" in job
     assert "tests/acceptance/test_windows_one_click_install.py" in job
+    assert "Record measured package audit" in job
+    assert "MLLMINAL_ACCEPTANCE_TIMINGS_PATH" in job
+    assert "-ColdInstallSeconds" in job
 
 
 def test_advanced_options_can_select_install_location() -> None:
