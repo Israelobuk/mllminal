@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import importlib.metadata
 import json
+import os
 import platform
 import sys
 import zipfile
@@ -27,6 +28,186 @@ from mllminal.install_lifecycle import InstallLifecycle, InstallLifecycleError
 from mllminal.service_lifecycle import daemon_executable, daemon_status, ensure_daemon
 
 ClientFactory = Callable[[Settings], DaemonClient]
+
+
+def _short_id(value: object) -> str:
+    text = str(value or "")
+    return text if len(text) <= 12 else text[:12]
+
+
+def _selection_label(item: dict[str, Any]) -> str:
+    label = item.get("name") or item.get("display_name") or item.get("application")
+    return f"{label or 'Unnamed'} ({_short_id(item.get('id'))})"
+
+
+def _select_index(items: list[dict[str, Any]], prompt: str) -> int | None:
+    if not items:
+        return None
+    typer.echo(prompt)
+    for index, item in enumerate(items, start=1):
+        typer.echo(f"  {index}. {_selection_label(item)}")
+    if not sys.stdin.isatty():
+        return None
+    if os.name == "nt":
+        import msvcrt
+
+        position = 0
+        while True:
+            key = msvcrt.getwch()
+            if key in ("\r", "\n"):
+                return position
+            if key in ("\x00", "\xe0"):
+                arrow = msvcrt.getwch()
+                if arrow == "H":
+                    position = max(0, position - 1)
+                elif arrow == "P":
+                    position = min(len(items) - 1, position + 1)
+                continue
+            if key.casefold() == "q":
+                return None
+            if key.isdigit() and 1 <= int(key) <= len(items):
+                return int(key) - 1
+    while True:
+        value = typer.prompt("Select a number (or q to cancel)")
+        if value.casefold() == "q":
+            return None
+        if value.isdigit() and 1 <= int(value) <= len(items):
+            return int(value) - 1
+        typer.echo(f"Choose a number from 1 to {len(items)}.")
+
+
+def _resolve_record(
+    value: str,
+    records: list[dict[str, Any]],
+    *,
+    allow_number: bool = False,
+) -> dict[str, Any] | None:
+    candidates = [
+        record
+        for record in records
+        if str(record.get("status", "")).casefold() == "pending" or not allow_number
+    ]
+    if allow_number and value.isdigit():
+        index = int(value) - 1
+        return candidates[index] if 0 <= index < len(candidates) else None
+    normalized = value.casefold()
+    exact = [
+        record
+        for record in records
+        if str(record.get("id", "")).casefold() == normalized
+        or str(record.get("name", "")).casefold() == normalized
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    prefix = [
+        record for record in records if str(record.get("id", "")).casefold().startswith(normalized)
+    ]
+    return prefix[0] if len(prefix) == 1 else None
+
+
+def _workflows_human(
+    settings: Settings,
+    factory: ClientFactory,
+    json_output: bool,
+) -> list[dict[str, Any]]:
+    workflows = _request(settings, factory, "GET", "/v1/workflows")
+    if not isinstance(workflows, list):
+        workflows = []
+    if json_output:
+        _emit(workflows, True)
+        return workflows
+    runs = _request(settings, factory, "GET", "/v1/workflow-runs")
+    run_records = runs if isinstance(runs, list) else []
+    latest: dict[str, dict[str, Any]] = {}
+    for run in run_records:
+        workflow_id = str(run.get("workflow_id", ""))
+        previous = latest.get(workflow_id)
+        if previous is None or str(run.get("updated_at", "")) >= str(
+            previous.get("updated_at", "")
+        ):
+            latest[workflow_id] = run
+    typer.echo("Workflows")
+    for workflow in workflows:
+        last = latest.get(str(workflow.get("id", "")))
+        last_state = str(last.get("state", "never run")) if last else "never run"
+        typer.echo(
+            f"{_short_id(workflow.get('id'))}  "
+            f"{workflow.get('name', 'Unnamed workflow')}  "
+            f"{str(workflow.get('status', workflow.get('state', 'unknown'))).casefold()}  "
+            f"last run: {last_state.casefold()}"
+        )
+    return workflows
+
+
+def _applications_human(
+    settings: Settings,
+    factory: ClientFactory,
+    json_output: bool,
+) -> list[dict[str, Any]]:
+    applications = _request(settings, factory, "GET", "/v1/apps")
+    records = applications if isinstance(applications, list) else []
+    if json_output:
+        _emit(records, True)
+        return records
+    typer.echo("Applications")
+    for item in records:
+        metadata = item.get("metadata")
+        capabilities = item.get("capabilities")
+        if not isinstance(capabilities, list) and isinstance(metadata, dict):
+            capabilities = metadata.get("capabilities")
+        capability_summary = (
+            f"{len(capabilities)} capabilities"
+            if isinstance(capabilities, list)
+            else "bounded capabilities"
+        )
+        name = item.get("display_name") or item.get("application") or "Unknown application"
+        state = str(item.get("state", "unknown")).casefold()
+        typer.echo(f"{name}  {state}  - {capability_summary}")
+    return records
+
+
+def _approvals_human(
+    settings: Settings,
+    factory: ClientFactory,
+    json_output: bool,
+) -> list[dict[str, Any]]:
+    approvals = _request(settings, factory, "GET", "/v1/approvals")
+    records = approvals if isinstance(approvals, list) else []
+    if json_output:
+        _emit(records, True)
+        return records
+    pending = [
+        record for record in records if str(record.get("status", "")).casefold() == "pending"
+    ]
+    if not pending:
+        typer.echo("No pending approvals.")
+        return records
+    _select_index(pending, "Pending approvals:")
+    return records
+
+
+def _status_human(
+    settings: Settings,
+    factory: ClientFactory,
+    json_output: bool,
+) -> dict[str, Any]:
+    status = _request(settings, factory, "GET", "/v1/status")
+    if not isinstance(status, dict):
+        status = {}
+    if json_output:
+        _emit(status, True)
+        return status
+    daemon_online = str(status.get("daemon", "")).casefold() == "online"
+    mil_online = str(status.get("mil", "")).casefold() == "online"
+    provider = str(status.get("provider", "")).casefold()
+    model = "Qwen via Ollama" if provider == "qwen" else str(status.get("model", "Local model"))
+    typer.echo("MLLminal is ready" if daemon_online else "MLLminal needs attention")
+    typer.echo(f"Daemon        {'Running' if daemon_online else 'Unavailable'}")
+    typer.echo(f"Mil           {'Available' if mil_online else 'Unavailable'}")
+    typer.echo(f"Model         {model}")
+    if "task_count" in status:
+        typer.echo(f"Active tasks  {status['task_count']}")
+    return status
 
 
 def _json(value: object) -> str:
@@ -163,36 +344,54 @@ def register_terminal_commands(
         live: bool = typer.Option(False, "--live"),
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
+        workflows_value = _request(settings, daemon_client_factory, "GET", "/v1/workflows")
+        workflows = workflows_value if isinstance(workflows_value, list) else []
         if workflow_id is None:
-            typer.echo("Choose a workflow with: mllminal run <workflow>", err=True)
-            raise typer.Exit(code=2)
+            index = _select_index(workflows, "Select a workflow:")
+            if index is None:
+                raise typer.Exit(code=2)
+            workflow_id = str(workflows[index].get("id", ""))
+        else:
+            selected = _resolve_record(workflow_id, workflows)
+            if selected is None:
+                typer.echo(f"Unknown workflow: {workflow_id}", err=True)
+                raise typer.Exit(code=2)
+            workflow_id = str(selected.get("id", ""))
         workflows_run(workflow_id, inputs, live, json_output)
-
-    @app.command("apps")
-    def apps_command(json_output: bool = typer.Option(False, "--json")) -> None:
-        applications_list(json_output)
 
     @app.command("flows")
     def flows_command(json_output: bool = typer.Option(False, "--json")) -> None:
-        workflows_list(json_output)
+        _workflows_human(settings, daemon_client_factory, json_output)
 
     @app.command("runs")
     def runs_command(json_output: bool = typer.Option(False, "--json")) -> None:
         executions_list(json_output)
+
+    def resolve_approval(value: str) -> str:
+        approvals_value = _request(settings, daemon_client_factory, "GET", "/v1/approvals")
+        records = approvals_value if isinstance(approvals_value, list) else []
+        pending = [
+            record for record in records if str(record.get("status", "")).casefold() == "pending"
+        ]
+        selected = _resolve_record(value, pending, allow_number=True)
+        if selected is None:
+            typer.echo(f"Unknown pending approval: {value}", err=True)
+            raise typer.Exit(code=2)
+        return str(selected.get("id", ""))
 
     @app.command("approve")
     def approve_command(
         approval_id: str,
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
-        approvals_approve(approval_id, json_output)
+        approvals_approve(resolve_approval(approval_id), json_output)
 
     @app.command("deny")
     def deny_command(
         approval_id: str,
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
-        approvals_deny(approval_id, json_output)
+        approvals_deny(resolve_approval(approval_id), json_output)
 
     @app.command("stop")
     def stop_command(json_output: bool = typer.Option(False, "--json")) -> None:
@@ -240,7 +439,7 @@ def register_terminal_commands(
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
         if context.invoked_subcommand is None:
-            workflows_list(json_output)
+            _workflows_human(settings, daemon_client_factory, json_output)
 
     @approvals.callback(invoke_without_command=True)
     def approvals_root(
@@ -248,7 +447,7 @@ def register_terminal_commands(
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
         if context.invoked_subcommand is None:
-            approvals_list(json_output)
+            _approvals_human(settings, daemon_client_factory, json_output)
 
     @applications.callback(invoke_without_command=True)
     def applications_root(
@@ -256,7 +455,7 @@ def register_terminal_commands(
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
         if context.invoked_subcommand is None:
-            applications_list(json_output)
+            _applications_human(settings, daemon_client_factory, json_output)
 
     @app.command("tui")
     def tui() -> None:
@@ -266,7 +465,7 @@ def register_terminal_commands(
 
     @app.command("status")
     def status(json_output: bool = typer.Option(False, "--json")) -> None:
-        _emit(_request(settings, daemon_client_factory, "GET", "/v1/status"), json_output)
+        _status_human(settings, daemon_client_factory, json_output)
 
     @app.command("doctor")
     def doctor(json_output: bool = typer.Option(False, "--json")) -> None:

@@ -251,3 +251,181 @@ def test_cli_root_and_chat_open_the_same_mil_terminal(tmp_path, monkeypatch) -> 
         result = runner.invoke(app, args)
         assert result.exit_code == 0, result.stdout
         assert calls == ["ensure", "mil"]
+
+
+def test_run_resolves_workflow_name_to_exact_id(tmp_path) -> None:
+    calls: list[tuple[str, str, object]] = []
+
+    class FakeClient:
+        async def request(self, method, path, payload=None, *, idempotency_key=None):
+            calls.append((method, path, payload))
+            if path == "/v1/workflows":
+                return [
+                    {
+                        "id": "workflow-full-id-1234",
+                        "name": "Organize Downloads",
+                        "state": "active",
+                    }
+                ]
+            return {"id": "run-1", "workflow_id": "workflow-full-id-1234"}
+
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    result = runner.invoke(app, ["run", "Organize Downloads"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls[0][1] == "/v1/workflows"
+    assert calls[1][1] == "/v1/workflows/workflow-full-id-1234/runs"
+
+
+def test_run_uses_interactive_workflow_selection_when_no_id_is_given(tmp_path, monkeypatch) -> None:
+    calls: list[str] = []
+
+    class FakeClient:
+        async def request(self, method, path, payload=None, *, idempotency_key=None):
+            if path == "/v1/workflows":
+                return [
+                    {"id": "workflow-one", "name": "First workflow", "state": "active"},
+                    {"id": "workflow-two", "name": "Second workflow", "state": "active"},
+                ]
+            calls.append(path)
+            return {"id": "run-2"}
+
+    monkeypatch.setattr(
+        "mllminal.cli.terminal_commands._select_index",
+        lambda items, prompt: 1,
+    )
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    result = runner.invoke(app, ["run"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == ["/v1/workflows/workflow-two/runs"]
+
+
+def test_run_without_id_falls_back_to_numbered_text_in_noninteractive_mode(tmp_path) -> None:
+    class FakeClient:
+        async def request(self, method, path, payload=None, *, idempotency_key=None):
+            assert path == "/v1/workflows"
+            return [
+                {"id": "workflow-one", "name": "First workflow", "state": "active"},
+                {"id": "workflow-two", "name": "Second workflow", "state": "active"},
+            ]
+
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    result = runner.invoke(app, ["run"])
+
+    assert result.exit_code == 2
+    assert "1. First workflow" in result.stdout
+    assert "2. Second workflow" in result.stdout
+
+
+def test_approve_resolves_pending_number_to_exact_approval_id(tmp_path) -> None:
+    calls: list[str] = []
+
+    class FakeClient:
+        async def request(self, method, path, payload=None, *, idempotency_key=None):
+            if path == "/v1/approvals":
+                return [
+                    {"id": "approval-one", "status": "PENDING", "task_id": "task-1"},
+                    {"id": "approval-two", "status": "PENDING", "task_id": "task-2"},
+                ]
+            calls.append(path)
+            return {"status": "APPROVED"}
+
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    result = runner.invoke(app, ["approve", "2"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == ["/v1/approvals/approval-two/decisions"]
+
+
+def test_workflows_show_friendly_short_ids_and_last_run(tmp_path) -> None:
+    class FakeClient:
+        async def request(self, method, path, payload=None, *, idempotency_key=None):
+            if path == "/v1/workflows":
+                return [
+                    {
+                        "id": "workflow-full-id-1234",
+                        "name": "Organize Downloads",
+                        "state": "active",
+                    }
+                ]
+            if path == "/v1/workflow-runs":
+                return [
+                    {
+                        "id": "run-1",
+                        "workflow_id": "workflow-full-id-1234",
+                        "state": "completed",
+                        "updated_at": "2026-08-07T12:00:00Z",
+                    }
+                ]
+            raise AssertionError(path)
+
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    result = runner.invoke(app, ["workflows"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "Organize Downloads" in result.stdout
+    assert "workflow-" in result.stdout
+    assert "active" in result.stdout
+    assert "completed" in result.stdout
+
+
+def test_status_and_apps_use_friendly_human_output(tmp_path) -> None:
+    class FakeClient:
+        async def request(self, method, path, payload=None, *, idempotency_key=None):
+            if path == "/v1/status":
+                return {
+                    "daemon": "Online",
+                    "mil": "Online",
+                    "provider": "qwen",
+                    "model": "qwen3:4b",
+                    "task_count": 2,
+                }
+            if path == "/v1/apps":
+                return [
+                    {
+                        "application": "filesystem",
+                        "display_name": "Windows filesystem",
+                        "state": "available",
+                        "available": True,
+                        "metadata": {"capabilities": ["filesystem.list", "filesystem.inspect"]},
+                    }
+                ]
+            raise AssertionError(path)
+
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: FakeClient(),
+    )
+
+    status = runner.invoke(app, ["status"])
+    apps = runner.invoke(app, ["apps"])
+
+    assert status.exit_code == 0, status.stdout
+    assert "MLLminal is ready" in status.stdout
+    assert "Daemon        Running" in status.stdout
+    assert "Mil           Available" in status.stdout
+    assert "Model         Qwen via Ollama" in status.stdout
+    assert apps.exit_code == 0, apps.stdout
+    assert "Windows filesystem" in apps.stdout
+    assert "2 capabilities" in apps.stdout
