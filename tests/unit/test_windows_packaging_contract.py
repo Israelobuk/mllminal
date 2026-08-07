@@ -327,3 +327,16 @@ def test_packaging_readme_records_observed_ci_measurements() -> None:
     assert "121.654 seconds" in readme
     assert "21.042 seconds" in readme
     assert "31208825526" in readme
+
+
+def test_windows_acceptance_clears_developer_tool_environment() -> None:
+    acceptance = (
+        Path(__file__).parents[2] / "tests" / "acceptance" / "test_windows_one_click_install.py"
+    ).read_text(encoding="utf-8")
+
+    assert "PYTHONHOME" in acceptance
+    assert "PYTHONPATH" in acceptance
+    assert "VIRTUAL_ENV" in acceptance
+    assert "UV_INDEX_URL" in acceptance
+    assert "GIT_DIR" in acceptance
+    assert "MLLMINAL_SOURCE_ROOT" in acceptance
