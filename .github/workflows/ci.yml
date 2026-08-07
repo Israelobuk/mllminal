@@ -43,7 +43,30 @@ jobs:
         env:
           MLLMINAL_WINDOWS_ACCEPTANCE: "1"
           MLLMINAL_SETUP_EXE: "${{ github.workspace }}\\packaging\\windows\\dist\\MLLminal-Setup.exe"
+          MLLMINAL_ACCEPTANCE_TIMINGS_PATH: "${{ github.workspace }}\\packaging\\windows\\dist\\MLLminal-acceptance-timings.json"
         run: uv run pytest tests/acceptance/test_windows_one_click_install.py -q
+      - name: Record measured package audit
+        if: always()
+        shell: pwsh
+        run: |
+          $timingsPath = "packaging/windows/dist/MLLminal-acceptance-timings.json"
+          $reportPath = "packaging/windows/dist/MLLminal-package-audit.json"
+          if (-not (Test-Path -LiteralPath $timingsPath) -or -not (Test-Path -LiteralPath $reportPath)) {
+            Write-Warning "Acceptance timing evidence was not produced."
+            exit 0
+          }
+          $timings = Get-Content -LiteralPath $timingsPath -Raw | ConvertFrom-Json
+          $existing = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          $before = [int64]$existing.installer_before_bytes
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File packaging/windows/package-audit.ps1 `
+            -DistributionDirectory packaging/windows/dist `
+            -RuntimeDirectory packaging/windows/runtime `
+            -ReportPath $reportPath `
+            -BeforeSetupBytes $before `
+            -ColdInstallSeconds ([double]$timings.cold_install_seconds) `
+            -FirstLaunchSeconds ([double]$timings.first_launch_seconds) `
+            -DaemonReadySeconds ([double]$timings.daemon_ready_seconds)
+          if ($LASTEXITCODE -ne 0) { throw "Measured package audit failed." }
       - name: Upload installer evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,4 +75,5 @@ jobs:
           path: |
             packaging/windows/dist/MLLminal-Setup.exe
             packaging/windows/dist/MLLminal-package-audit.json
+            packaging/windows/dist/MLLminal-acceptance-timings.json
           if-no-files-found: warn

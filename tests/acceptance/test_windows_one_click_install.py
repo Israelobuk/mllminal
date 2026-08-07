@@ -38,6 +38,22 @@ class InstalledFixture:
         return self.app / "unins000.exe"
 
 
+_ACCEPTANCE_TIMINGS: dict[str, float] = {}
+
+
+def _record_timing(name: str, started_at: float) -> None:
+    _ACCEPTANCE_TIMINGS[name] = round(time.perf_counter() - started_at, 3)
+
+
+def _write_timings() -> None:
+    raw_path = os.environ.get("MLLMINAL_ACCEPTANCE_TIMINGS_PATH")
+    if not raw_path:
+        return
+    path = Path(raw_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_ACCEPTANCE_TIMINGS, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def _setup_executable() -> Path:
     if os.environ.get("MLLMINAL_WINDOWS_ACCEPTANCE") != "1":
         pytest.skip("set MLLMINAL_WINDOWS_ACCEPTANCE=1 for opt-in installer acceptance")
@@ -112,6 +128,7 @@ def _provision_fixture(root: Path) -> InstalledFixture:
             "MLLMINAL_DATA_DIR": str(data),
         }
     )
+    started_at = time.perf_counter()
     result = _run(
         [
             str(setup),
@@ -122,6 +139,8 @@ def _provision_fixture(root: Path) -> InstalledFixture:
         env,
         capture_output=False,
     )
+    if "cold_install_seconds" not in _ACCEPTANCE_TIMINGS:
+        _record_timing("cold_install_seconds", started_at)
     assert result.returncode == 0, _result_output(result)
     return InstalledFixture(root, app, data, backups, env)
 
@@ -142,7 +161,10 @@ def installed_fixture(tmp_path_factory: pytest.TempPathFactory) -> InstalledFixt
     try:
         yield fixture
     finally:
-        _remove_fixture(fixture)
+        try:
+            _remove_fixture(fixture)
+        finally:
+            _write_timings()
 
 
 def test_fresh_install_provisions_runtime_and_local_state(
@@ -191,7 +213,10 @@ def test_friendly_start_menu_shortcuts_are_installed(installed_fixture: Installe
 
 def test_daemon_readiness_and_doctor_complete(installed_fixture: InstalledFixture) -> None:
     fixture = installed_fixture
+    started_at = time.perf_counter()
     result = _run([str(fixture.cli), "doctor", "--json"], fixture.env)
+    _record_timing("first_launch_seconds", started_at)
+    _ACCEPTANCE_TIMINGS["daemon_ready_seconds"] = _ACCEPTANCE_TIMINGS["first_launch_seconds"]
     assert result.returncode == 0, _result_output(result)
     payload = json.loads(result.stdout)
     assert payload["health"]["status"] == "ok"
