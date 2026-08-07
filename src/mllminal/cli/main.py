@@ -24,7 +24,7 @@ from mllminal.assistance.contracts import (
 from mllminal.assistance.service import ProactiveAssistanceService
 from mllminal.automl.contracts import AutoMLRequest
 from mllminal.automl.service import LocalAutoMLService
-from mllminal.cli.terminal_commands import register_terminal_commands
+from mllminal.cli.terminal_commands import _applications_human, register_terminal_commands
 from mllminal.client.api import DaemonClient, LearningDaemonClient
 from mllminal.compiler.contracts import CompilerRequest
 from mllminal.compiler.service import WorkflowCompilerService
@@ -134,6 +134,18 @@ def create_app(
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
     system = typer.Typer(help="Inspect local hardware and runtime recommendations.")
+
+    @apps.callback(invoke_without_command=True)
+    def apps_root(
+        context: typer.Context,
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        if context.invoked_subcommand is None:
+            _applications_human(
+                resolved_settings,
+                daemon_client_factory or DaemonClient,
+                json_output,
+            )
 
     def acceptance_service() -> ProductAcceptanceService:
         return ProductAcceptanceService(resolved_settings.data_dir / "acceptance")
