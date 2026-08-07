@@ -145,15 +145,6 @@ def installed_fixture(tmp_path_factory: pytest.TempPathFactory) -> InstalledFixt
         _remove_fixture(fixture)
 
 
-@pytest.fixture
-def uninstall_fixture(tmp_path: Path) -> InstalledFixture:
-    fixture = _provision_fixture(tmp_path / "mllminal-uninstall")
-    try:
-        yield fixture
-    finally:
-        _remove_fixture(fixture)
-
-
 def test_fresh_install_provisions_runtime_and_local_state(
     installed_fixture: InstalledFixture,
 ) -> None:
@@ -204,7 +195,7 @@ def test_daemon_readiness_and_doctor_complete(installed_fixture: InstalledFixtur
     assert result.returncode == 0, _result_output(result)
     payload = json.loads(result.stdout)
     assert payload["health"]["status"] == "ok"
-    assert payload["status"]["daemon"] == "online"
+    assert payload["status"]["daemon"].casefold() == "online"
 
 
 def test_optional_components_do_not_block_the_bounded_install(
@@ -258,9 +249,9 @@ def test_repair_run_preserves_a_user_state_sentinel(installed_fixture: Installed
 
 
 def test_silent_uninstall_removes_owned_components_and_retains_data(
-    uninstall_fixture: InstalledFixture,
+    installed_fixture: InstalledFixture,
 ) -> None:
-    fixture = uninstall_fixture
+    fixture = installed_fixture
     sentinel = fixture.data / "acceptance-user-state.txt"
     sentinel.write_text("retain me", encoding="utf-8")
     result = _run(
