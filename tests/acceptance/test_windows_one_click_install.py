@@ -114,6 +114,24 @@ def _result_output(result: subprocess.CompletedProcess[str]) -> str:
     return (result.stdout or "") + (result.stderr or "")
 
 
+def _clean_developer_tool_environment(env: dict[str, str], user_path: str) -> dict[str, str]:
+    developer_keys = {
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "MLLMINAL_SOURCE_ROOT",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "UV_INDEX_URL",
+        "VIRTUAL_ENV",
+    }
+    developer_key_names = {key.casefold() for key in developer_keys}
+    for key in tuple(env):
+        if key.casefold() == "path" or key.casefold() in developer_key_names:
+            del env[key]
+    env["Path"] = user_path
+    return env
+
+
 def _provision_fixture(root: Path) -> InstalledFixture:
     setup = _setup_executable()
     app = root / "app"
@@ -296,11 +314,7 @@ def test_new_terminal_resolves_bundled_cli_by_name(
     fixture = installed_fixture
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
         user_path, _ = winreg.QueryValueEx(key, "Path")
-    env = fixture.env.copy()
-    for key in tuple(env):
-        if key.casefold() == "path":
-            del env[key]
-    env["Path"] = user_path
+    env = _clean_developer_tool_environment(fixture.env.copy(), user_path)
     result = _run(["mllminal.exe", "--version"], env)
     assert result.returncode == 0, _result_output(result)
     assert result.stdout.strip() == "0.1.0"
