@@ -58,21 +58,15 @@ A workflow is proposed before it runs. Permission, approval, eligibility, execut
 
 ## How it works
 
-~~~text
-CLI / Textual / Mil
-        ↓
-Authenticated local daemon
-        ↓
-Workflow compiler and safety gates
-        ↓
-Capability and provider resolution
-        ↓
-Application, browser, filesystem, and document providers
-        ↓
-Independent verification and durable checkpoints
-        ↓
-Offline learning and advisory ranking
-~~~
+```mermaid
+flowchart TD
+    A["CLI / Textual / Mil"] --> B["Authenticated local daemon"]
+    B --> C["Workflow compiler and safety gates"]
+    C --> D["Capability and provider resolution"]
+    D --> E["Application, browser, filesystem, and document providers"]
+    E --> F["Independent verification and durable checkpoints"]
+    F --> G["Offline learning and advisory ranking"]
+```
 
 The runtime follows this sequence:
 
@@ -89,9 +83,9 @@ A learned policy may advise ranking or suggestions. It cannot introduce an ineli
 
 ## Safety and privacy
 
-MLLminal is local-first. It does not offload MLLminal data or model execution to an MLLminal cloud service. Observation requires explicit consent and stays metadata-oriented.
+MLLminal is local-first. No MLLminal cloud offloading occurs: data and model execution stay local. Observation requires explicit consent and stays metadata-oriented.
 
-MLLminal does not capture passwords, credentials, cookies, tokens, private keys, secure fields, clipboard contents, raw typed text, microphone input, camera input, or unrestricted screen content. It does not provide unrestricted shell execution, automatic email sending, automatic form submission, purchasing, or online model training during live execution.
+There is no password or credential capture. MLLminal does not capture passwords, credentials, cookies, tokens, private keys, secure fields, clipboard contents, raw typed text, microphone input, camera input, or unrestricted screen content. There is no unrestricted shell execution. It does not provide automatic email sending, automatic form submission, purchasing, or online model training during live execution.
 
 The emergency stop remains authoritative. Deterministic safety filtering occurs before learned ranking. There is no automatic policy promotion. Policies are never automatically promoted. Every consequential effect requires independent verification, and recovery or rollback is used where the selected provider supports it.
 
@@ -179,6 +173,9 @@ mllminal install data-path
 mllminal install purge-data
 ~~~
 
+## Windows installation
+
+Download the Windows setup executable. Double-click it and use the safe per-user defaults. Start Menu shortcuts are created for Mil, the TUI, and diagnostics. Close setup at the Ready page. For unattended setup, use /VERYSILENT /NORESTART.
 ## Upgrade, repair, and uninstall
 
 Run a newer installer over an existing installation to upgrade. Before migrations, MLLminal backs up the SQLite database. Upgrades preserve workflows, execution history, checkpoints, application profiles, policy bindings, still-valid approvals, Mil sessions, settings, and learning metadata. Unsafe database downgrades are blocked.
@@ -226,7 +223,7 @@ For deterministic fixtures and tests, use uv run mllminal models use determinist
 - If an upgrade reports an unsafe database revision, restore the latest backup and use a matching installer version. Do not force a downgrade.
 - If an adapter is unavailable, inspect mllminal capabilities list and mllminal diagnostics collect --json; unsupported applications degrade to bounded discovery or manual handoff.
 - Use mllminal emergency-stop whenever an execution must halt immediately.
-- The Start Menu Diagnostics shortcut runs a bounded diagnostic projection without requiring a manually opened shell.
+- The Start Menu Diagnostics shortcut runs mllminal doctor --json without requiring a manually opened shell and records doctor-shortcut.json.
 
 ## Project status and limitations
 
