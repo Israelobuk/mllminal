@@ -1,6 +1,8 @@
 # Connected CLI and TUI client
 
-MLLminal is a CLI-first product. The `mllminal` commands and `mllminal-ui` Textual terminal client are thin authenticated clients of the local daemon. The daemon owns sessions, messages, workflows, executions, approvals, observation, privacy, permissions, verification, learning, and persistence.
+MLLminal is a CLI-first product. The `mllminal` commands and Textual terminal client (`mllminal tui`, with `mllminal-ui` retained as a packaged compatibility entrypoint) are thin authenticated clients of the local daemon. The daemon owns sessions, messages, workflows, executions, approvals, observation, privacy, permissions, verification, learning, and persistence.
+
+The root `mllminal` command starts Mil. `mllminal "prompt"` submits one prompt through the same runtime, while `mllminal .` starts Mil with the current directory as its normalized workspace. The `mil` and `chat` commands remain compatibility aliases. Each entrypoint reuses the local daemon when it is healthy, starts it when needed, and reports `mllminal doctor` for bounded startup diagnostics.
 
 ## Terminal responsibilities
 
@@ -18,4 +20,4 @@ The per-user Windows installer carries the daemon, CLI, Mil terminal, Textual TU
 
 ## Acceptance
 
-On an installed Windows shell, run `mllminal doctor`, `mllminal readiness`, and `mllminal status --json`, then launch `mllminal mil` or `mllminal tui`. Confirm Mil sessions survive reconnect, workflow proposals remain reviewable, approvals are explicit, progress and verification are daemon-backed, application/capability discovery is bounded, policy status is visible, and emergency stop blocks new actions.
+On an installed Windows shell, run `mllminal doctor`, `mllminal readiness`, and `mllminal status --json`, then launch `mllminal` or `mllminal tui`. Confirm root one-shot prompts and workspace mode, Mil sessions survive reconnect, workflow proposals remain reviewable, approvals are explicit, progress and verification are daemon-backed, application/capability discovery is bounded, policy status is visible, and emergency stop blocks new actions.
