@@ -183,3 +183,109 @@ async def test_ensure_daemon_reports_bounded_failure_with_diagnostics(
     assert "Open Diagnostics" in str(error.value)
     assert error.value.diagnostics_path.is_file()
     assert "missing executable" in error.value.diagnostics_path.read_text(encoding="utf-8")
+
+
+def test_start_daemon_reclaims_dead_lock_from_previous_installation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from mllminal.service_lifecycle import daemon_lock_path, start_daemon
+
+    class FakeProcess:
+        pid = 4568
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    current_executable = tmp_path / "current" / "mllminald.exe"
+    old_executable = tmp_path / "old" / "mllminald.exe"
+    daemon_lock_path(settings).parent.mkdir(parents=True)
+    daemon_lock_path(settings).write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "pid": 1234,
+                "executable": str(old_executable),
+                "created_at": "2026-08-22T12:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.daemon_executable", lambda _settings: str(current_executable)
+    )
+    monkeypatch.setattr("mllminal.service_lifecycle._process_is_alive", lambda _pid: False)
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.subprocess.Popen", lambda *_args, **_kwargs: FakeProcess()
+    )
+
+    assert start_daemon(settings) == {"status": "starting", "pid": 4568}
+
+
+def test_start_daemon_blocks_live_lock_owned_by_another_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    import os
+
+    from mllminal.service_lifecycle import daemon_lock_path, start_daemon
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    current_executable = tmp_path / "current" / "mllminald.exe"
+    other_executable = tmp_path / "other" / "mllminald.exe"
+    daemon_lock_path(settings).parent.mkdir(parents=True)
+    daemon_lock_path(settings).write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "pid": os.getpid(),
+                "executable": str(other_executable),
+                "created_at": "2026-08-22T12:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.daemon_executable", lambda _settings: str(current_executable)
+    )
+    monkeypatch.setattr("mllminal.service_lifecycle._process_is_alive", lambda _pid: True)
+
+    with pytest.raises(RuntimeError, match="owns the daemon lock"):
+        start_daemon(settings)
+    assert daemon_lock_path(settings).is_file()
+
+
+def test_start_daemon_blocks_pid_reuse_when_process_identity_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    import os
+
+    from mllminal.service_lifecycle import daemon_lock_path, start_daemon
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    executable = tmp_path / "mllminald.exe"
+    daemon_lock_path(settings).parent.mkdir(parents=True)
+    daemon_lock_path(settings).write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "pid": os.getpid(),
+                "executable": str(executable),
+                "process_start_time": "old-start",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.daemon_executable", lambda _settings: str(executable)
+    )
+    monkeypatch.setattr("mllminal.service_lifecycle._process_is_alive", lambda _pid: True)
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle._process_start_identity", lambda _pid: "new-start"
+    )
+
+    with pytest.raises(RuntimeError, match="owns the daemon lock"):
+        start_daemon(settings)
