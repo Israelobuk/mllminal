@@ -116,11 +116,13 @@ def test_start_daemon_reclaims_stale_lock_and_records_ownership(
     result = start_daemon(settings)
 
     assert result == {"status": "starting", "pid": 4567}
-    assert json.loads(daemon_lock_path(settings).read_text(encoding="utf-8")) == {
-        "status": "running",
-        "pid": 4567,
-        "executable": str(executable),
-    }
+    record = json.loads(daemon_lock_path(settings).read_text(encoding="utf-8"))
+    assert record["status"] == "running"
+    assert record["pid"] == 4567
+    assert record["executable"] == str(executable)
+    if "created_at" in record:
+        assert isinstance(record["created_at"], str)
+        assert isinstance(record["process_start_time"], str)
 
 
 def test_start_daemon_detaches_stdio_from_the_installer(
