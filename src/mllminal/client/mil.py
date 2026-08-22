@@ -125,13 +125,20 @@ async def _submit(client: DaemonClient, settings: Settings, content: str) -> Non
         print(f"Execution ended without verified completion: {final_state}")
 
 
+def run_mil_prompt(
+    settings: Settings, content: str, client_factory: ClientFactory = DaemonClient
+) -> None:
+    """Submit one prompt through the same streamed, approval-aware Mil path."""
+    asyncio.run(_submit(client_factory(settings), settings, content))
+
+
 def run_mil_terminal(settings: Settings, client_factory: ClientFactory = DaemonClient) -> None:
     """Run a persistent local session with bounded slash commands."""
     client = client_factory(settings)
-    print("Mil terminal. Type /help for commands; /quit to exit.")
+    print("Type /help for commands; /exit to leave.")
     while True:
         try:
-            line = input("mil> ")
+            line = input("\u203a ")
         except (EOFError, KeyboardInterrupt):
             print()
             return

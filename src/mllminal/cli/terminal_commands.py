@@ -25,6 +25,7 @@ import typer
 from mllminal.client.api import DaemonClient
 from mllminal.config import Settings
 from mllminal.install_lifecycle import InstallLifecycle, InstallLifecycleError
+from mllminal.runtime_bootstrap import RuntimeBootstrap, RuntimeBootstrapError
 from mllminal.service_lifecycle import daemon_executable, daemon_status, ensure_daemon
 
 ClientFactory = Callable[[Settings], DaemonClient]
@@ -285,15 +286,60 @@ def register_terminal_commands(
     service = typer.Typer(help="Control the local MLLminal daemon service.")
     install = typer.Typer(help="Install, repair, and safely remove MLLminal-owned state.")
 
-    def open_mil() -> None:
-        from mllminal.client.mil import run_mil_terminal
+    bootstrap = RuntimeBootstrap(
+        settings,
+        daemon_client_factory,
+        ensure_fn=ensure_daemon,
+    )
+
+    def ensure_service() -> None:
+        client = daemon_client_factory(settings)
+        if not callable(getattr(client, "health", None)):
+            return
+        try:
+            asyncio.run(bootstrap.prepare())
+        except RuntimeBootstrapError as error:
+            typer.echo(str(error), err=True)
+            raise typer.Exit(code=3) from None
+
+    def package_version() -> str:
+        try:
+            return importlib.metadata.version("mllminal")
+        except importlib.metadata.PackageNotFoundError:
+            return "0.1.0"
+
+    def target_is_workspace(value: str) -> bool:
+        candidate = Path(value).expanduser()
+        return (
+            value in {".", ".."}
+            or candidate.is_absolute()
+            or any(separator in value for separator in ("/", "\\"))
+        )
+
+    def open_mil(
+        *,
+        workspace: str | None = None,
+        prompt: str | None = None,
+        verbose: bool = False,
+    ) -> None:
+        from mllminal.client.mil import run_mil_prompt, run_mil_terminal
 
         try:
-            asyncio.run(ensure_daemon(settings, daemon_client_factory))
-        except (OSError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
-            typer.echo(f"Error: {error}", err=True)
-            raise typer.Exit(code=3) from None
-        run_mil_terminal(settings, daemon_client_factory)
+            context = asyncio.run(bootstrap.prepare(workspace))
+        except RuntimeBootstrapError as error:
+            typer.echo(str(error), err=True)
+            code = 2 if "workspace" in error.detail else 3
+            raise typer.Exit(code=code) from None
+        typer.echo(f"MLLminal v{package_version()}")
+        if workspace is not None:
+            typer.echo(f"Workspace: {context.workspace}")
+        typer.echo("Mil is ready.")
+        if verbose:
+            typer.echo("Bootstrap: local service ready", err=True)
+        if prompt is not None:
+            run_mil_prompt(context.settings, prompt, daemon_client_factory)
+            return
+        run_mil_terminal(context.settings, daemon_client_factory)
 
     @app.callback(invoke_without_command=True)
     def root_options(
@@ -301,34 +347,49 @@ def register_terminal_commands(
         version: bool = typer.Option(
             False, "--version", help="Print the installed MLLminal version."
         ),
+        verbose: bool = typer.Option(False, "--verbose", help="Show local bootstrap diagnostics."),
     ) -> None:
         if version:
-            try:
-                value = importlib.metadata.version("mllminal")
-            except importlib.metadata.PackageNotFoundError:
-                value = "0.1.0"
-            typer.echo(value)
+            typer.echo(package_version())
             raise typer.Exit()
         if context.invoked_subcommand is None:
-            open_mil()
+            open_mil(verbose=verbose)
+
+    @app.command("_root_target", hidden=True)
+    def root_target(
+        context: typer.Context,
+        target: str = typer.Argument(..., help="A prompt or workspace path."),
+    ) -> None:
+        verbose = bool(context.find_root().params.get("verbose", False))
+        if target_is_workspace(target):
+            open_mil(workspace=target, verbose=verbose)
+        else:
+            open_mil(prompt=target, verbose=verbose)
 
     @app.command("help")
     def help_command() -> None:
         typer.echo("MLLminal - local workflow intelligence")
         typer.echo("")
-        typer.echo("Common commands:")
-        typer.echo("  mllminal              Open Mil")
-        typer.echo("  mllminal chat         Chat with Mil")
+        typer.echo("Start")
+        typer.echo("  mllminal              Start Mil")
+        typer.echo('  mllminal "<prompt>"    Send one prompt to Mil')
+        typer.echo("  mllminal .            Start Mil in this workspace")
+        typer.echo("")
+        typer.echo("Common commands")
         typer.echo("  mllminal run          Run a workflow")
         typer.echo("  mllminal workflows    View workflows")
         typer.echo("  mllminal apps         View discovered apps")
-        typer.echo("  mllminal approvals    Review approvals")
         typer.echo("  mllminal status       Check system status")
-        typer.echo("  mllminal doctor       Diagnose problems")
+        typer.echo("  mllminal doctor       Diagnose and repair local runtime")
+        typer.echo("")
+        typer.echo("Safety and approvals")
+        typer.echo("  mllminal approvals    Review approvals")
+        typer.echo("  mllminal approve <id> Approve an exact plan")
+        typer.echo("  mllminal deny <id>    Deny an exact plan")
         typer.echo("  mllminal stop         Emergency stop")
         typer.echo("  mllminal start        Re-enable operation")
         typer.echo("")
-        typer.echo("Advanced commands:")
+        typer.echo("Advanced")
         typer.echo("  applications          Inspect application capabilities")
         typer.echo("  capabilities          Inspect providers")
         typer.echo("  executions            Inspect workflow runs")
@@ -344,6 +405,7 @@ def register_terminal_commands(
         live: bool = typer.Option(False, "--live"),
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
+        ensure_service()
         workflows_value = _request(settings, daemon_client_factory, "GET", "/v1/workflows")
         workflows = workflows_value if isinstance(workflows_value, list) else []
         if workflow_id is None:
@@ -361,13 +423,16 @@ def register_terminal_commands(
 
     @app.command("flows")
     def flows_command(json_output: bool = typer.Option(False, "--json")) -> None:
+        ensure_service()
         _workflows_human(settings, daemon_client_factory, json_output)
 
     @app.command("runs")
     def runs_command(json_output: bool = typer.Option(False, "--json")) -> None:
+        ensure_service()
         executions_list(json_output)
 
     def resolve_approval(value: str) -> str:
+        ensure_service()
         approvals_value = _request(settings, daemon_client_factory, "GET", "/v1/approvals")
         records = approvals_value if isinstance(approvals_value, list) else []
         pending = [
@@ -438,6 +503,7 @@ def register_terminal_commands(
         context: typer.Context,
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
+        ensure_service()
         if context.invoked_subcommand is None:
             _workflows_human(settings, daemon_client_factory, json_output)
 
@@ -446,6 +512,7 @@ def register_terminal_commands(
         context: typer.Context,
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
+        ensure_service()
         if context.invoked_subcommand is None:
             _approvals_human(settings, daemon_client_factory, json_output)
 
@@ -454,6 +521,7 @@ def register_terminal_commands(
         context: typer.Context,
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
+        ensure_service()
         if context.invoked_subcommand is None:
             _applications_human(settings, daemon_client_factory, json_output)
 
@@ -465,16 +533,24 @@ def register_terminal_commands(
 
     @app.command("status")
     def status(json_output: bool = typer.Option(False, "--json")) -> None:
+        ensure_service()
         _status_human(settings, daemon_client_factory, json_output)
 
     @app.command("doctor")
-    def doctor(json_output: bool = typer.Option(False, "--json")) -> None:
+    def doctor(
+        repair: bool = typer.Option(False, "--repair", help="Repair verified stale runtime state."),
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
         async def check() -> dict[str, Any]:
-            await ensure_daemon(settings, daemon_client_factory)
-            client = daemon_client_factory(settings)
+            observed = daemon_status(settings) if repair else None
+            context = await bootstrap.prepare()
+            client = daemon_client_factory(context.settings)
             health = await client.health()
             status_value = await client.request("GET", "/v1/status")
-            return {"health": health, "status": status_value}
+            result: dict[str, Any] = {"health": health, "status": status_value}
+            if repair:
+                result["repair"] = {"requested": True, "state": observed}
+            return result
 
         try:
             _emit(asyncio.run(check()), json_output)
