@@ -11,6 +11,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,73 @@ def _process_is_alive(pid: int) -> bool:
     return True
 
 
+def _process_start_identity(pid: int) -> str | None:
+    """Return a stable process-start marker when the host exposes one."""
+    if pid <= 0:
+        return None
+    if sys.platform == "win32":
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:
+            return None
+        handle = windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return None
+
+        class FileTime(ctypes.Structure):
+            _fields_ = [("low", ctypes.c_ulong), ("high", ctypes.c_ulong)]
+
+        creation = FileTime()
+        exit_time = FileTime()
+        kernel_time = FileTime()
+        user_time = FileTime()
+        try:
+            if not windll.kernel32.GetProcessTimes(
+                handle,
+                ctypes.byref(creation),
+                ctypes.byref(exit_time),
+                ctypes.byref(kernel_time),
+                ctypes.byref(user_time),
+            ):
+                return None
+            value = (creation.high << 32) | creation.low
+            return str(value)
+        finally:
+            windll.kernel32.CloseHandle(handle)
+
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()
+    except (OSError, UnicodeError, IndexError):
+        return None
+    return fields[19] if len(fields) > 19 else None
+
+
+def _process_executable(pid: int) -> str | None:
+    """Return a process executable path when it can be queried safely."""
+    if pid <= 0:
+        return None
+    if sys.platform == "win32":
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:
+            return None
+        handle = windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return None
+        buffer = ctypes.create_unicode_buffer(32768)
+        size = ctypes.c_ulong(len(buffer))
+        try:
+            if not windll.kernel32.QueryFullProcessImageNameW(
+                handle, 0, buffer, ctypes.byref(size)
+            ):
+                return None
+            return buffer.value[: size.value]
+        finally:
+            windll.kernel32.CloseHandle(handle)
+    try:
+        return str(Path(f"/proc/{pid}/exe").resolve(strict=True))
+    except OSError:
+        return None
+
+
 def _same_executable(left: str, right: str) -> bool:
     try:
         return (
@@ -80,18 +148,44 @@ def _read_owned_lock(lock_path: Path, executable: str) -> dict[str, Any] | None:
         with suppress(FileNotFoundError, OSError):
             lock_path.unlink()
         return None
-    if not isinstance(payload, dict) or not _same_executable(
-        str(payload.get("executable", "")), executable
-    ):
+    if not isinstance(payload, dict):
+        with suppress(FileNotFoundError, OSError):
+            lock_path.unlink()
         return None
-    raw_pid = payload.get("pid")
-    if payload.get("status") == "starting":
-        raw_pid = payload.get("owner_pid")
-    try:
-        pid = int(str(raw_pid))
-    except (TypeError, ValueError):
-        pid = 0
+    pid = _lock_pid(payload)
+    if not _same_executable(str(payload.get("executable", "")), executable):
+        if not _process_is_alive(pid):
+            with suppress(FileNotFoundError, OSError):
+                lock_path.unlink()
+            return None
+        return {
+            "status": "blocked",
+            "pid": pid,
+            "reason": "another process owns the daemon lock",
+        }
     if _process_is_alive(pid):
+        expected_start = payload.get("process_start_time")
+        actual_start = _process_start_identity(pid) if expected_start is not None else None
+        if (
+            expected_start is not None
+            and actual_start is not None
+            and str(expected_start) != actual_start
+        ):
+            return {
+                "status": "blocked",
+                "pid": pid,
+                "reason": "another process owns the daemon lock",
+            }
+        if payload.get("status") == "running":
+            actual_executable = _process_executable(pid)
+            if actual_executable is not None and not _same_executable(
+                actual_executable, executable
+            ):
+                return {
+                    "status": "blocked",
+                    "pid": pid,
+                    "reason": "another process owns the daemon lock",
+                }
         return {"status": str(payload.get("status", "running")), "pid": pid}
     with suppress(FileNotFoundError, OSError):
         lock_path.unlink()
@@ -104,6 +198,8 @@ def daemon_status(settings: Settings) -> dict[str, Any]:
     if executable is None:
         return {"status": "uninstalled"}
     info = _read_owned_lock(daemon_lock_path(settings), executable)
+    if info is not None and info.get("status") == "blocked":
+        return {"status": "startup_blocked", **info}
     return info or {"status": "stopped"}
 
 
@@ -132,21 +228,24 @@ def start_daemon(settings: Settings) -> dict[str, Any]:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     existing = _read_owned_lock(lock_path, executable)
     if existing is not None:
+        if existing.get("status") == "blocked":
+            raise RuntimeError(str(existing.get("reason", "another process owns the daemon lock")))
         return {"status": "already_running", "pid": existing["pid"]}
 
     lock_handle = None
     for _attempt in range(2):
         try:
             lock_handle = lock_path.open("x+", encoding="utf-8")
-            json.dump(
-                {"status": "starting", "owner_pid": os.getpid(), "executable": executable},
-                lock_handle,
-            )
+            json.dump(_lock_record("starting", executable, owner_pid=os.getpid()), lock_handle)
             lock_handle.flush()
             break
         except FileExistsError:
             existing = _read_owned_lock(lock_path, executable)
             if existing is not None:
+                if existing.get("status") == "blocked":
+                    raise RuntimeError(
+                        str(existing.get("reason", "another process owns the daemon lock"))
+                    ) from None
                 return {"status": "already_running", "pid": existing["pid"]}
     if lock_handle is None:
         raise RuntimeError("another MLLminal daemon startup is already in progress")
@@ -183,7 +282,7 @@ def start_daemon(settings: Settings) -> dict[str, Any]:
             process = spawn(flags & ~breakaway_flag)
         lock_handle.seek(0)
         lock_handle.truncate()
-        json.dump({"status": "running", "pid": process.pid, "executable": executable}, lock_handle)
+        json.dump(_lock_record("running", executable, pid=process.pid), lock_handle)
         lock_handle.flush()
     except Exception:
         with suppress(FileNotFoundError, OSError):
@@ -235,3 +334,33 @@ async def ensure_daemon(
     detail = f"mllminald did not become healthy within {wait_seconds:.1f} seconds"
     diagnostic = _write_startup_diagnostic(settings, detail)
     raise DaemonStartupError(diagnostic, detail)
+
+
+def _lock_pid(payload: dict[str, Any]) -> int:
+    raw_pid = (
+        payload.get("owner_pid") if payload.get("status") == "starting" else payload.get("pid")
+    )
+    try:
+        return int(str(raw_pid))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _lock_record(
+    status: str, executable: str, *, pid: int | None = None, owner_pid: int | None = None
+) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "status": status,
+        "executable": executable,
+    }
+    identity_pid = pid if pid is not None else owner_pid
+    if pid is not None:
+        record["pid"] = pid
+    if owner_pid is not None:
+        record["owner_pid"] = owner_pid
+    if identity_pid is not None:
+        process_start_time = _process_start_identity(identity_pid)
+        if process_start_time is not None:
+            record["created_at"] = datetime.now(UTC).isoformat()
+            record["process_start_time"] = process_start_time
+    return record

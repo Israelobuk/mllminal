@@ -24,6 +24,7 @@ from mllminal.assistance.contracts import (
 from mllminal.assistance.service import ProactiveAssistanceService
 from mllminal.automl.contracts import AutoMLRequest
 from mllminal.automl.service import LocalAutoMLService
+from mllminal.cli.root import MilRootGroup
 from mllminal.cli.terminal_commands import _applications_human, register_terminal_commands
 from mllminal.client.api import DaemonClient, LearningDaemonClient
 from mllminal.compiler.contracts import CompilerRequest
@@ -71,6 +72,8 @@ from mllminal.privacy.service import PrivacyService
 from mllminal.providers.contracts import AbstractCapability, ProviderRequest
 from mllminal.repair.contracts import RepairApprovalRequest, RepairProposalRequest
 from mllminal.repair.service import WorkflowRepairService
+from mllminal.runtime_bootstrap import RuntimeBootstrap, RuntimeBootstrapError
+from mllminal.service_lifecycle import ensure_daemon
 from mllminal.verification.contracts import (
     LocalVisualObservation,
     VisionRequest,
@@ -107,7 +110,7 @@ def create_app(
     resolved_settings = settings or Settings()
     store = ProviderConfigStore(resolved_settings)
     probe = model_probe or _probe_model
-    app = typer.Typer(help="MLLminal local-first AI execution environment.")
+    app = typer.Typer(cls=MilRootGroup, help="MLLminal local-first AI execution environment.")
     models = typer.Typer(
         help="Inspect and select Mil model providers.", invoke_without_command=True
     )
@@ -134,6 +137,21 @@ def create_app(
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
     system = typer.Typer(help="Inspect local hardware and runtime recommendations.")
+    terminal_bootstrap = RuntimeBootstrap(
+        resolved_settings,
+        daemon_client_factory or DaemonClient,
+        ensure_fn=ensure_daemon,
+    )
+
+    def ensure_terminal_service() -> None:
+        client = (daemon_client_factory or DaemonClient)(resolved_settings)
+        if not callable(getattr(client, "health", None)):
+            return
+        try:
+            asyncio.run(terminal_bootstrap.prepare())
+        except RuntimeBootstrapError as error:
+            typer.echo(str(error), err=True)
+            raise typer.Exit(code=3) from None
 
     @apps.callback(invoke_without_command=True)
     def apps_root(
@@ -141,6 +159,7 @@ def create_app(
         json_output: bool = typer.Option(False, "--json"),
     ) -> None:
         if context.invoked_subcommand is None:
+            ensure_terminal_service()
             _applications_human(
                 resolved_settings,
                 daemon_client_factory or DaemonClient,

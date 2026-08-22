@@ -226,10 +226,10 @@ def test_cli_help_prioritizes_normal_user_actions(tmp_path) -> None:
 
     assert result.exit_code == 0, result.stdout
     assert "MLLminal - local workflow intelligence" in result.stdout
-    assert "mllminal              Open Mil" in result.stdout
+    assert "mllminal              Start Mil" in result.stdout
     assert "mllminal run          Run a workflow" in result.stdout
-    assert "Advanced commands:" in result.stdout
-    assert result.stdout.index("Common commands:") < result.stdout.index("Advanced commands:")
+    assert "Safety and approvals" in result.stdout
+    assert result.stdout.index("Start") < result.stdout.index("Advanced")
 
 
 def test_cli_root_and_chat_open_the_same_mil_terminal(tmp_path, monkeypatch) -> None:

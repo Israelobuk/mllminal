@@ -23,8 +23,11 @@ The installer uses a per-user location where practical, adds only its own CLI en
 These are the commands most people need:
 
 ~~~text
-mllminal                  Open Mil
-mllminal chat             Open the same Mil interface
+mllminal --version        Print the installed version
+mllminal                  Start the canonical Mil terminal
+mllminal "<prompt>"       Send one prompt and use the same Mil runtime
+mllminal .                Start Mil in the current workspace
+mllminal chat             Compatibility alias for the Mil interface
 mllminal run              Choose a workflow and run it
 mllminal status           Show a concise health summary
 mllminal apps             List discovered applications
@@ -36,7 +39,9 @@ mllminal start            Re-enable normal operation
 mllminal help             Show common commands
 ~~~
 
-With a TTY, run and approval review support numbered and arrow-key selection. In a non-interactive terminal they print numbered choices and return a stable nonzero exit code when a choice is required. Workflow names, short IDs, and exact IDs are accepted.
+The root command is the canonical Mil entrypoint. `mllminal mil` and `mllminal chat` remain compatibility aliases. A path-like argument such as `mllminal .` or `mllminal C:\Work\Reports` selects a workspace; other root text is treated as a one-shot prompt. Use `--verbose` only when you need bootstrap diagnostics.
+
+Mil supports `/help`, `/history`, `/clear`, `/begin`, and `/exit`; Ctrl-C and Ctrl-D also leave the session without changing files. With a TTY, run and approval review support numbered and arrow-key selection. In a non-interactive terminal they print numbered choices and return a stable nonzero exit code when a choice is required. Workflow names, short IDs, and exact IDs are accepted.
 
 Useful aliases are apps for applications, flows for workflows, runs for executions, approve and deny for approval decisions, chat for Mil, and stop for emergency stop. Advanced command trees remain available for scripts and operators.
 
@@ -148,6 +153,10 @@ MLLminal is a technical preview. The categories below describe the current bound
 ~~~powershell
 mllminal status
 mllminal doctor
+mllminal doctor --repair
+mllminal --version
+mllminal "summarize the approved report files"
+mllminal .
 mllminal mil
 mllminal applications discover
 mllminal capabilities list

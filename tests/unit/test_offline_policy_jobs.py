@@ -37,7 +37,8 @@ def _repository(path: Path) -> LearningRepository:
 
 
 def _wait_for_terminal(manager: OfflineTrainingJobManager, job_id: str) -> object:
-    for _ in range(200):
+    deadline = time.monotonic() + 45.0
+    while time.monotonic() < deadline:
         status = manager.status(job_id)
         if status.status in {"COMPLETED", "FAILED", "CANCELLED"}:
             return status
