@@ -94,6 +94,10 @@ def test_service_dependent_groups_share_runtime_bootstrap(tmp_path: Path, monkey
                 return []
             if path == "/v1/approvals":
                 return []
+            if path in {"/v1/providers", "/v1/workflow-runs"}:
+                return []
+            if path == "/v1/status":
+                return {"daemon": "Online"}
             raise AssertionError(path)
 
     async def fake_ensure(settings: Settings, _factory: object) -> dict[str, object]:
@@ -112,11 +116,14 @@ def test_service_dependent_groups_share_runtime_bootstrap(tmp_path: Path, monkey
         ["applications", "list"],
         ["approvals", "list"],
         ["apps"],
+        ["executions", "list"],
+        ["capabilities", "list"],
+        ["diagnostics", "collect"],
     ):
         result = runner.invoke(app, args)
         assert result.exit_code == 0, result.output
 
-    assert calls == [tmp_path, tmp_path, tmp_path, tmp_path]
+    assert calls == [tmp_path] * 7
 
 
 def test_help_groups_start_common_safety_and_advanced_commands(tmp_path: Path) -> None:

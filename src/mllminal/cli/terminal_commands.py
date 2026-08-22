@@ -525,8 +525,36 @@ def register_terminal_commands(
         if context.invoked_subcommand is None:
             _applications_human(settings, daemon_client_factory, json_output)
 
+    @executions.callback(invoke_without_command=True)
+    def executions_root(
+        context: typer.Context,
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        ensure_service()
+        if context.invoked_subcommand is None:
+            executions_list(json_output)
+
+    @capabilities.callback(invoke_without_command=True)
+    def capabilities_root(
+        context: typer.Context,
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        ensure_service()
+        if context.invoked_subcommand is None:
+            capabilities_list(json_output)
+
+    @diagnostics.callback(invoke_without_command=True)
+    def diagnostics_root(
+        context: typer.Context,
+        json_output: bool = typer.Option(False, "--json"),
+    ) -> None:
+        ensure_service()
+        if context.invoked_subcommand is None:
+            diagnostics_collect(json_output)
+
     @app.command("tui")
     def tui() -> None:
+        ensure_service()
         from mllminal.client.app import main as run_tui
 
         run_tui()
@@ -560,6 +588,7 @@ def register_terminal_commands(
 
     @app.command("readiness")
     def readiness(json_output: bool = typer.Option(False, "--json")) -> None:
+        ensure_service()
         status_value = _request(settings, daemon_client_factory, "GET", "/v1/status")
         ready = isinstance(status_value, dict) and status_value.get("daemon") == "Online"
         _emit(
@@ -587,6 +616,7 @@ def register_terminal_commands(
 
     @app.command("emergency-stop")
     def emergency_stop(json_output: bool = typer.Option(False, "--json")) -> None:
+        ensure_service()
         _emit(
             _request(
                 settings,
@@ -600,6 +630,7 @@ def register_terminal_commands(
 
     @app.command("emergency-reset")
     def emergency_reset(json_output: bool = typer.Option(False, "--json")) -> None:
+        ensure_service()
         _emit(
             _request(
                 settings,
@@ -619,6 +650,7 @@ def register_terminal_commands(
         if message is None:
             open_mil()
             return
+        ensure_service()
         try:
             result = asyncio.run(daemon_client_factory(settings).chat(message))
         except (OSError, PermissionError, RuntimeError, TimeoutError, httpx.HTTPError) as error:
