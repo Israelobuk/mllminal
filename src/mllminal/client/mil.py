@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
@@ -72,11 +72,22 @@ async def _wait_for_final(client: DaemonClient, task_id: str) -> dict[str, Any]:
     raise TimeoutError("timed out waiting for the daemon to finish verification")
 
 
+async def _stream_items(
+    client: DaemonClient, content: str
+) -> AsyncIterator[dict[str, Any]]:
+    try:
+        async for item in client.stream_chat(content):
+            yield item
+    except httpx.ReadError as error:
+        raise RuntimeError(
+            "Mil stream closed before completion; run mllminal doctor and retry."
+        ) from error
+
 async def _submit(client: DaemonClient, settings: Settings, content: str) -> None:
     session_id = await _prepare_session(client, settings)
     result: dict[str, Any] | None = None
     streamed_text = ""
-    async for item in client.stream_chat(content):
+    async for item in _stream_items(client, content):
         if item.get("type") == "event":
             event = item.get("event", {})
             if event.get("event_type") == "response.delta":
