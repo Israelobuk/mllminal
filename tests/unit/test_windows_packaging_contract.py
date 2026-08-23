@@ -48,6 +48,9 @@ def test_windows_technical_preview_packaging_is_provider_neutral_and_safe() -> N
     assert "Check: DesktopShortcutSelected" in installer
     assert 'Parameters: "tui"' in installer
     assert "Bundled runtime ready" in build_runtime
+    assert "pip check" in build_runtime
+    assert "from prompt_toolkit import PromptSession" in build_runtime
+    assert "Interactive Mil dependencies ready" in build_runtime
     assert "SetEnvironmentVariable" in install
     assert "importlib.metadata.version" in install
     assert "version = $packageVersion" in install
