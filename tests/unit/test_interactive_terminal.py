@@ -112,7 +112,7 @@ def test_wide_welcome_is_a_cohesive_application_surface(tmp_path: Path) -> None:
 
     output = TerminalRenderer(width=120, no_color=True).startup(snapshot)
 
-    assert output.splitlines()[0].startswith("╭")
+    assert output.splitlines()[0] == "MLLminal"
     assert "Welcome back" in output
     assert "Getting started" in output
     assert "Recent activity" in output
@@ -134,7 +134,7 @@ def test_first_run_welcome_has_distinct_greeting_and_bounded_card(tmp_path: Path
     output = TerminalRenderer(width=100, no_color=True).startup(snapshot)
 
     assert "Welcome to MLLminal" in output
-    assert output.splitlines()[0].startswith("╭")
+    assert output.splitlines()[0] == "MLLminal"
     assert max(map(len, output.splitlines())) <= 100
 
 
