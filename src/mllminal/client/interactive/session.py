@@ -237,7 +237,20 @@ class InteractiveSession:
     def _submit(self, content: str) -> None:
         from mllminal.client.mil import _submit
 
-        asyncio.run(_submit(self.client, self.settings, content))
+        asyncio.run(
+            _submit(
+                self.client,
+                self.settings,
+                content,
+                output=self.output,
+                input_func=self._read,
+                stream_output=self._stream_output,
+                approval_prompt=self.renderer.approval_prompt(),
+                plan_renderer=self.renderer.plan,
+                state_renderer=self.renderer.task_state,
+                result_renderer=self.renderer.result,
+            )
+        )
 
     def _handle_command(self, line: str) -> bool:
         spec, argument = parse_command(line)
