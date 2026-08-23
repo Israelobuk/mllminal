@@ -8,6 +8,12 @@ The root `mllminal` command starts Mil. `mllminal "prompt"` submits one prompt t
 
 The CLI provides stable inspection and control commands for daemon status, Mil conversations, applications, capabilities, workflows, executions, approvals, policies, diagnostics, service lifecycle, installation repair, data retention, and emergency stop. Non-interactive projections support readable output and `--json`; consequential actions remain daemon-authorized and idempotent.
 
+## Interactive Mil session
+
+The root terminal opens a responsive startup panel with the workspace, local provider/model, runtime status, privacy posture, real recent durable activity, and available quick starts. `/help` groups `/status`, `/workspace`, `/model`, `/context`, `/apps`, `/workflows`, `/tasks`, `/task <id>`, `/approvals`, `/history`, `/compact`, `/clear`, `/doctor`, `/stop`, and `/exit`.
+
+In a TTY, `/` completion, `@` resource mentions, workspace-confined path completion, and local bounded prompt history are available. `/begin` and `/end` provide predictable multiline input across Windows terminals. Redirected input remains deterministic and decorative output is not emitted into JSON commands. Ctrl-C cancels the client operation without stopping the daemon; approvals, verification, emergency stop, and durable task state remain daemon-owned.
+
 The Textual client provides keyboard-first pages for Mil chat, system status, workflows, executions, approvals, applications, capabilities, active policies, diagnostics, settings, and the event log. It refreshes daemon snapshots and consumes the authenticated event stream. It shows stale/reconnecting state and never treats a disconnected client as permission to execute.
 
 ## Boundaries
