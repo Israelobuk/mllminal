@@ -47,9 +47,9 @@ class TerminalRenderer:
     def startup(self, snapshot: StartupSnapshot) -> str:
         if snapshot.first_run:
             return self._onboarding(snapshot)
-        if self.width >= 90:
+        if self.terminal_width >= 90:
             return self._wide(snapshot)
-        if self.width >= 60:
+        if self.terminal_width >= 60:
             return self._medium(snapshot)
         return self._narrow(snapshot)
 
@@ -89,7 +89,7 @@ class TerminalRenderer:
             "Recent activity",
             *recent,
         ]
-        width = min(self.width - 4, max(62, self.width - 6))
+        width = min(self.terminal_width - 4, max(62, self.terminal_width - 6))
         split = max(28, width // 2)
         rows = [
             self._fit(f"MLLminal {snapshot.version}", width),
@@ -153,6 +153,10 @@ class TerminalRenderer:
             "Type /help at any time.",
         ]
         return "\n".join(self._fit(row) for row in rows)
+
+    @property
+    def terminal_width(self) -> int:
+        return self.width or 80
 
     def _box(self, rows: list[str], width: int) -> str:
         inner = max(1, width - 2)
