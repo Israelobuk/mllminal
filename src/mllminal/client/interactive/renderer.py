@@ -82,6 +82,7 @@ class TerminalRenderer:
             f"Tip: {snapshot.tip}",
         ]
         return "\n".join(self._fit(row) for row in rows)
+
     def status_line(self, label: str, state: str) -> str:
         symbol = (
             "●"
@@ -112,6 +113,7 @@ class TerminalRenderer:
     @staticmethod
     def mil_prefix() -> str:
         return "\nMil\n"
+
     def prompt_message(self) -> str:
         return f"\n{self.prompt_prefix()}"
 
