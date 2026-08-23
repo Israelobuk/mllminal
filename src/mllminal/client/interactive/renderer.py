@@ -57,7 +57,7 @@ class TerminalRenderer:
         suggestions = ["Help me understand this project", *snapshot.quick_starts[:2]]
         rows = [
             "MLLminal",
-            f"Mil \u00b7 {snapshot.model} \u00b7 {snapshot.provider}",
+            f"Mil - {snapshot.model} - {snapshot.provider}",
             "Local workflow intelligence for your computer.",
             "",
             greeting,
@@ -94,7 +94,7 @@ class TerminalRenderer:
     def footer(self, snapshot: StartupSnapshot) -> str:
         workspace = snapshot.workspace.name or self._workspace_display(snapshot.workspace)
         return self._fit(
-            f"{snapshot.model} \u00b7 {snapshot.provider} | {workspace} | "
+            f"{snapshot.model} - {snapshot.provider} | {workspace} | "
             f"{self._runtime_badge(snapshot.runtime)} | / commands | @ context"
         )
 
@@ -153,7 +153,7 @@ class TerminalRenderer:
 
     def _card(self, snapshot: StartupSnapshot, *, wide: bool) -> str:
         greeting = "Welcome to MLLminal" if snapshot.first_run else "Welcome back"
-        identity = f"Mil \u00b7 {snapshot.model} \u00b7 {snapshot.provider}"
+        identity = f"Mil - {snapshot.model} - {snapshot.provider}"
         provider = "Local workflow intelligence"
         workspace = self._workspace_display(snapshot.workspace)
         recent = [self.activity(item) for item in snapshot.recent_activity[:3]]
@@ -229,8 +229,8 @@ class TerminalRenderer:
         if normalized in {"degraded", "warning"}:
             return "! Degraded"
         if normalized in {"offline", "unavailable", "stopped"}:
-            return "\u00d7 Offline"
-        return f"\u00b7 {state}"
+            return "x Offline"
+        return f"- {state}"
 
     def _medium(self, snapshot: StartupSnapshot) -> str:
         recent = [f"  {self.activity(item)}" for item in snapshot.recent_activity[:3]]
@@ -238,7 +238,7 @@ class TerminalRenderer:
             recent = ["  No recent activity"]
         rows = [
             f"MLLminal {snapshot.version}",
-            f"Mil · {snapshot.model} · {snapshot.provider}",
+            f"Mil - {snapshot.model} - {snapshot.provider}",
             f"Workspace: {snapshot.workspace}",
             self.status_line("Runtime", snapshot.runtime),
             f"Privacy: {snapshot.privacy}",
@@ -257,7 +257,7 @@ class TerminalRenderer:
     def _narrow(self, snapshot: StartupSnapshot) -> str:
         rows = [
             "MLLminal",
-            f"Mil \u00b7 {snapshot.model} \u00b7 {snapshot.provider}",
+            f"Mil - {snapshot.model} - {snapshot.provider}",
             self._fit(f"Workspace: {self._workspace_display(snapshot.workspace)}"),
             self._fit(self.status_line("Runtime", snapshot.runtime)),
             f"Tip: {snapshot.tip}",
@@ -310,4 +310,4 @@ class TerminalRenderer:
             return "o"
         if normalized in {"failed", "error", "unavailable", "warning"}:
             return "!"
-        return "·"
+        return "-"
