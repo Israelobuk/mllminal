@@ -7,6 +7,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from mllminal.client.api import DaemonClient
 from mllminal.config import Settings
 
@@ -109,14 +111,19 @@ async def _submit(client: DaemonClient, settings: Settings, content: str) -> Non
     if answer not in {"y", "yes"}:
         print("Plan left pending; no action was executed.")
         return
-    decided = await client.request(
-        "POST",
-        f"/v1/approvals/{approval_id}/decisions",
-        {"status": "APPROVED"},
-        idempotency_key=f"mil-approval-{approval_id}",
-    )
-    if isinstance(decided, dict):
-        print(f"approval: {decided.get('state', 'recorded')}")
+    try:
+        decided = await client.request(
+            "POST",
+            f"/v1/approvals/{approval_id}/decisions",
+            {"status": "APPROVED"},
+            idempotency_key=f"mil-approval-{approval_id}",
+        )
+    except httpx.TimeoutException:
+        print("approval response timed out; checking durable task state")
+        decided = None
+    else:
+        if isinstance(decided, dict):
+            print(f"approval: {decided.get('state', 'recorded')}")
     final = await _wait_for_final(client, str(task_id))
     final_state = str(final.get("state"))
     if final_state == "COMPLETED":
