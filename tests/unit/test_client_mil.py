@@ -81,7 +81,6 @@ def test_submit_recovers_when_approval_response_times_out_after_daemon_commit(
     assert "Verified completion recorded by the daemon." in output
 
 
-
 def test_submit_reports_closed_local_stream(tmp_path: Path, monkeypatch) -> None:
     class BrokenStreamClient:
         async def stream_chat(self, _content: str):
@@ -171,6 +170,7 @@ def test_submit_accepts_interactive_output_and_input_surfaces(tmp_path: Path, ca
         "STATE CARD COMPLETED",
         "RESULT CARD COMPLETED",
     ]
+
 
 def test_wait_for_final_retries_after_transient_task_status_timeout(monkeypatch) -> None:
     class FlakyTaskClient:

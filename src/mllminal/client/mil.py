@@ -82,9 +82,7 @@ async def _wait_for_final(
     raise TimeoutError("timed out waiting for the daemon to finish verification")
 
 
-async def _stream_items(
-    client: DaemonClient, content: str
-) -> AsyncIterator[dict[str, Any]]:
+async def _stream_items(client: DaemonClient, content: str) -> AsyncIterator[dict[str, Any]]:
     try:
         async for item in client.stream_chat(content):
             yield item
