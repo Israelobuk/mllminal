@@ -85,7 +85,7 @@ class TerminalRenderer:
 
     def status_line(self, label: str, state: str) -> str:
         symbol = (
-            "●"
+            "*"
             if label.casefold() == "runtime" and state.casefold() == "ready"
             else self._symbol(state)
         )
@@ -223,9 +223,9 @@ class TerminalRenderer:
     def _runtime_badge(state: str) -> str:
         normalized = state.casefold()
         if normalized in {"ready", "online", "ok"}:
-            return "● Ready"
+            return "* Ready"
         if normalized in {"starting", "booting"}:
-            return "◐ Starting"
+            return "o Starting"
         if normalized in {"degraded", "warning"}:
             return "! Degraded"
         if normalized in {"offline", "unavailable", "stopped"}:
@@ -286,9 +286,9 @@ class TerminalRenderer:
 
     def _box(self, rows: list[str], width: int) -> str:
         inner = max(1, width - 2)
-        top = "╭" + "─" * inner + "╮"
-        bottom = "╰" + "─" * inner + "╯"
-        body = [f"│ {self._fit(row, inner - 1):<{inner - 1}}│" for row in rows]
+        top = "+" + "-" * inner + "+"
+        bottom = "+" + "-" * inner + "+"
+        body = [f"| {self._fit(row, inner - 1):<{inner - 1}}|" for row in rows]
         return "\n".join((top, *body, bottom))
 
     def _fit(self, value: str, width: int | None = None) -> str:
@@ -303,11 +303,11 @@ class TerminalRenderer:
     def _symbol(state: str) -> str:
         normalized = state.casefold()
         if normalized in {"ready", "completed", "complete", "success", "ok"}:
-            return "✓"
+            return "+"
         if normalized in {"running", "active", "executing", "verifying"}:
-            return "●"
+            return "*"
         if normalized in {"pending", "waiting", "needs input"}:
-            return "○"
+            return "o"
         if normalized in {"failed", "error", "unavailable", "warning"}:
             return "!"
         return "·"
