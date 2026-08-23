@@ -100,6 +100,7 @@ async def _submit(
     output: Output | None = None,
     input_func: Input | None = None,
     stream_output: StreamOutput | None = None,
+    response_started: Callable[[], None] | None = None,
     approval_prompt: str = "Approve this plan? [y/N] ",
     plan_renderer: PlanRenderer | None = None,
     state_renderer: Callable[[str], str] | None = None,
@@ -118,6 +119,8 @@ async def _submit(
                 payload = event.get("payload", {})
                 text = payload.get("text") if isinstance(payload, dict) else None
                 if isinstance(text, str):
+                    if response_started is not None and not streamed_text:
+                        response_started()
                     stream_output(text)
                     streamed_text += text
             continue
@@ -137,12 +140,13 @@ async def _submit(
     plan = result.get("plan", {})
     approval = result.get("approval", {})
     task_id = task.get("id") if isinstance(task, dict) else None
-    output("Mil:")
-    messages = await _history(client, session_id)
-    if messages:
-        latest = messages[-1]
-        if latest.get("role") == "mil":
-            output(str(latest.get("content", "")))
+    if not streamed_text or response_started is None:
+        output("Mil:")
+        messages = await _history(client, session_id)
+        if messages:
+            latest = messages[-1]
+            if latest.get("role") == "mil":
+                output(str(latest.get("content", "")))
     step_labels: list[str] = []
     for step in plan.get("steps", []) if isinstance(plan, dict) else []:
         if not isinstance(step, dict):
