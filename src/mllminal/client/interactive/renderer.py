@@ -74,6 +74,11 @@ class TerminalRenderer:
     def prompt_prefix() -> str:
         return "\u203a "
 
+    def prompt_message(self) -> str:
+        rule_width = min(max(32, self.terminal_width - 4), 72)
+        rule = "\u2500" * rule_width
+        return f"\n{rule}\n{self.prompt_prefix()}"
+
     def error(self, title: str, detail: str | None = None, hint: str | None = None) -> str:
         lines = [f"! {title}"]
         if detail:
@@ -166,7 +171,6 @@ class TerminalRenderer:
         if normalized in {"offline", "unavailable", "stopped"}:
             return "\u00d7 Offline"
         return f"\u00b7 {state}"
-
 
     def _medium(self, snapshot: StartupSnapshot) -> str:
         recent = [f"  {self.activity(item)}" for item in snapshot.recent_activity[:3]]
