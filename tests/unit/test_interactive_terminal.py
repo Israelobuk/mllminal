@@ -298,3 +298,24 @@ def test_welcome_invites_natural_language_conversation(tmp_path: Path) -> None:
     assert output.splitlines()[0] == "MLLminal"
     assert "Local workflow intelligence for your computer." in output
     assert "What would you like to work on?" in output
+
+
+def test_interactive_session_sets_mllminal_terminal_title(tmp_path: Path, monkeypatch) -> None:
+    import mllminal.client.interactive.session as interactive_session
+
+    writes: list[str] = []
+    monkeypatch.setattr(interactive_session.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(interactive_session.sys.stdout, "write", writes.append)
+    monkeypatch.setattr(interactive_session.sys.stdout, "flush", lambda: None)
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    session = InteractiveSession(
+        settings,
+        input_func=lambda _prompt: "/exit",
+        output=lambda _value: None,
+        use_prompt_toolkit=False,
+    )
+    monkeypatch.setattr(session, "_show_startup", lambda: None)
+    session.run()
+
+    assert writes == [chr(27) + "]0;MLLminal" + chr(7)]
