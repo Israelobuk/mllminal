@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 import httpx
+import pytest
 
 from mllminal.client import mil
 from mllminal.config import Settings
@@ -79,6 +80,22 @@ def test_submit_recovers_when_approval_response_times_out_after_daemon_commit(
     assert "approval response timed out; checking durable task state" in output
     assert "Verified completion recorded by the daemon." in output
 
+
+
+def test_submit_reports_closed_local_stream(tmp_path: Path, monkeypatch) -> None:
+    class BrokenStreamClient:
+        async def stream_chat(self, _content: str):
+            raise httpx.ReadError("connection closed")
+            yield {}
+
+    async def fake_prepare(_client: object, _settings: Settings) -> str:
+        return "session-1"
+
+    monkeypatch.setattr(mil, "_prepare_session", fake_prepare)
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+
+    with pytest.raises(RuntimeError, match="Mil stream closed before completion"):
+        asyncio.run(mil._submit(BrokenStreamClient(), settings, "inspect this project"))
 
 def test_wait_for_final_retries_after_transient_task_status_timeout(monkeypatch) -> None:
     class FlakyTaskClient:
