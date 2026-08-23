@@ -281,3 +281,20 @@ def test_local_prompt_history_is_bounded_and_skips_sensitive_prompts(tmp_path: P
 
     assert restored.get_strings() == ["second", "third"]
     assert "password=secret" not in path.read_text(encoding="utf-8")
+
+
+def test_welcome_invites_natural_language_conversation(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen",
+        workspace=tmp_path,
+        runtime="Ready",
+        quick_starts=("Summarize the files in this folder",),
+    )
+
+    output = TerminalRenderer(width=100, no_color=True).startup(snapshot)
+
+    assert output.splitlines()[0] == "MLLminal"
+    assert "Local workflow intelligence for your computer." in output
+    assert "What would you like to work on?" in output
