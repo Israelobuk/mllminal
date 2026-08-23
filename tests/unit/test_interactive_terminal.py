@@ -194,7 +194,7 @@ def test_wide_startup_panel_contains_product_state_and_real_activity(tmp_path: P
     output = TerminalRenderer(width=110, no_color=True).startup(snapshot)
 
     assert "MLLminal" in output
-    assert "Mil · qwen3:4b · Qwen via Ollama" in output
+    assert "Mil - qwen3:4b - Qwen via Ollama" in output
     assert "Workspace:" in output
     assert "* Ready" in output
     assert "Organized Downloads" in output
