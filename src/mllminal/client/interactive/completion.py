@@ -31,7 +31,12 @@ class MilCompleter(Completer):
         token = document.text_before_cursor.rsplit(None, 1)[-1]
         if token.startswith("/"):
             yield from (
-                Completion(item.name, start_position=-len(token), display=item.name)
+                Completion(
+                    item.name,
+                    start_position=-len(token),
+                    display=item.name,
+                    display_meta=item.description,
+                )
                 for item in filter_commands(token)
             )
             return
@@ -40,7 +45,8 @@ class MilCompleter(Completer):
                 Completion(
                     f"@{item.value}",
                     start_position=-len(token),
-                    display=f"@{item.label}  [{item.kind}]",
+                    display=f"@{item.label}",
+                    display_meta=item.kind,
                 )
                 for item in self.resources
                 if item.value.casefold().startswith(token[1:].casefold())
