@@ -46,12 +46,42 @@ class TerminalRenderer:
         self._ansi = not bool(self.no_color or os.environ.get("NO_COLOR") is not None) and is_tty
 
     def startup(self, snapshot: StartupSnapshot) -> str:
-        if self.terminal_width >= 100:
-            return self._card(snapshot, wide=True)
-        if self.terminal_width >= 60:
-            return self._card(snapshot, wide=False)
-        return self._narrow(snapshot)
+        return self._welcome(snapshot)
 
+    def _welcome(self, snapshot: StartupSnapshot) -> str:
+        greeting = "Welcome to MLLminal" if snapshot.first_run else "Welcome back"
+        workspace = self._workspace_display(snapshot.workspace)
+        recent = [self.activity(item) for item in snapshot.recent_activity[:3]]
+        if not recent:
+            recent = ["No recent activity"]
+        suggestions = ["Help me understand this project", *snapshot.quick_starts[:2]]
+        rows = [
+            "MLLminal",
+            f"Mil \u00b7 {snapshot.model} \u00b7 {snapshot.provider}",
+            "Local workflow intelligence for your computer.",
+            "",
+            greeting,
+            "What would you like to work on?",
+            "",
+            "Session",
+            f"  Workspace: {workspace}",
+            f"  {self.status_line('Runtime', snapshot.runtime)}",
+            f"  Model: {snapshot.model}",
+            f"  Privacy: {snapshot.privacy}",
+            "",
+            "Getting started",
+            "Try asking",
+            *(f"  {item}" for item in suggestions),
+            "",
+            "Recent activity",
+            *(f"  {item}" for item in recent),
+            "",
+            "Commands",
+            "  /help  browse commands   /status  check health   /exit  leave",
+            "",
+            f"Tip: {snapshot.tip}",
+        ]
+        return "\n".join(self._fit(row) for row in rows)
     def status_line(self, label: str, state: str) -> str:
         symbol = (
             "●"
