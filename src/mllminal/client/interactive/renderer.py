@@ -105,6 +105,13 @@ class TerminalRenderer:
     def prompt_prefix() -> str:
         return "\u203a "
 
+    def user_message(self, content: str) -> str:
+        rows = ["", "You", f"> {content}"]
+        return "\n".join(self._fit(row) for row in rows)
+
+    @staticmethod
+    def mil_prefix() -> str:
+        return "\nMil\n"
     def prompt_message(self) -> str:
         rule_width = min(max(32, self.terminal_width - 4), 72)
         rule = "\u2500" * rule_width

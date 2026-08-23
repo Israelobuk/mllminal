@@ -85,6 +85,7 @@ class InteractiveSession:
                     return
                 continue
             try:
+                self.output(self.renderer.user_message(command))
                 self._submit(command)
             except KeyboardInterrupt:
                 self.output("^C\nCancelled current operation. The daemon remains running.")
@@ -253,6 +254,7 @@ class InteractiveSession:
                 output=self.output,
                 input_func=self._read,
                 stream_output=self._stream_output,
+                response_started=self._start_mil_response,
                 approval_prompt=self.renderer.approval_prompt(),
                 plan_renderer=self.renderer.plan,
                 state_renderer=self.renderer.task_state,
@@ -263,6 +265,10 @@ class InteractiveSession:
     @staticmethod
     def _stream_output(value: str) -> None:
         sys.stdout.write(value)
+        sys.stdout.flush()
+
+    def _start_mil_response(self) -> None:
+        sys.stdout.write(self.renderer.mil_prefix())
         sys.stdout.flush()
 
     def _handle_command(self, line: str) -> bool:
