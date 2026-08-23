@@ -49,7 +49,7 @@ def test_prompt_toolkit_read_uses_distinct_input_surface(tmp_path: Path) -> None
     session._prompt_session = FakePrompt()  # type: ignore[assignment]
 
     assert session._read(session.renderer.prompt_prefix()) == "/exit"
-    assert "\u2500" in str(calls["message"])
+    assert calls["message"] == "\n> "
     assert calls["placeholder"] == session.renderer.prompt_placeholder()
     assert callable(calls["bottom_toolbar"])
 

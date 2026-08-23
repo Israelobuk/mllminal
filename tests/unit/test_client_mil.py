@@ -39,7 +39,7 @@ def test_run_mil_terminal_uses_terminal_native_prompt_and_exit_alias(
 
     mil.run_mil_terminal(settings, lambda _settings: object())
 
-    assert prompts == ["\u203a "]
+    assert prompts == ["> "]
 
 
 def test_submit_recovers_when_approval_response_times_out_after_daemon_commit(
