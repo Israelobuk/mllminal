@@ -1,6 +1,11 @@
 from pathlib import Path
 
+from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.document import Document
+
 from mllminal.client.interactive.commands import filter_commands, help_text
+from mllminal.client.interactive.completion import ContextResource, MilCompleter
+from mllminal.client.interactive.history import LocalPromptHistory
 from mllminal.client.interactive.renderer import (
     ActivityItem,
     StartupSnapshot,
@@ -73,6 +78,48 @@ def test_no_color_renderer_has_no_ansi_escape_sequences(tmp_path: Path) -> None:
     )
 
     output = TerminalRenderer(width=80, no_color=True).startup(snapshot)
-
     assert "\x1b[" not in output
     assert "No recent activity" in output
+
+
+def _completion_texts(completer: MilCompleter, value: str) -> list[str]:
+    document = Document(value, len(value))
+    event = CompleteEvent(completion_requested=True)
+    return [item.text for item in completer.get_completions(document, event)]
+
+
+def test_completion_filters_slash_commands_and_real_context_resources(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("local", encoding="utf-8")
+    completer = MilCompleter(
+        tmp_path,
+        resources=(
+            ContextResource("README.md", "file", "README.md"),
+            ContextResource("Weekly report", "workflow", "weekly-report"),
+        ),
+    )
+
+    assert _completion_texts(completer, "/wo") == ["/workspace", "/workflows"]
+    assert _completion_texts(completer, "summarize @") == ["@README.md", "@weekly-report"]
+
+
+def test_file_completion_stays_inside_workspace(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "documents").mkdir()
+    completer = MilCompleter(tmp_path)
+
+    assert _completion_texts(completer, "summarize ./doc") == ["./docs/", "./documents/"]
+    assert _completion_texts(completer, "summarize ../") == []
+
+
+def test_local_prompt_history_is_bounded_and_skips_sensitive_prompts(tmp_path: Path) -> None:
+    path = tmp_path / "mil-history.jsonl"
+    history = LocalPromptHistory(path, max_entries=2)
+    history.append_string("first")
+    history.append_string("second")
+    history.append_string("password=secret")
+    history.append_string("third")
+
+    restored = LocalPromptHistory(path, max_entries=2)
+
+    assert restored.get_strings() == ["second", "third"]
+    assert "password=secret" not in path.read_text(encoding="utf-8")
