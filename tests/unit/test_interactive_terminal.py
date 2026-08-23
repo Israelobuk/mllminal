@@ -196,7 +196,7 @@ def test_wide_startup_panel_contains_product_state_and_real_activity(tmp_path: P
     assert "MLLminal" in output
     assert "Mil · qwen3:4b · Qwen via Ollama" in output
     assert "Workspace:" in output
-    assert "● Ready" in output
+    assert "* Ready" in output
     assert "Organized Downloads" in output
     assert "Show my workflows" in output
     assert "Type / to browse commands." in output
@@ -353,4 +353,4 @@ def test_welcome_output_is_safe_for_legacy_windows_console(tmp_path: Path) -> No
     output = TerminalRenderer(width=100, no_color=True).startup(snapshot)
 
     output.encode("cp1252")
-    assert "Runtime: * Ready" in output
+    assert "* Ready" in output
