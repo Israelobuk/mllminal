@@ -149,6 +149,7 @@ def test_submit_accepts_interactive_output_and_input_surfaces(tmp_path: Path, ca
                 output=events.append,
                 input_func=read,
                 stream_output=lambda value: events.append(f"stream:{value}"),
+                response_started=lambda: events.append("Mil"),
                 approval_prompt="approval surface",
                 plan_renderer=lambda steps: f"PLAN CARD {steps[0]}",
                 state_renderer=lambda state: f"STATE CARD {state}",
@@ -161,9 +162,9 @@ def test_submit_accepts_interactive_output_and_input_surfaces(tmp_path: Path, ca
 
     assert capsys.readouterr().out == ""
     assert events == [
+        "Mil",
         "stream:Thinking",
         "",
-        "Mil:",
         "PLAN CARD Open project",
         "approval surface",
         "approval: APPROVED",

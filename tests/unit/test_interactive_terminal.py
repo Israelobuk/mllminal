@@ -319,3 +319,23 @@ def test_interactive_session_sets_mllminal_terminal_title(tmp_path: Path, monkey
     session.run()
 
     assert writes == [chr(27) + "]0;MLLminal" + chr(7)]
+
+
+def test_plain_language_turn_is_submitted_as_conversation(tmp_path: Path, monkeypatch) -> None:
+    inputs = iter(["please explain this project", "/exit"])
+    outputs: list[str] = []
+    submitted: list[str] = []
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    session = InteractiveSession(
+        settings,
+        input_func=lambda _prompt: next(inputs),
+        output=outputs.append,
+        use_prompt_toolkit=False,
+    )
+    monkeypatch.setattr(session, "_show_startup", lambda: None)
+    monkeypatch.setattr(session, "_submit", submitted.append)
+
+    session.run()
+
+    assert submitted == ["please explain this project"]
+    assert any("You" in value and "please explain this project" in value for value in outputs)
