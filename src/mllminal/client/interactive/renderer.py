@@ -45,12 +45,10 @@ class TerminalRenderer:
         self._ansi = not bool(self.no_color or os.environ.get("NO_COLOR") is not None) and is_tty
 
     def startup(self, snapshot: StartupSnapshot) -> str:
-        if snapshot.first_run:
-            return self._onboarding(snapshot)
-        if self.terminal_width >= 90:
-            return self._wide(snapshot)
+        if self.terminal_width >= 100:
+            return self._card(snapshot, wide=True)
         if self.terminal_width >= 60:
-            return self._medium(snapshot)
+            return self._card(snapshot, wide=False)
         return self._narrow(snapshot)
 
     def status_line(self, label: str, state: str) -> str:
@@ -60,6 +58,21 @@ class TerminalRenderer:
             else self._symbol(state)
         )
         return f"{label}: {symbol} {state}"
+
+    def footer(self, snapshot: StartupSnapshot) -> str:
+        workspace = snapshot.workspace.name or self._workspace_display(snapshot.workspace)
+        return self._fit(
+            f"{snapshot.model} \u00b7 {snapshot.provider} | {workspace} | "
+            f"{self._runtime_badge(snapshot.runtime)} | / commands | @ context"
+        )
+
+    @staticmethod
+    def prompt_placeholder() -> str:
+        return "Ask Mil to work with your files, apps, or workflows..."
+
+    @staticmethod
+    def prompt_prefix() -> str:
+        return "\u203a "
 
     def error(self, title: str, detail: str | None = None, hint: str | None = None) -> str:
         lines = [f"! {title}"]
@@ -73,38 +86,87 @@ class TerminalRenderer:
         suffix = f"  {item.age}" if item.age else ""
         return self._fit(f"{self._symbol(item.state)} {item.label}{suffix}")
 
-    def _wide(self, snapshot: StartupSnapshot) -> str:
-        recent = [f"  {self.activity(item)}" for item in snapshot.recent_activity[:3]]
+    def _card(self, snapshot: StartupSnapshot, *, wide: bool) -> str:
+        greeting = "Welcome to MLLminal" if snapshot.first_run else "Welcome back"
+        identity = f"Mil \u00b7 {snapshot.model} \u00b7 {snapshot.provider}"
+        provider = "Local workflow intelligence"
+        workspace = self._workspace_display(snapshot.workspace)
+        recent = [self.activity(item) for item in snapshot.recent_activity[:3]]
         if not recent:
-            recent = ["  No recent activity"]
+            recent = ["No recent activity"]
+        getting_started = [
+            "Getting started",
+            "Type / to browse commands",
+            "Use @ to add context",
+            "Ask Mil to work with your files",
+        ]
         left = [
-            f"Workspace: {snapshot.workspace}",
-            self.status_line("Runtime", snapshot.runtime),
+            greeting,
+            identity,
+            provider,
+            "",
+            "Workspace:",
+            workspace,
+            "",
+            "Runtime",
+            self._runtime_badge(snapshot.runtime),
             f"Privacy: {snapshot.privacy}",
         ]
-        right = [
-            "Quick start",
-            *(f'  "{item}"' for item in snapshot.quick_starts[:4]),
-            "",
-            "Recent activity",
-            *recent,
-        ]
-        width = min(self.terminal_width - 4, max(62, self.terminal_width - 6))
-        split = max(28, width // 2)
-        rows = [
-            self._fit(f"MLLminal {snapshot.version}", width),
-            self._fit(f"Mil · {snapshot.model} · {snapshot.provider}", width),
-            "",
-            self._fit(
-                "  ".join((left[0], " " * max(1, split - len(left[0]) - 2), right[0])), width
-            ),
-        ]
+        right = [*getting_started]
+        if snapshot.quick_starts:
+            right.extend(["", "Try", *snapshot.quick_starts[:2]])
+        right.extend(["", "Recent activity", *recent])
+        if wide:
+            rows = [
+                f"MLLminal v{snapshot.version}",
+                "",
+                *self._column_rows(left, right),
+                "",
+                f"Tip: {snapshot.tip}",
+            ]
+        else:
+            rows = [
+                f"MLLminal v{snapshot.version}",
+                *left,
+                "",
+                *right,
+                "",
+                f"Tip: {snapshot.tip}",
+            ]
+        return self._box(rows, self.terminal_width)
+
+    def _column_rows(self, left: list[str], right: list[str]) -> list[str]:
+        content_width = max(1, self.terminal_width - 3)
+        gap = 3
+        column_width = max(1, (content_width - gap) // 2)
+        rows: list[str] = []
         for index in range(max(len(left), len(right))):
-            left_value = left[index] if index < len(left) else ""
-            right_value = right[index] if index < len(right) else ""
-            rows.append(self._fit(f"{left_value:<{split}}  {right_value}", width))
-        rows.extend(("", self._fit(f"Tip: {snapshot.tip}", width), "Type /help for commands"))
-        return self._box(rows, width)
+            left_value = self._fit(left[index] if index < len(left) else "", column_width)
+            right_value = self._fit(right[index] if index < len(right) else "", column_width)
+            rows.append(f"{left_value:<{column_width}}{' ' * gap}{right_value}")
+        return rows
+
+    @staticmethod
+    def _workspace_display(workspace: Path) -> str:
+        try:
+            relative = workspace.resolve().relative_to(Path.home().resolve())
+        except (OSError, ValueError):
+            return str(workspace)
+        return "~" if not relative.parts else "~" + str(Path(*relative.parts))
+
+    @staticmethod
+    def _runtime_badge(state: str) -> str:
+        normalized = state.casefold()
+        if normalized in {"ready", "online", "ok"}:
+            return "● Ready"
+        if normalized in {"starting", "booting"}:
+            return "◐ Starting"
+        if normalized in {"degraded", "warning"}:
+            return "! Degraded"
+        if normalized in {"offline", "unavailable", "stopped"}:
+            return "\u00d7 Offline"
+        return f"\u00b7 {state}"
+
 
     def _medium(self, snapshot: StartupSnapshot) -> str:
         recent = [f"  {self.activity(item)}" for item in snapshot.recent_activity[:3]]
@@ -131,8 +193,8 @@ class TerminalRenderer:
     def _narrow(self, snapshot: StartupSnapshot) -> str:
         rows = [
             "MLLminal",
-            f"Mil · {snapshot.model}",
-            self._fit(f"Workspace: {snapshot.workspace}"),
+            f"Mil \u00b7 {snapshot.model} \u00b7 {snapshot.provider}",
+            self._fit(f"Workspace: {self._workspace_display(snapshot.workspace)}"),
             self._fit(self.status_line("Runtime", snapshot.runtime)),
             f"Tip: {snapshot.tip}",
             "",
@@ -162,7 +224,7 @@ class TerminalRenderer:
         inner = max(1, width - 2)
         top = "╭" + "─" * inner + "╮"
         bottom = "╰" + "─" * inner + "╯"
-        body = [f"│ {row:<{inner - 1}}│" for row in rows]
+        body = [f"│ {self._fit(row, inner - 1):<{inner - 1}}│" for row in rows]
         return "\n".join((top, *body, bottom))
 
     def _fit(self, value: str, width: int | None = None) -> str:
