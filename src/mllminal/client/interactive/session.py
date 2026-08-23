@@ -29,6 +29,13 @@ Input = Callable[[str], str]
 ClientFactory = Callable[[Settings], DaemonClient]
 
 
+def set_terminal_title(title: str = "MLLminal") -> None:
+    if not sys.stdout.isatty():
+        return
+    sys.stdout.write(f"{chr(27)}]0;{title}{chr(7)}")
+    sys.stdout.flush()
+
+
 class InteractiveSession:
     """Own terminal presentation while leaving execution authority in the daemon."""
 
@@ -57,6 +64,7 @@ class InteractiveSession:
         self._snapshot: StartupSnapshot | None = None
 
     def run(self) -> None:
+        set_terminal_title()
         self._show_startup()
         while True:
             try:
