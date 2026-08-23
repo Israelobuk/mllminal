@@ -150,52 +150,7 @@ def run_mil_prompt(
 
 
 def run_mil_terminal(settings: Settings, client_factory: ClientFactory = DaemonClient) -> None:
-    """Run a persistent local session with bounded slash commands."""
-    client = client_factory(settings)
-    print("Type /help for commands; /exit to leave.")
-    while True:
-        try:
-            line = input("\u203a ")
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return
-        command = line.strip()
-        if command in {"/quit", "/exit"}:
-            return
-        if command == "/help":
-            print("/history  show durable session messages")
-            print("/clear    start a new session")
-            print("/begin    enter multiline mode")
-            print("/quit     exit")
-            continue
-        if command == "/clear":
-            _session_path(settings).unlink(missing_ok=True)
-            client.session_id = None
-            print("Started a new Mil session.")
-            continue
-        if command == "/history":
-            try:
-                session_id = asyncio.run(_prepare_session(client, settings))
-                for message in asyncio.run(_history(client, session_id)):
-                    print(f"{message.get('role', 'unknown')}: {message.get('content', '')}")
-            except (OSError, PermissionError, RuntimeError, TimeoutError) as error:
-                print(f"daemon unavailable: {error}")
-            continue
-        if command == "/begin":
-            lines: list[str] = []
-            print("multiline mode; finish with /end")
-            while True:
-                try:
-                    part = input("... ")
-                except (EOFError, KeyboardInterrupt):
-                    return
-                if part.strip() == "/end":
-                    break
-                lines.append(part)
-            command = "\n".join(lines).strip()
-        if not command:
-            continue
-        try:
-            asyncio.run(_submit(client, settings, command))
-        except (OSError, PermissionError, RuntimeError, TimeoutError) as error:
-            print(f"daemon unavailable; durable state was not assumed: {error}")
+    """Run the modular, approval-aware interactive Mil session."""
+    from mllminal.client.interactive.session import InteractiveSession
+
+    InteractiveSession(settings, client_factory).run()

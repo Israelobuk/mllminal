@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mllminal.agent.ollama import OllamaProviderError
 from mllminal.agent.prompts import repair_message, system_message
+from mllminal.agent.prompts.planner_v1 import planner_message
+from mllminal.agent.prompts.schemas import RESPONSE_ENVELOPE_SCHEMA
 from mllminal.contracts import Message, PermissionGrant, Plan, PlanStep, ToolProposal
 from mllminal.tools import ToolDefinition, ToolRegistry
 
@@ -209,13 +211,15 @@ class QwenMilProvider:
             {
                 "role": "system",
                 "content": system_message(),
-            }
+            },
+            {"role": "system", "content": _planning_contract(request)},
         ]
         messages.extend(
             {"role": message.role.value, "content": message.content}
             for message in request.conversation
         )
         messages.append({"role": "user", "content": request.user_message})
+        yield MilProviderEvent(event_type="response.started")
         for attempt in range(2):
             try:
                 chunks, usage = await self._client.complete(messages)
@@ -240,10 +244,13 @@ class QwenMilProvider:
                 yield MilProviderEvent(
                     event_type="provider.failed",
                     text="Model output could not be validated after one repair attempt.",
-                    detail={"category": "validation_failed", "retry_count": attempt},
+                    detail={
+                        "category": "validation_failed",
+                        "retry_count": attempt,
+                        "reason": str(error)[:240],
+                    },
                 )
                 return
-            yield MilProviderEvent(event_type="response.started")
             yield MilProviderEvent(event_type="response.delta", text=validated.response)
             yield MilProviderEvent(event_type="response.completed", text=validated.response)
             yield MilProviderEvent(event_type="plan.proposed", plan=validated.plan, detail=usage)
@@ -261,4 +268,16 @@ class QwenMilProvider:
         available = {tool.name for tool in request.available_tools}
         if any(step.proposal.tool_name not in available for step in validated.plan.steps):
             raise ValueError("response proposes a tool outside the supplied registry")
+
         return validated
+
+
+def _planning_contract(request: MilRequest) -> str:
+    tools = [tool.model_dump(mode="json") for tool in request.available_tools]
+    permissions = sorted({grant.permission for grant in request.permissions if grant.allowed})
+    payload = {
+        "available_tools": tools,
+        "allowed_permissions": permissions,
+        "response_schema": RESPONSE_ENVELOPE_SCHEMA,
+    }
+    return planner_message() + "\n" + json.dumps(payload, sort_keys=True)

@@ -41,7 +41,9 @@ mllminal help             Show common commands
 
 The root command is the canonical Mil entrypoint. `mllminal mil` and `mllminal chat` remain compatibility aliases. A path-like argument such as `mllminal .` or `mllminal C:\Work\Reports` selects a workspace; other root text is treated as a one-shot prompt. Use `--verbose` only when you need bootstrap diagnostics.
 
-Mil supports `/help`, `/history`, `/clear`, `/begin`, and `/exit`; Ctrl-C and Ctrl-D also leave the session without changing files. With a TTY, run and approval review support numbered and arrow-key selection. In a non-interactive terminal they print numbered choices and return a stable nonzero exit code when a choice is required. Workflow names, short IDs, and exact IDs are accepted.
+Inside an interactive Mil session, `/help` groups the discoverable commands. Session commands include `/status`, `/workspace`, `/model`, and `/context`; work commands include `/apps`, `/workflows`, `/tasks`, `/task <id>`, and `/approvals`; conversation commands include `/history`, `/compact`, `/clear`, and predictable multiline `/begin` followed by `/end`; system commands include `/doctor`, `/stop`, and `/exit`. Type `/` for filtered completion, use `@` for real files/applications/workflows, and use Tab for workspace-confined file paths. Up/Down navigates local privacy-aware prompt history. Ctrl-C cancels the current client operation without stopping the daemon.
+
+The startup panel adapts to terminal width and shows the active workspace, local model/provider, runtime health, privacy posture, real recent durable activity, and available quick starts. It never fabricates activity or capability availability. With a TTY, prompt-toolkit supplies history and completion; redirected/non-TTY input remains plain and deterministic. `NO_COLOR` disables styling while status symbols remain understandable without color.
 
 Useful aliases are apps for applications, flows for workflows, runs for executions, approve and deny for approval decisions, chat for Mil, and stop for emergency stop. Advanced command trees remain available for scripts and operators.
 

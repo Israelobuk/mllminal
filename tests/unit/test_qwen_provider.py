@@ -57,6 +57,10 @@ async def test_qwen_provider_validates_ollama_envelope_before_proposing_plan(
     assert events[-1].plan.steps[0].proposal.tool_name == "project.inspect_metadata"
     assert events[-1].detail == {"input_tokens": 5, "output_tokens": 7}
     assert client.requests[0][0] == {"role": "system", "content": system_message()}
+    assert client.requests[0][1]["role"] == "system"
+    assert "project.inspect_metadata" in client.requests[0][1]["content"]
+    assert "response_schema" in client.requests[0][1]["content"]
+    assert "Return only JSON" in client.requests[0][1]["content"]
     assert client.requests[0][-1] == {"role": "user", "content": "inspect this project"}
 
 
