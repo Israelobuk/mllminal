@@ -20,6 +20,72 @@ def test_command_filtering_is_grouped_and_prefix_aware() -> None:
     assert "Session" in help_text()
     assert "/approvals" in help_text()
 
+def test_wide_welcome_is_a_cohesive_application_surface(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen via Ollama",
+        workspace=tmp_path,
+        runtime="Ready",
+        quick_starts=("Summarize files in this folder",),
+        tip="Type / to browse commands.",
+    )
+
+    output = TerminalRenderer(width=120, no_color=True).startup(snapshot)
+
+    assert output.splitlines()[0].startswith("╭")
+    assert "Welcome back" in output
+    assert "Getting started" in output
+    assert "Recent activity" in output
+    assert "No recent activity" in output
+    assert "Type / to browse commands." in output
+    assert max(map(len, output.splitlines())) <= 120
+
+def test_first_run_welcome_has_distinct_greeting_and_bounded_card(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="local model",
+        provider="unavailable",
+        workspace=tmp_path,
+        runtime="Unavailable",
+        first_run=True,
+    )
+
+    output = TerminalRenderer(width=100, no_color=True).startup(snapshot)
+
+    assert "Welcome to MLLminal" in output
+    assert output.splitlines()[0].startswith("╭")
+    assert max(map(len, output.splitlines())) <= 100
+
+def test_welcome_layout_stays_inside_narrow_and_medium_widths(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen",
+        workspace=tmp_path,
+        runtime="Ready",
+        quick_starts=("Summarize files",),
+        tip="Use @ to add context.",
+    )
+
+    for width in (50, 80, 120, 160):
+        output = TerminalRenderer(width=width, no_color=True).startup(snapshot)
+        assert max(map(len, output.splitlines())) <= width
+
+def test_footer_and_prompt_placeholder_use_real_snapshot_state(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen",
+        workspace=tmp_path,
+        runtime="Ready",
+    )
+    renderer = TerminalRenderer(width=80, no_color=True)
+
+    assert "qwen3:4b" in renderer.footer(snapshot)
+    assert "Ready" in renderer.footer(snapshot)
+    assert renderer.prompt_placeholder() == "Ask Mil to work with your files, apps, or workflows..."
+
 
 def test_wide_startup_panel_contains_product_state_and_real_activity(tmp_path: Path) -> None:
     snapshot = StartupSnapshot(
