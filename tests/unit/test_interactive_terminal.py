@@ -339,3 +339,18 @@ def test_plain_language_turn_is_submitted_as_conversation(tmp_path: Path, monkey
 
     assert submitted == ["please explain this project"]
     assert any("You" in value and "please explain this project" in value for value in outputs)
+
+
+def test_welcome_output_is_safe_for_legacy_windows_console(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen",
+        workspace=tmp_path,
+        runtime="Ready",
+    )
+
+    output = TerminalRenderer(width=100, no_color=True).startup(snapshot)
+
+    output.encode("cp1252")
+    assert "Runtime: * Ready" in output
