@@ -68,7 +68,7 @@ class InteractiveSession:
         self._show_startup()
         while True:
             try:
-                line = self._read("\u203a ")
+                line = self._read(self.renderer.prompt_prefix())
             except (EOFError, KeyboardInterrupt):
                 self.output("\nSession ended.")
                 return

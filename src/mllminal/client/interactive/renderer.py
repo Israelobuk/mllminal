@@ -103,7 +103,7 @@ class TerminalRenderer:
 
     @staticmethod
     def prompt_prefix() -> str:
-        return "\u203a "
+        return "> "
 
     def user_message(self, content: str) -> str:
         rows = ["", "You", f"> {content}"]
@@ -113,9 +113,7 @@ class TerminalRenderer:
     def mil_prefix() -> str:
         return "\nMil\n"
     def prompt_message(self) -> str:
-        rule_width = min(max(32, self.terminal_width - 4), 72)
-        rule = "\u2500" * rule_width
-        return f"\n{rule}\n{self.prompt_prefix()}"
+        return f"\n{self.prompt_prefix()}"
 
     def plan(self, steps: Iterable[str]) -> str:
         rows = ["Plan ready", "Review the proposed bounded actions:"]
