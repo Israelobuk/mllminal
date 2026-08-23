@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -78,6 +79,28 @@ class TerminalRenderer:
         rule_width = min(max(32, self.terminal_width - 4), 72)
         rule = "\u2500" * rule_width
         return f"\n{rule}\n{self.prompt_prefix()}"
+
+    def plan(self, steps: Iterable[str]) -> str:
+        rows = ["Plan ready", "Review the proposed bounded actions:"]
+        rows.extend(f"{index}. {step}" for index, step in enumerate(steps, start=1))
+        rows.extend(["", "Approval required - no action has run."])
+        return self._box(rows, self.terminal_width)
+
+    def approval_prompt(self) -> str:
+        return f"\nApproval required\n[A] Approve plan   [L] Leave pending\n{self.prompt_prefix()}"
+
+    def task_state(self, state: str) -> str:
+        return self._box(
+            [f"Task status: {state}", "Daemon owns execution and verification."],
+            self.terminal_width,
+        )
+
+    def result(self, state: str) -> str:
+        if state == "COMPLETED":
+            rows = ["Verified completion", "The daemon confirmed the final state."]
+        else:
+            rows = [f"Execution ended: {state}", "Review the daemon task for details."]
+        return self._box(rows, self.terminal_width)
 
     def error(self, title: str, detail: str | None = None, hint: str | None = None) -> str:
         lines = [f"! {title}"]
