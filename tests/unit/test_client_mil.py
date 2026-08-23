@@ -97,6 +97,81 @@ def test_submit_reports_closed_local_stream(tmp_path: Path, monkeypatch) -> None
     with pytest.raises(RuntimeError, match="Mil stream closed before completion"):
         asyncio.run(mil._submit(BrokenStreamClient(), settings, "inspect this project"))
 
+
+def test_submit_accepts_interactive_output_and_input_surfaces(tmp_path: Path, capsys) -> None:
+    events: list[str] = []
+
+    class InteractiveClient:
+        async def stream_chat(self, _content: str):
+            yield {
+                "type": "event",
+                "event": {
+                    "event_type": "response.delta",
+                    "payload": {"text": "Thinking"},
+                },
+            }
+            yield {
+                "type": "pending",
+                "pending": {
+                    "task": {"id": "task-1"},
+                    "plan": {"steps": [{"position": 1, "title": "Open project"}]},
+                    "approval": {"id": "approval-1"},
+                },
+            }
+
+        async def request(self, method: str, path: str, _payload=None, **_kwargs):
+            if method == "POST" and path == "/v1/approvals/approval-1/decisions":
+                return {"state": "APPROVED"}
+            if method == "GET" and path == "/v1/tasks/task-1":
+                return {"id": "task-1", "state": "COMPLETED"}
+            raise AssertionError(f"unexpected request: {method} {path}")
+
+    async def fake_prepare(_client: object, _settings: Settings) -> str:
+        return "session-1"
+
+    async def fake_history(_client: object, _session_id: str) -> list[dict[str, object]]:
+        return []
+
+    def read(prompt: str) -> str:
+        events.append(prompt)
+        return "approve"
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    original_prepare = mil._prepare_session
+    original_history = mil._history
+    mil._prepare_session = fake_prepare
+    mil._history = fake_history
+    try:
+        asyncio.run(
+            mil._submit(
+                InteractiveClient(),
+                settings,
+                "inspect this project",
+                output=events.append,
+                input_func=read,
+                stream_output=lambda value: events.append(f"stream:{value}"),
+                approval_prompt="approval surface",
+                plan_renderer=lambda steps: f"PLAN CARD {steps[0]}",
+                state_renderer=lambda state: f"STATE CARD {state}",
+                result_renderer=lambda state: f"RESULT CARD {state}",
+            )
+        )
+    finally:
+        mil._prepare_session = original_prepare
+        mil._history = original_history
+
+    assert capsys.readouterr().out == ""
+    assert events == [
+        "stream:Thinking",
+        "",
+        "Mil:",
+        "PLAN CARD Open project",
+        "approval surface",
+        "approval: APPROVED",
+        "STATE CARD COMPLETED",
+        "RESULT CARD COMPLETED",
+    ]
+
 def test_wait_for_final_retries_after_transient_task_status_timeout(monkeypatch) -> None:
     class FlakyTaskClient:
         def __init__(self) -> None:
