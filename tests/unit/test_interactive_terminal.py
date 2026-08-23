@@ -154,6 +154,16 @@ def test_welcome_layout_stays_inside_narrow_and_medium_widths(tmp_path: Path) ->
         assert max(map(len, output.splitlines())) <= width
 
 
+def test_action_surfaces_keep_approval_and_state_bounded() -> None:
+    renderer = TerminalRenderer(width=50, no_color=True)
+    plan = renderer.plan(["Open the project", "Verify the result"])
+
+    assert "Plan ready" in plan
+    assert max(map(len, plan.splitlines())) <= 50
+    assert "[A] Approve plan" in renderer.approval_prompt()
+    assert "EXECUTING" in renderer.task_state("EXECUTING")
+
+
 def test_footer_and_prompt_placeholder_use_real_snapshot_state(tmp_path: Path) -> None:
     snapshot = StartupSnapshot(
         version="0.1.0",
