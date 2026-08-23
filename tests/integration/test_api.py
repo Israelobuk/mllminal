@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -180,3 +181,34 @@ def test_two_clients_replay_identical_provider_events(tmp_path: Path) -> None:
     assert first_events == second_events
     assert "response.delta" in [event["event_type"] for event in first_events]
     assert "plan.proposed" in [event["event_type"] for event in first_events]
+
+
+def test_approval_decision_offloads_blocking_runtime_work(tmp_path: Path, monkeypatch) -> None:
+    client, headers, workspace = make_client(tmp_path)
+    session = client.post(
+        "/v1/sessions", headers=headers, json={"workspace_root": str(workspace)}
+    ).json()
+    pending = client.post(
+        f"/v1/sessions/{session['id']}/messages",
+        headers={**headers, "Idempotency-Key": "offload-request"},
+        json={"content": "inspect this project"},
+    ).json()
+
+    calls: list[str] = []
+    original_to_thread = asyncio.to_thread
+
+    async def recording_to_thread(function, *args, **kwargs):
+        calls.append(getattr(function, "__name__", "unknown"))
+        return await original_to_thread(function, *args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", recording_to_thread)
+
+    response = client.post(
+        f"/v1/approvals/{pending['approval']['id']}/decisions",
+        headers={**headers, "Idempotency-Key": "offload-approval"},
+        json={"status": "APPROVED"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "COMPLETED"
+    assert "decide" in calls

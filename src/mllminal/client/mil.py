@@ -48,8 +48,18 @@ async def _history(client: DaemonClient, session_id: str) -> list[dict[str, Any]
 
 async def _wait_for_final(client: DaemonClient, task_id: str) -> dict[str, Any]:
     previous: str | None = None
+    consecutive_timeouts = 0
     for _ in range(300):
-        task = await client.request("GET", f"/v1/tasks/{task_id}")
+        try:
+            task = await client.request("GET", f"/v1/tasks/{task_id}")
+        except httpx.TimeoutException as error:
+            consecutive_timeouts += 1
+            if consecutive_timeouts >= 3:
+                raise TimeoutError("timed out reading the daemon task state") from error
+            print("task status request timed out; retrying")
+            await asyncio.sleep(0.2)
+            continue
+        consecutive_timeouts = 0
         if not isinstance(task, dict):
             raise RuntimeError("daemon returned an invalid task projection")
         state = str(task.get("state", ""))

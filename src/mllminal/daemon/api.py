@@ -1180,8 +1180,9 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         approval = store.get_approval(approval_id)
         previous = store.list_events(store.get_task(approval.task_id).session_id)
         after = previous[-1].sequence if previous else 0
-        task = runtime.decide(approval_id, body.status, idempotency_key)
-        await hub.publish(store.list_events(task.session_id, after))
+        task = await asyncio.to_thread(runtime.decide, approval_id, body.status, idempotency_key)
+        events = await asyncio.to_thread(store.list_events, task.session_id, after)
+        await hub.publish(events)
         return task.model_dump(mode="json")
 
     @app.get("/v1/permissions", dependencies=protected)

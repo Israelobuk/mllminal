@@ -78,3 +78,28 @@ def test_submit_recovers_when_approval_response_times_out_after_daemon_commit(
     output = capsys.readouterr().out
     assert "approval response timed out; checking durable task state" in output
     assert "Verified completion recorded by the daemon." in output
+
+
+def test_wait_for_final_retries_after_transient_task_status_timeout(monkeypatch) -> None:
+    class FlakyTaskClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def request(self, method: str, path: str):
+            assert method == "GET"
+            assert path == "/v1/tasks/task-1"
+            self.calls += 1
+            if self.calls == 1:
+                raise httpx.ReadTimeout("task status response timed out")
+            return {"id": "task-1", "state": "COMPLETED"}
+
+    async def no_wait(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(mil.asyncio, "sleep", no_wait)
+
+    client = FlakyTaskClient()
+    result = asyncio.run(mil._wait_for_final(client, "task-1"))
+
+    assert result["state"] == "COMPLETED"
+    assert client.calls == 2
