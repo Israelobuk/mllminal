@@ -252,6 +252,11 @@ class InteractiveSession:
             )
         )
 
+    @staticmethod
+    def _stream_output(value: str) -> None:
+        sys.stdout.write(value)
+        sys.stdout.flush()
+
     def _handle_command(self, line: str) -> bool:
         spec, argument = parse_command(line)
         if spec is None:
