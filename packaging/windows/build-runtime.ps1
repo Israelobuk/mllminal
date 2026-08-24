@@ -22,6 +22,11 @@ if ($LASTEXITCODE -ne 0) { throw "Unable to install MLLminal and its dependencie
 & $python -m pip install --disable-pip-version-check --no-deps --force-reinstall $wheel.FullName
 if ($LASTEXITCODE -ne 0) { throw "Unable to refresh the MLLminal package in the release runtime." }
 
+& $python -m pip check
+if ($LASTEXITCODE -ne 0) { throw "Bundled runtime dependency validation failed." }
+& $python -c "from mllminal.client.interactive.session import InteractiveSession; from prompt_toolkit import PromptSession; print('Interactive Mil dependencies ready.')"
+if ($LASTEXITCODE -ne 0) { throw "Bundled runtime is missing the interactive Mil dependencies." }
+
 $required = @(
     "python.exe",
     "mllminal.exe",
