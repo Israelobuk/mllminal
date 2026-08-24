@@ -292,6 +292,7 @@ def test_start_daemon_blocks_pid_reuse_when_process_identity_changes(
     with pytest.raises(RuntimeError, match="owns the daemon lock"):
         start_daemon(settings)
 
+
 def test_start_daemon_works_while_runtime_daemon_lock_is_held(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -319,8 +320,6 @@ def test_start_daemon_works_while_runtime_daemon_lock_is_held(
         result = start_daemon(settings)
 
     assert result == {"status": "starting", "pid": 4569}
-    startup_record = json.loads(
-        daemon_startup_lock_path(settings).read_text(encoding="utf-8")
-    )
+    startup_record = json.loads(daemon_startup_lock_path(settings).read_text(encoding="utf-8"))
     assert startup_record["status"] == "running"
     assert startup_record["pid"] == 4569
