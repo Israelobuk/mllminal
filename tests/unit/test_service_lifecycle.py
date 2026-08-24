@@ -149,7 +149,9 @@ def test_start_daemon_detaches_stdio_from_the_installer(
     monkeypatch.setattr("mllminal.service_lifecycle.daemon_executable", fake_daemon_executable)
     monkeypatch.setattr("mllminal.service_lifecycle._process_is_alive", lambda _pid: False)
     monkeypatch.setattr("mllminal.service_lifecycle.sys.platform", "win32")
-    monkeypatch.setattr("mllminal.service_lifecycle.subprocess.CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.subprocess.CREATE_NO_WINDOW", 0x08000000, raising=False
+    )
     monkeypatch.setattr("mllminal.service_lifecycle.subprocess.Popen", fake_popen)
 
     start_daemon(settings)
