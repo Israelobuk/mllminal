@@ -330,16 +330,18 @@ def register_terminal_commands(
             typer.echo(str(error), err=True)
             code = 2 if "workspace" in error.detail else 3
             raise typer.Exit(code=code) from None
+        if prompt is None:
+            if verbose:
+                typer.echo("Bootstrap: local service ready", err=True)
+            run_mil_terminal(context.settings, daemon_client_factory)
+            return
         typer.echo(f"MLLminal v{package_version()}")
         if workspace is not None:
             typer.echo(f"Workspace: {context.workspace}")
         typer.echo("Mil is ready.")
         if verbose:
             typer.echo("Bootstrap: local service ready", err=True)
-        if prompt is not None:
-            run_mil_prompt(context.settings, prompt, daemon_client_factory)
-            return
-        run_mil_terminal(context.settings, daemon_client_factory)
+        run_mil_prompt(context.settings, prompt, daemon_client_factory)
 
     @app.callback(invoke_without_command=True)
     def root_options(

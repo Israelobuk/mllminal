@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from prompt_toolkit.completion import CompleteEvent
@@ -11,6 +12,8 @@ from mllminal.client.interactive.renderer import (
     StartupSnapshot,
     TerminalRenderer,
 )
+from mllminal.client.interactive.session import InteractiveSession
+from mllminal.config import Settings
 
 
 def test_command_filtering_is_grouped_and_prefix_aware() -> None:
@@ -19,6 +22,181 @@ def test_command_filtering_is_grouped_and_prefix_aware() -> None:
     assert [item.name for item in matches] == ["/workspace", "/workflows"]
     assert "Session" in help_text()
     assert "/approvals" in help_text()
+
+
+def test_prompt_toolkit_session_exposes_placeholder_and_footer(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    session = InteractiveSession(settings, use_prompt_toolkit=True, width=80)
+
+    session._configure_prompt(())
+
+    assert session._prompt_session is not None
+    assert session._prompt_session.placeholder == session.renderer.prompt_placeholder()
+    assert callable(session._prompt_session.bottom_toolbar)
+
+
+def test_prompt_toolkit_read_uses_distinct_input_surface(tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+
+    class FakePrompt:
+        def prompt(self, message: str, **kwargs: object) -> str:
+            calls["message"] = message
+            calls.update(kwargs)
+            return "/exit"
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    session = InteractiveSession(settings, use_prompt_toolkit=True, width=80)
+    session._prompt_session = FakePrompt()  # type: ignore[assignment]
+
+    assert session._read(session.renderer.prompt_prefix()) == "/exit"
+    assert calls["message"] == "\n> "
+    assert calls["placeholder"] == session.renderer.prompt_placeholder()
+    assert callable(calls["bottom_toolbar"])
+
+
+def test_startup_context_sources_include_workspace_entries(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("local", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+
+    class StartupClient:
+        def __init__(self, _settings: Settings) -> None:
+            pass
+
+        async def request(self, _method: str, path: str) -> object:
+            return {
+                "/v1/status": {"daemon": "Online", "model": "qwen3:4b", "provider": "qwen"},
+                "/v1/tasks": [],
+                "/v1/workflows": [],
+                "/v1/workflow-runs": [],
+                "/v1/apps": [],
+            }.get(path, {})
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    session = InteractiveSession(settings, StartupClient)
+
+    _snapshot, resources = asyncio.run(session._load_startup())
+
+    assert ("README.md", "file") in {(item.value, item.kind) for item in resources}
+    assert ("docs/", "folder") in {(item.value, item.kind) for item in resources}
+
+
+def test_context_completion_exposes_category_metadata(tmp_path: Path) -> None:
+    completer = MilCompleter(
+        tmp_path,
+        resources=(
+            ContextResource("README.md", "file", "README.md"),
+            ContextResource("Weekly report", "workflow", "weekly-report"),
+        ),
+    )
+
+    completions = list(
+        completer.get_completions(
+            Document("summarize @", len("summarize @")),
+            CompleteEvent(completion_requested=True),
+        )
+    )
+
+    assert [item.display_meta[0][1] for item in completions] == ["file", "workflow"]
+
+
+def test_wide_welcome_is_a_cohesive_application_surface(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen via Ollama",
+        workspace=tmp_path,
+        runtime="Ready",
+        quick_starts=("Summarize files in this folder",),
+        tip="Type / to browse commands.",
+    )
+
+    output = TerminalRenderer(width=120, no_color=True).startup(snapshot)
+
+    assert output.splitlines()[0] == "MLLminal"
+    assert "Welcome back" in output
+    assert "qwen3:4b" not in output
+    assert "Recent activity" not in output
+    assert "Tip:" not in output
+    assert "Commands" in output
+    assert max(map(len, output.splitlines())) <= 120
+
+
+def test_idle_welcome_hides_demo_content_and_provider_details(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen",
+        workspace=tmp_path,
+        runtime="Ready",
+    )
+
+    output = TerminalRenderer(width=100, no_color=True).startup(snapshot)
+
+    assert "Mil\n" in output
+    assert "qwen3:4b" not in output
+    assert "Qwen" not in output
+    assert "Getting started" not in output
+    assert "Recent activity" not in output
+    assert "Tip:" not in output
+    assert "Commands" in output
+
+
+def test_first_run_welcome_has_distinct_greeting_and_bounded_card(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="local model",
+        provider="unavailable",
+        workspace=tmp_path,
+        runtime="Unavailable",
+        first_run=True,
+    )
+
+    output = TerminalRenderer(width=100, no_color=True).startup(snapshot)
+
+    assert "Welcome to MLLminal" in output
+    assert output.splitlines()[0] == "MLLminal"
+    assert max(map(len, output.splitlines())) <= 100
+
+
+def test_welcome_layout_stays_inside_narrow_and_medium_widths(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen",
+        workspace=tmp_path,
+        runtime="Ready",
+        quick_starts=("Summarize files",),
+        tip="Use @ to add context.",
+    )
+
+    for width in (50, 80, 120, 160):
+        output = TerminalRenderer(width=width, no_color=True).startup(snapshot)
+        assert max(map(len, output.splitlines())) <= width
+
+
+def test_action_surfaces_keep_approval_and_state_bounded() -> None:
+    renderer = TerminalRenderer(width=50, no_color=True)
+    plan = renderer.plan(["Open the project", "Verify the result"])
+
+    assert "Plan ready" in plan
+    assert max(map(len, plan.splitlines())) <= 50
+    assert "[A] Approve plan" in renderer.approval_prompt()
+    assert "EXECUTING" in renderer.task_state("EXECUTING")
+
+
+def test_footer_and_prompt_placeholder_use_real_snapshot_state(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen",
+        workspace=tmp_path,
+        runtime="Ready",
+    )
+    renderer = TerminalRenderer(width=80, no_color=True)
+
+    assert "qwen3:4b" not in renderer.footer(snapshot)
+    assert "Ready" in renderer.footer(snapshot)
+    assert renderer.prompt_placeholder() == "Ask Mil to work with your files, apps, or workflows..."
 
 
 def test_wide_startup_panel_contains_product_state_and_real_activity(tmp_path: Path) -> None:
@@ -36,12 +214,12 @@ def test_wide_startup_panel_contains_product_state_and_real_activity(tmp_path: P
     output = TerminalRenderer(width=110, no_color=True).startup(snapshot)
 
     assert "MLLminal" in output
-    assert "Mil · qwen3:4b · Qwen via Ollama" in output
+    assert "Mil - qwen3:4b - Qwen via Ollama" not in output
     assert "Workspace:" in output
-    assert "● Ready" in output
+    assert "* Ready" in output
     assert "Organized Downloads" in output
-    assert "Show my workflows" in output
-    assert "Type / to browse commands." in output
+    assert "Show my workflows" not in output
+    assert "Type / to browse commands." not in output
 
 
 def test_narrow_startup_panel_does_not_emit_wide_layout(tmp_path: Path) -> None:
@@ -79,7 +257,7 @@ def test_no_color_renderer_has_no_ansi_escape_sequences(tmp_path: Path) -> None:
 
     output = TerminalRenderer(width=80, no_color=True).startup(snapshot)
     assert "\x1b[" not in output
-    assert "No recent activity" in output
+    assert "No recent activity" not in output
 
 
 def _completion_texts(completer: MilCompleter, value: str) -> list[str]:
@@ -123,3 +301,89 @@ def test_local_prompt_history_is_bounded_and_skips_sensitive_prompts(tmp_path: P
 
     assert restored.get_strings() == ["second", "third"]
     assert "password=secret" not in path.read_text(encoding="utf-8")
+
+
+def test_welcome_invites_natural_language_conversation(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen",
+        workspace=tmp_path,
+        runtime="Ready",
+        quick_starts=("Summarize the files in this folder",),
+    )
+
+    output = TerminalRenderer(width=100, no_color=True).startup(snapshot)
+
+    assert output.splitlines()[0] == "MLLminal"
+    assert "Local workflow intelligence for your computer." in output
+    assert "What would you like to work on?" in output
+
+
+def test_interactive_session_sets_mllminal_terminal_title(tmp_path: Path, monkeypatch) -> None:
+    import mllminal.client.interactive.session as interactive_session
+
+    writes: list[str] = []
+    monkeypatch.setattr(interactive_session.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(interactive_session.sys.stdout, "write", writes.append)
+    monkeypatch.setattr(interactive_session.sys.stdout, "flush", lambda: None)
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    session = InteractiveSession(
+        settings,
+        input_func=lambda _prompt: "/exit",
+        output=lambda _value: None,
+        use_prompt_toolkit=False,
+    )
+    monkeypatch.setattr(session, "_show_startup", lambda: None)
+    session.run()
+
+    assert writes == [chr(27) + "]0;MLLminal" + chr(7)]
+
+
+def test_plain_language_turn_is_submitted_as_conversation(tmp_path: Path, monkeypatch) -> None:
+    inputs = iter(["please explain this project", "/exit"])
+    outputs: list[str] = []
+    submitted: list[str] = []
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    session = InteractiveSession(
+        settings,
+        input_func=lambda _prompt: next(inputs),
+        output=outputs.append,
+        use_prompt_toolkit=False,
+    )
+    monkeypatch.setattr(session, "_show_startup", lambda: None)
+    monkeypatch.setattr(session, "_submit", submitted.append)
+
+    session.run()
+
+    assert submitted == ["please explain this project"]
+    assert not any("please explain this project" in value for value in outputs)
+
+
+def test_mil_response_prefix_is_emitted_once(tmp_path: Path, monkeypatch) -> None:
+    import mllminal.client.interactive.session as interactive_session
+
+    writes: list[str] = []
+    monkeypatch.setattr(interactive_session.sys.stdout, "write", writes.append)
+    monkeypatch.setattr(interactive_session.sys.stdout, "flush", lambda: None)
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+
+    InteractiveSession(settings)._start_mil_response()
+
+    assert writes == ["\nMil\n"]
+
+
+def test_welcome_output_is_safe_for_legacy_windows_console(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen",
+        workspace=tmp_path,
+        runtime="Ready",
+    )
+
+    output = TerminalRenderer(width=100, no_color=True).startup(snapshot)
+
+    output.encode("cp1252")
+    assert "* Ready" in output

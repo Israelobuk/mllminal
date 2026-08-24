@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+import inspect
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,10 @@ from mllminal.client.api import DaemonClient
 from mllminal.config import Settings
 
 ClientFactory = Callable[[Settings], DaemonClient]
+Output = Callable[[str], None]
+Input = Callable[[str], str | Awaitable[str]]
+StreamOutput = Callable[[str], None]
+PlanRenderer = Callable[[list[str]], str]
 TERMINAL_STATES = {"COMPLETED", "FAILED", "BLOCKED", "CANCELLED"}
 
 
@@ -33,7 +38,7 @@ async def _prepare_session(client: DaemonClient, settings: Settings) -> str:
     if client.session_id is not None:
         try:
             await client.request("GET", f"/v1/sessions/{client.session_id}")
-        except (OSError, PermissionError, RuntimeError):
+        except (OSError, PermissionError, RuntimeError, httpx.HTTPError):
             client.session_id = None
     session_id = await client.ensure_session()
     settings.ensure_data_dir()
@@ -46,7 +51,13 @@ async def _history(client: DaemonClient, session_id: str) -> list[dict[str, Any]
     return value.get("messages", []) if isinstance(value, dict) else []
 
 
-async def _wait_for_final(client: DaemonClient, task_id: str) -> dict[str, Any]:
+async def _wait_for_final(
+    client: DaemonClient,
+    task_id: str,
+    *,
+    output: Output = print,
+    state_renderer: Callable[[str], str] | None = None,
+) -> dict[str, Any]:
     previous: str | None = None
     consecutive_timeouts = 0
     for _ in range(300):
@@ -56,7 +67,7 @@ async def _wait_for_final(client: DaemonClient, task_id: str) -> dict[str, Any]:
             consecutive_timeouts += 1
             if consecutive_timeouts >= 3:
                 raise TimeoutError("timed out reading the daemon task state") from error
-            print("task status request timed out; retrying")
+            output("task status request timed out; retrying")
             await asyncio.sleep(0.2)
             continue
         consecutive_timeouts = 0
@@ -64,7 +75,7 @@ async def _wait_for_final(client: DaemonClient, task_id: str) -> dict[str, Any]:
             raise RuntimeError("daemon returned an invalid task projection")
         state = str(task.get("state", ""))
         if state != previous:
-            print(f"state: {state}")
+            output(state_renderer(state) if state_renderer else f"state: {state}")
             previous = state
         if state in TERMINAL_STATES:
             return task
@@ -72,18 +83,46 @@ async def _wait_for_final(client: DaemonClient, task_id: str) -> dict[str, Any]:
     raise TimeoutError("timed out waiting for the daemon to finish verification")
 
 
-async def _submit(client: DaemonClient, settings: Settings, content: str) -> None:
+async def _stream_items(client: DaemonClient, content: str) -> AsyncIterator[dict[str, Any]]:
+    try:
+        async for item in client.stream_chat(content):
+            yield item
+    except httpx.ReadError as error:
+        raise RuntimeError(
+            "Mil stream closed before completion; run mllminal doctor and retry."
+        ) from error
+
+
+async def _submit(
+    client: DaemonClient,
+    settings: Settings,
+    content: str,
+    *,
+    output: Output | None = None,
+    input_func: Input | None = None,
+    stream_output: StreamOutput | None = None,
+    response_started: Callable[[], None] | None = None,
+    approval_prompt: str = "Approve this plan? [y/N] ",
+    plan_renderer: PlanRenderer | None = None,
+    state_renderer: Callable[[str], str] | None = None,
+    result_renderer: Callable[[str], str] | None = None,
+) -> None:
+    output = output or print
+    input_func = input_func or input
+    stream_output = stream_output or (lambda value: print(value, end="", flush=True))
     session_id = await _prepare_session(client, settings)
     result: dict[str, Any] | None = None
     streamed_text = ""
-    async for item in client.stream_chat(content):
+    async for item in _stream_items(client, content):
         if item.get("type") == "event":
             event = item.get("event", {})
             if event.get("event_type") == "response.delta":
                 payload = event.get("payload", {})
                 text = payload.get("text") if isinstance(payload, dict) else None
                 if isinstance(text, str):
-                    print(text, end="", flush=True)
+                    if response_started is not None and not streamed_text:
+                        response_started()
+                    stream_output(text)
                     streamed_text += text
             continue
         if item.get("type") == "error":
@@ -95,31 +134,44 @@ async def _submit(client: DaemonClient, settings: Settings, content: str) -> Non
             if isinstance(pending, dict):
                 result = pending
     if streamed_text:
-        print()
+        output("")
     if result is None:
         raise RuntimeError("daemon ended the Mil stream without a pending task")
     task = result.get("task", {})
     plan = result.get("plan", {})
     approval = result.get("approval", {})
-    task_id = task.get("id")
-    print("Mil:")
-    messages = await _history(client, session_id)
-    if messages:
-        latest = messages[-1]
-        if latest.get("role") == "mil":
-            print(latest.get("content", ""))
-    print("Plan:")
-    for step in plan.get("steps", []):
+    task_id = task.get("id") if isinstance(task, dict) else None
+    if not streamed_text or response_started is None:
+        output("Mil:")
+        messages = await _history(client, session_id)
+        if messages:
+            latest = messages[-1]
+            if latest.get("role") == "mil":
+                output(str(latest.get("content", "")))
+    step_labels: list[str] = []
+    for step in plan.get("steps", []) if isinstance(plan, dict) else []:
+        if not isinstance(step, dict):
+            continue
         proposal = step.get("proposal", {})
+        proposal = proposal if isinstance(proposal, dict) else {}
         title = step.get("title", proposal.get("tool_name", "action"))
-        print(f"  {step.get('position', '?')}. {title}")
-    approval_id = approval.get("id")
+        step_labels.append(str(title))
+    if plan_renderer:
+        output(plan_renderer(step_labels))
+    else:
+        output("Plan:")
+        for index, title in enumerate(step_labels, start=1):
+            output(f"  {index}. {title}")
+    approval_id = approval.get("id") if isinstance(approval, dict) else None
     if not approval_id or not task_id:
-        print("No executable approval was returned; the daemon owns the final state.")
+        output("No executable approval was returned; the daemon owns the final state.")
         return
-    answer = input("Approve this plan? [y/N] ").strip().lower()
-    if answer not in {"y", "yes"}:
-        print("Plan left pending; no action was executed.")
+    answer_value = input_func(approval_prompt)
+    if inspect.isawaitable(answer_value):
+        answer_value = await answer_value
+    answer = str(answer_value).strip().lower()
+    if answer not in {"y", "yes", "a", "approve"}:
+        output("Plan left pending; no action was executed.")
         return
     try:
         decided = await client.request(
@@ -129,17 +181,23 @@ async def _submit(client: DaemonClient, settings: Settings, content: str) -> Non
             idempotency_key=f"mil-approval-{approval_id}",
         )
     except httpx.TimeoutException:
-        print("approval response timed out; checking durable task state")
-        decided = None
+        output("approval response timed out; checking durable task state")
     else:
         if isinstance(decided, dict):
-            print(f"approval: {decided.get('state', 'recorded')}")
-    final = await _wait_for_final(client, str(task_id))
+            output(f"approval: {decided.get('state', 'recorded')}")
+    final = await _wait_for_final(
+        client,
+        str(task_id),
+        output=output,
+        state_renderer=state_renderer,
+    )
     final_state = str(final.get("state"))
-    if final_state == "COMPLETED":
-        print("Verified completion recorded by the daemon.")
+    if result_renderer:
+        output(result_renderer(final_state))
+    elif final_state == "COMPLETED":
+        output("Verified completion recorded by the daemon.")
     else:
-        print(f"Execution ended without verified completion: {final_state}")
+        output(f"Execution ended without verified completion: {final_state}")
 
 
 def run_mil_prompt(

@@ -13,6 +13,9 @@ from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import History
+from prompt_toolkit.output import DummyOutput
+from prompt_toolkit.shortcuts import CompleteStyle
+from prompt_toolkit.styles import Style
 
 from mllminal.client.api import DaemonClient
 from mllminal.client.interactive.commands import help_text, parse_command
@@ -24,6 +27,13 @@ from mllminal.config import ProviderConfigStore, Settings
 Output = Callable[[str], None]
 Input = Callable[[str], str]
 ClientFactory = Callable[[Settings], DaemonClient]
+
+
+def set_terminal_title(title: str = "MLLminal") -> None:
+    if not sys.stdout.isatty():
+        return
+    sys.stdout.write(f"{chr(27)}]0;{title}{chr(7)}")
+    sys.stdout.flush()
 
 
 class InteractiveSession:
@@ -54,10 +64,11 @@ class InteractiveSession:
         self._snapshot: StartupSnapshot | None = None
 
     def run(self) -> None:
+        set_terminal_title()
         self._show_startup()
         while True:
             try:
-                line = self._read("\u203a ")
+                line = self._read(self.renderer.prompt_prefix())
             except (EOFError, KeyboardInterrupt):
                 self.output("\nSession ended.")
                 return
@@ -111,7 +122,7 @@ class InteractiveSession:
         daemon_online = str(status.get("daemon", "")).casefold() == "online"
         provider = str(status.get("provider", "local")).replace("_", " ").title()
         model = str(status.get("model", "local model"))
-        resources = tuple(
+        resources = _workspace_resources(self.settings.workspace_root) + tuple(
             [
                 ContextResource(
                     str(item.get("display_name") or item.get("application") or item.get("id")),
@@ -182,12 +193,55 @@ class InteractiveSession:
             completer=MilCompleter(self.settings.workspace_root, resources),
             complete_while_typing=True,
             enable_history_search=True,
+            placeholder=self.renderer.prompt_placeholder(),
+            bottom_toolbar=self._footer,
+            complete_style=CompleteStyle.COLUMN,
+            reserve_space_for_menu=6,
+            style=Style.from_dict(
+                {
+                    "": "fg:default",
+                    "prompt": "bold",
+                    "bottom-toolbar": "fg:#888888",
+                    "completion-menu": "bg:#20242c",
+                    "completion-menu.completion": "fg:#d9dce3",
+                    "completion-menu.completion.current": "bg:#5b3fd6 fg:#ffffff",
+                }
+            ),
+            output=DummyOutput() if not (sys.stdin.isatty() and sys.stdout.isatty()) else None,
         )
 
     def _read(self, prompt: str) -> str:
         if self._prompt_session is not None:
-            return self._prompt_session.prompt(prompt)
+            message = (
+                self.renderer.prompt_message()
+                if prompt == self.renderer.prompt_prefix()
+                else prompt
+            )
+            return self._prompt_session.prompt(
+                message=message,
+                placeholder=self.renderer.prompt_placeholder(),
+                bottom_toolbar=self._footer,
+            )
         return self.input_func(prompt)
+
+    async def _read_async(self, prompt: str) -> str:
+        if self._prompt_session is not None:
+            message = (
+                self.renderer.prompt_message()
+                if prompt == self.renderer.prompt_prefix()
+                else prompt
+            )
+            return await self._prompt_session.prompt_async(
+                message=message,
+                placeholder=self.renderer.prompt_placeholder(),
+                bottom_toolbar=self._footer,
+            )
+        return self._read(prompt)
+
+    def _footer(self) -> str:
+        if self._snapshot is None:
+            return ""
+        return self.renderer.footer(self._snapshot)
 
     def _read_multiline(self) -> str:
         lines: list[str] = []
@@ -205,7 +259,30 @@ class InteractiveSession:
     def _submit(self, content: str) -> None:
         from mllminal.client.mil import _submit
 
-        asyncio.run(_submit(self.client, self.settings, content))
+        asyncio.run(
+            _submit(
+                self.client,
+                self.settings,
+                content,
+                output=self.output,
+                input_func=self._read_async,
+                stream_output=self._stream_output,
+                response_started=self._start_mil_response,
+                approval_prompt=self.renderer.approval_prompt(),
+                plan_renderer=self.renderer.plan,
+                state_renderer=self.renderer.task_state,
+                result_renderer=self.renderer.result,
+            )
+        )
+
+    @staticmethod
+    def _stream_output(value: str) -> None:
+        sys.stdout.write(value)
+        sys.stdout.flush()
+
+    def _start_mil_response(self) -> None:
+        sys.stdout.write(self.renderer.mil_prefix())
+        sys.stdout.flush()
 
     def _handle_command(self, line: str) -> bool:
         spec, argument = parse_command(line)
@@ -414,6 +491,33 @@ def _activity_items(tasks: list[object], workflow_runs: list[object]) -> list[Ac
         )
         for item in records[:3]
     ]
+
+
+def _workspace_resources(workspace: Path, *, limit: int = 32) -> tuple[ContextResource, ...]:
+    try:
+        if not workspace.is_dir():
+            return ()
+        entries = sorted(workspace.iterdir(), key=lambda item: item.name.casefold())
+    except OSError:
+        return ()
+    resources: list[ContextResource] = []
+    for entry in entries:
+        if entry.name.startswith(".") or entry.name in {"__pycache__", ".venv"}:
+            continue
+        try:
+            is_folder = entry.is_dir()
+        except OSError:
+            continue
+        kind = "folder" if is_folder else "file"
+        value = entry.relative_to(workspace).as_posix()
+        label = entry.name
+        if is_folder:
+            value += "/"
+            label += "/"
+        resources.append(ContextResource(label, kind, value))
+        if len(resources) >= limit:
+            break
+    return tuple(resources)
 
 
 def _age(value: object) -> str:

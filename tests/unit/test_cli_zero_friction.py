@@ -60,7 +60,8 @@ def test_root_workspace_mode_normalizes_path_and_opens_interactive_mil(
 
     assert result.exit_code == 0, result.stdout
     assert calls == [("ensure", workspace.resolve()), ("terminal", workspace.resolve())]
-    assert f"Workspace: {workspace.resolve()}" in result.stdout
+    assert "MLLminal v" not in result.stdout
+    assert "Mil is ready." not in result.stdout
 
 
 def test_root_rejects_missing_path_like_target_without_starting_daemon(
