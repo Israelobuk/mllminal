@@ -271,11 +271,13 @@ def start_daemon(settings: Settings) -> dict[str, Any]:
     flags = 0
     breakaway_flag = 0
     if sys.platform == "win32":
+        # CREATE_NO_WINDOW hides the console entry point without breaking
+        # the bundled Python launcher.
         flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
-            subprocess, "DETACHED_PROCESS", 0
+            subprocess, "CREATE_NO_WINDOW", 0
         )
         breakaway_flag = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
-        flags |= breakaway_flag | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        flags |= breakaway_flag
     try:
 
         def spawn(creationflags: int) -> subprocess.Popen[Any]:
