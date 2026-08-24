@@ -44,14 +44,16 @@ def daemon_startup_lock_path(settings: Settings) -> Path:
     return settings.data_dir / "daemon-startup.lock"
 
 
-def release_daemon_startup_lock(settings: Settings, pid: int) -> None:
+def release_daemon_startup_lock(settings: Settings, pid: int | None = None) -> None:
     """Remove the launch marker only when it still belongs to this daemon."""
     path = daemon_startup_lock_path(settings)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError):
         return
-    if not isinstance(payload, dict) or _lock_pid(payload) != pid:
+    if not isinstance(payload, dict) or payload.get("status") not in {"starting", "running"}:
+        return
+    if pid is not None and _lock_pid(payload) != pid:
         return
     with suppress(FileNotFoundError, OSError):
         path.unlink()
