@@ -14,6 +14,7 @@ from mllminal.daemon.api import create_app
 from mllminal.daemon.auth import load_or_create_token
 from mllminal.migrations import upgrade_database
 from mllminal.runtime_store import RuntimeStore
+from mllminal.service_lifecycle import release_daemon_startup_lock
 
 
 class JsonFormatter(logging.Formatter):
@@ -59,3 +60,4 @@ def main() -> None:
             server.run()
         finally:
             settings.pid_path.unlink(missing_ok=True)
+            release_daemon_startup_lock(settings)

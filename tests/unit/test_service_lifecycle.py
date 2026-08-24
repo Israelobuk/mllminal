@@ -149,6 +149,9 @@ def test_start_daemon_detaches_stdio_from_the_installer(
     monkeypatch.setattr("mllminal.service_lifecycle.daemon_executable", fake_daemon_executable)
     monkeypatch.setattr("mllminal.service_lifecycle._process_is_alive", lambda _pid: False)
     monkeypatch.setattr("mllminal.service_lifecycle.sys.platform", "win32")
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.subprocess.CREATE_NO_WINDOW", 0x08000000, raising=False
+    )
     monkeypatch.setattr("mllminal.service_lifecycle.subprocess.Popen", fake_popen)
 
     start_daemon(settings)
@@ -157,6 +160,37 @@ def test_start_daemon_detaches_stdio_from_the_installer(
     assert captured["stdout"] is subprocess.DEVNULL
     assert captured["stderr"] is subprocess.DEVNULL
     assert captured["creationflags"] & subprocess.CREATE_BREAKAWAY_FROM_JOB
+    assert captured["creationflags"] & subprocess.CREATE_NO_WINDOW
+    detached_process = getattr(subprocess, "DETACHED_PROCESS", 0)
+    assert not captured["creationflags"] & detached_process
+
+
+@pytest.mark.asyncio
+async def test_ensure_daemon_waits_for_another_launcher_to_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class ConcurrentClient:
+        def __init__(self, _settings: Settings) -> None:
+            self.calls = 0
+
+        async def health(self) -> dict[str, str]:
+            self.calls += 1
+            if self.calls < 2:
+                raise RuntimeError("offline")
+            return {"status": "ok", "daemon": "mllminald"}
+
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.start_daemon",
+        lambda _settings: (_ for _ in ()).throw(
+            RuntimeError("another MLLminal daemon startup is already in progress")
+        ),
+    )
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+
+    result = await ensure_daemon(settings, ConcurrentClient, wait_seconds=0.5)
+
+    assert result["status"] == "running"
+    assert result["started"] == {"status": "already_starting"}
 
 
 @pytest.mark.asyncio
@@ -323,3 +357,29 @@ def test_start_daemon_works_while_runtime_daemon_lock_is_held(
     startup_record = json.loads(daemon_startup_lock_path(settings).read_text(encoding="utf-8"))
     assert startup_record["status"] == "running"
     assert startup_record["pid"] == 4569
+
+
+def test_release_daemon_startup_lock_only_removes_owned_marker(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from mllminal.service_lifecycle import (
+        daemon_startup_lock_path,
+        release_daemon_startup_lock,
+    )
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    marker = daemon_startup_lock_path(settings)
+    marker.parent.mkdir(parents=True)
+    marker.write_text(json.dumps({"status": "running", "pid": 1234}), encoding="utf-8")
+
+    release_daemon_startup_lock(settings, 9999)
+    assert marker.is_file()
+
+    release_daemon_startup_lock(settings, 1234)
+    assert not marker.exists()
+
+    marker.write_text(json.dumps({"status": "running", "pid": 1234}), encoding="utf-8")
+    release_daemon_startup_lock(settings)
+    assert not marker.exists()

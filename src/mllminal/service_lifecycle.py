@@ -44,6 +44,21 @@ def daemon_startup_lock_path(settings: Settings) -> Path:
     return settings.data_dir / "daemon-startup.lock"
 
 
+def release_daemon_startup_lock(settings: Settings, pid: int | None = None) -> None:
+    """Remove the launch marker only when it still belongs to this daemon."""
+    path = daemon_startup_lock_path(settings)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError):
+        return
+    if not isinstance(payload, dict) or payload.get("status") not in {"starting", "running"}:
+        return
+    if pid is not None and _lock_pid(payload) != pid:
+        return
+    with suppress(FileNotFoundError, OSError):
+        path.unlink()
+
+
 def _diagnostics_path(settings: Settings) -> Path:
     return settings.data_dir.parent / "diagnostics" / "daemon-startup.log"
 
@@ -258,8 +273,10 @@ def start_daemon(settings: Settings) -> dict[str, Any]:
     flags = 0
     breakaway_flag = 0
     if sys.platform == "win32":
+        # CREATE_NO_WINDOW hides the console entry point without breaking
+        # the bundled Python launcher.
         flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
-            subprocess, "DETACHED_PROCESS", 0
+            subprocess, "CREATE_NO_WINDOW", 0
         )
         breakaway_flag = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
         flags |= breakaway_flag
@@ -326,8 +343,11 @@ async def ensure_daemon(
         try:
             started = start_daemon(settings)
         except (OSError, RuntimeError, TimeoutError) as error:
-            diagnostic = _write_startup_diagnostic(settings, str(error))
-            raise DaemonStartupError(diagnostic, str(error)) from error
+            if "another MLLminal daemon startup is already in progress" in str(error):
+                started = {"status": "already_starting"}
+            else:
+                diagnostic = _write_startup_diagnostic(settings, str(error))
+                raise DaemonStartupError(diagnostic, str(error)) from error
     deadline = asyncio.get_running_loop().time() + wait_seconds
     while asyncio.get_running_loop().time() < deadline:
         await asyncio.sleep(0.1)
