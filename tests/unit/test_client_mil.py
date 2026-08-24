@@ -197,6 +197,7 @@ def test_wait_for_final_retries_after_transient_task_status_timeout(monkeypatch)
     assert result["state"] == "COMPLETED"
     assert client.calls == 2
 
+
 def test_prepare_session_discards_missing_persisted_session(tmp_path: Path) -> None:
     class StaleSessionClient:
         def __init__(self) -> None:

@@ -72,6 +72,8 @@ async def test_interrupted_duplicate_submission_can_retry_and_answer(tmp_path: P
 
     assert recovered.task.state is TaskState.WAITING_FOR_APPROVAL
     assert len(store.list_tasks()) == 1
+
+
 @pytest.mark.asyncio
 async def test_provider_stream_events_are_persisted_before_submit_returns(tmp_path: Path) -> None:
     runtime, store, session_id = make_runtime(tmp_path)

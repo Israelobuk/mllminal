@@ -120,6 +120,7 @@ def test_wide_welcome_is_a_cohesive_application_surface(tmp_path: Path) -> None:
     assert "Commands" in output
     assert max(map(len, output.splitlines())) <= 120
 
+
 def test_idle_welcome_hides_demo_content_and_provider_details(tmp_path: Path) -> None:
     snapshot = StartupSnapshot(
         version="0.1.0",
@@ -358,6 +359,7 @@ def test_plain_language_turn_is_submitted_as_conversation(tmp_path: Path, monkey
 
     assert submitted == ["please explain this project"]
     assert not any("please explain this project" in value for value in outputs)
+
 
 def test_mil_response_prefix_is_emitted_once(tmp_path: Path, monkeypatch) -> None:
     import mllminal.client.interactive.session as interactive_session

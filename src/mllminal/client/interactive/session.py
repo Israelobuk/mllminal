@@ -237,6 +237,7 @@ class InteractiveSession:
                 bottom_toolbar=self._footer,
             )
         return self._read(prompt)
+
     def _footer(self) -> str:
         if self._snapshot is None:
             return ""
