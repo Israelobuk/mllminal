@@ -196,3 +196,30 @@ def test_wait_for_final_retries_after_transient_task_status_timeout(monkeypatch)
 
     assert result["state"] == "COMPLETED"
     assert client.calls == 2
+
+def test_prepare_session_discards_missing_persisted_session(tmp_path: Path) -> None:
+    class StaleSessionClient:
+        def __init__(self) -> None:
+            self.session_id: str | None = None
+
+        async def request(self, method: str, path: str) -> object:
+            assert method == "GET"
+            assert path.startswith("/v1/sessions/")
+            request = httpx.Request("GET", "http://mllminal.test" + path)
+            response = httpx.Response(404, request=request)
+            raise httpx.HTTPStatusError("missing", request=request, response=response)
+
+        async def ensure_session(self) -> str:
+            assert self.session_id is None
+            self.session_id = "new-session"
+            return self.session_id
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    settings.ensure_data_dir()
+    (settings.data_dir / "mil-session").write_text("stale-session\n", encoding="utf-8")
+    client = StaleSessionClient()
+
+    session_id = asyncio.run(mil._prepare_session(client, settings))
+
+    assert session_id == "new-session"
+    assert (settings.data_dir / "mil-session").read_text(encoding="utf-8").strip() == "new-session"
