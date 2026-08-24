@@ -161,6 +161,8 @@ def test_start_daemon_detaches_stdio_from_the_installer(
     assert captured["stderr"] is subprocess.DEVNULL
     assert captured["creationflags"] & subprocess.CREATE_BREAKAWAY_FROM_JOB
     assert captured["creationflags"] & subprocess.CREATE_NO_WINDOW
+    detached_process = getattr(subprocess, "DETACHED_PROCESS", 0)
+    assert not captured["creationflags"] & detached_process
 
 
 @pytest.mark.asyncio
