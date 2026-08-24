@@ -306,6 +306,7 @@ def test_start_daemon_works_while_runtime_daemon_lock_is_held(
 
     settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
     executable = tmp_path / "mllminald.exe"
+    settings.ensure_data_dir()
 
     monkeypatch.setattr(
         "mllminal.service_lifecycle.daemon_executable", lambda _settings: str(executable)
