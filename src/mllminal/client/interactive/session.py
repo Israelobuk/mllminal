@@ -224,6 +224,19 @@ class InteractiveSession:
             )
         return self.input_func(prompt)
 
+    async def _read_async(self, prompt: str) -> str:
+        if self._prompt_session is not None:
+            message = (
+                self.renderer.prompt_message()
+                if prompt == self.renderer.prompt_prefix()
+                else prompt
+            )
+            return await self._prompt_session.prompt_async(
+                message=message,
+                placeholder=self.renderer.prompt_placeholder(),
+                bottom_toolbar=self._footer,
+            )
+        return self._read(prompt)
     def _footer(self) -> str:
         if self._snapshot is None:
             return ""
@@ -251,7 +264,7 @@ class InteractiveSession:
                 self.settings,
                 content,
                 output=self.output,
-                input_func=self._read,
+                input_func=self._read_async,
                 stream_output=self._stream_output,
                 response_started=self._start_mil_response,
                 approval_prompt=self.renderer.approval_prompt(),
