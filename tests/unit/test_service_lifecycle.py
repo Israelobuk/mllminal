@@ -379,3 +379,7 @@ def test_release_daemon_startup_lock_only_removes_owned_marker(
 
     release_daemon_startup_lock(settings, 1234)
     assert not marker.exists()
+
+    marker.write_text(json.dumps({"status": "running", "pid": 1234}), encoding="utf-8")
+    release_daemon_startup_lock(settings)
+    assert not marker.exists()
