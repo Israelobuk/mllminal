@@ -120,6 +120,25 @@ def test_wide_welcome_is_a_cohesive_application_surface(tmp_path: Path) -> None:
     assert "Type / to browse commands." in output
     assert max(map(len, output.splitlines())) <= 120
 
+def test_idle_welcome_hides_demo_content_and_provider_details(tmp_path: Path) -> None:
+    snapshot = StartupSnapshot(
+        version="0.1.0",
+        model="qwen3:4b",
+        provider="Qwen",
+        workspace=tmp_path,
+        runtime="Ready",
+    )
+
+    output = TerminalRenderer(width=100, no_color=True).startup(snapshot)
+
+    assert "Mil\n" in output
+    assert "qwen3:4b" not in output
+    assert "Qwen" not in output
+    assert "Getting started" not in output
+    assert "Recent activity" not in output
+    assert "Tip:" not in output
+    assert "Commands" in output
+
 
 def test_first_run_welcome_has_distinct_greeting_and_bounded_card(tmp_path: Path) -> None:
     snapshot = StartupSnapshot(
@@ -338,7 +357,19 @@ def test_plain_language_turn_is_submitted_as_conversation(tmp_path: Path, monkey
     session.run()
 
     assert submitted == ["please explain this project"]
-    assert any("You" in value and "please explain this project" in value for value in outputs)
+    assert not any("please explain this project" in value for value in outputs)
+
+def test_mil_response_prefix_is_emitted_once(tmp_path: Path, monkeypatch) -> None:
+    import mllminal.client.interactive.session as interactive_session
+
+    writes: list[str] = []
+    monkeypatch.setattr(interactive_session.sys.stdout, "write", writes.append)
+    monkeypatch.setattr(interactive_session.sys.stdout, "flush", lambda: None)
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+
+    InteractiveSession(settings)._start_mil_response()
+
+    assert writes == ["\nMil\n"]
 
 
 def test_welcome_output_is_safe_for_legacy_windows_console(tmp_path: Path) -> None:
