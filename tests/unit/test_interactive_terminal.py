@@ -114,10 +114,10 @@ def test_wide_welcome_is_a_cohesive_application_surface(tmp_path: Path) -> None:
 
     assert output.splitlines()[0] == "MLLminal"
     assert "Welcome back" in output
-    assert "Getting started" in output
-    assert "Recent activity" in output
-    assert "No recent activity" in output
-    assert "Type / to browse commands." in output
+    assert "qwen3:4b" not in output
+    assert "Recent activity" not in output
+    assert "Tip:" not in output
+    assert "Commands" in output
     assert max(map(len, output.splitlines())) <= 120
 
 def test_idle_welcome_hides_demo_content_and_provider_details(tmp_path: Path) -> None:
@@ -193,7 +193,7 @@ def test_footer_and_prompt_placeholder_use_real_snapshot_state(tmp_path: Path) -
     )
     renderer = TerminalRenderer(width=80, no_color=True)
 
-    assert "qwen3:4b" in renderer.footer(snapshot)
+    assert "qwen3:4b" not in renderer.footer(snapshot)
     assert "Ready" in renderer.footer(snapshot)
     assert renderer.prompt_placeholder() == "Ask Mil to work with your files, apps, or workflows..."
 
@@ -213,12 +213,12 @@ def test_wide_startup_panel_contains_product_state_and_real_activity(tmp_path: P
     output = TerminalRenderer(width=110, no_color=True).startup(snapshot)
 
     assert "MLLminal" in output
-    assert "Mil - qwen3:4b - Qwen via Ollama" in output
+    assert "Mil - qwen3:4b - Qwen via Ollama" not in output
     assert "Workspace:" in output
     assert "* Ready" in output
     assert "Organized Downloads" in output
-    assert "Show my workflows" in output
-    assert "Type / to browse commands." in output
+    assert "Show my workflows" not in output
+    assert "Type / to browse commands." not in output
 
 
 def test_narrow_startup_panel_does_not_emit_wide_layout(tmp_path: Path) -> None:
@@ -256,7 +256,7 @@ def test_no_color_renderer_has_no_ansi_escape_sequences(tmp_path: Path) -> None:
 
     output = TerminalRenderer(width=80, no_color=True).startup(snapshot)
     assert "\x1b[" not in output
-    assert "No recent activity" in output
+    assert "No recent activity" not in output
 
 
 def _completion_texts(completer: MilCompleter, value: str) -> list[str]:
