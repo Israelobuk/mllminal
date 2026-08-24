@@ -131,7 +131,7 @@ def test_submit_accepts_interactive_output_and_input_surfaces(tmp_path: Path, ca
     async def fake_history(_client: object, _session_id: str) -> list[dict[str, object]]:
         return []
 
-    def read(prompt: str) -> str:
+    async def read(prompt: str) -> str:
         events.append(prompt)
         return "approve"
 
