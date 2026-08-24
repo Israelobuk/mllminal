@@ -54,6 +54,24 @@ async def test_duplicate_submission_returns_original_task(tmp_path: Path) -> Non
     assert len(store.list_tasks()) == 1
 
 
+class InterruptedProvider:
+    async def stream_response(self, _request: MilRequest):
+        raise RuntimeError("stream interrupted")
+        yield
+
+
+@pytest.mark.asyncio
+async def test_interrupted_duplicate_submission_can_retry_and_answer(tmp_path: Path) -> None:
+    _default_runtime, store, session_id = make_runtime(tmp_path)
+    interrupted = MilRuntime(store, provider=InterruptedProvider())
+
+    with pytest.raises(RuntimeError, match="stream interrupted"):
+        await interrupted.submit(session_id, "inspect this project", "retry-key")
+
+    recovered = await MilRuntime(store).submit(session_id, "inspect this project", "retry-key")
+
+    assert recovered.task.state is TaskState.WAITING_FOR_APPROVAL
+    assert len(store.list_tasks()) == 1
 @pytest.mark.asyncio
 async def test_provider_stream_events_are_persisted_before_submit_returns(tmp_path: Path) -> None:
     runtime, store, session_id = make_runtime(tmp_path)
