@@ -43,6 +43,7 @@ def daemon_startup_lock_path(settings: Settings) -> Path:
     """Return the launcher metadata lock separate from the daemon runtime lock."""
     return settings.data_dir / "daemon-startup.lock"
 
+
 def release_daemon_startup_lock(settings: Settings, pid: int) -> None:
     """Remove the launch marker only when it still belongs to this daemon."""
     path = daemon_startup_lock_path(settings)
