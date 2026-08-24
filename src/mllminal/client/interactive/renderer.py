@@ -52,12 +52,9 @@ class TerminalRenderer:
         greeting = "Welcome to MLLminal" if snapshot.first_run else "Welcome back"
         workspace = self._workspace_display(snapshot.workspace)
         recent = [self.activity(item) for item in snapshot.recent_activity[:3]]
-        if not recent:
-            recent = ["No recent activity"]
-        suggestions = ["Help me understand this project", *snapshot.quick_starts[:2]]
         rows = [
             "MLLminal",
-            f"Mil - {snapshot.model} - {snapshot.provider}",
+            "Mil",
             "Local workflow intelligence for your computer.",
             "",
             greeting,
@@ -66,21 +63,17 @@ class TerminalRenderer:
             "Session",
             f"  Workspace: {workspace}",
             f"  {self.status_line('Runtime', snapshot.runtime)}",
-            f"  Model: {snapshot.model}",
             f"  Privacy: {snapshot.privacy}",
-            "",
-            "Getting started",
-            "Try asking",
-            *(f"  {item}" for item in suggestions),
-            "",
-            "Recent activity",
-            *(f"  {item}" for item in recent),
-            "",
-            "Commands",
-            "  /help  browse commands   /status  check health   /exit  leave",
-            "",
-            f"Tip: {snapshot.tip}",
         ]
+        if recent:
+            rows.extend(["", "Recent activity", *(f"  {item}" for item in recent)])
+        rows.extend(
+            [
+                "",
+                "Commands",
+                "  /help  browse commands   /status  check health   /exit  leave",
+            ]
+        )
         return "\n".join(self._fit(row) for row in rows)
 
     def status_line(self, label: str, state: str) -> str:
@@ -94,8 +87,7 @@ class TerminalRenderer:
     def footer(self, snapshot: StartupSnapshot) -> str:
         workspace = snapshot.workspace.name or self._workspace_display(snapshot.workspace)
         return self._fit(
-            f"{snapshot.model} - {snapshot.provider} | {workspace} | "
-            f"{self._runtime_badge(snapshot.runtime)} | / commands | @ context"
+            f"{workspace} | {self._runtime_badge(snapshot.runtime)} | / commands | @ context"
         )
 
     @staticmethod

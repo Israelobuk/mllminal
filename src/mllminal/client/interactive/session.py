@@ -85,7 +85,6 @@ class InteractiveSession:
                     return
                 continue
             try:
-                self.output(self.renderer.user_message(command))
                 self._submit(command)
             except KeyboardInterrupt:
                 self.output("^C\nCancelled current operation. The daemon remains running.")
