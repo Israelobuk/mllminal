@@ -37,7 +37,7 @@ async def _prepare_session(client: DaemonClient, settings: Settings) -> str:
     if client.session_id is not None:
         try:
             await client.request("GET", f"/v1/sessions/{client.session_id}")
-        except (OSError, PermissionError, RuntimeError):
+        except (OSError, PermissionError, RuntimeError, httpx.HTTPError):
             client.session_id = None
     session_id = await client.ensure_session()
     settings.ensure_data_dir()
