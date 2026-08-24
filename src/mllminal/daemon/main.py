@@ -60,4 +60,4 @@ def main() -> None:
             server.run()
         finally:
             settings.pid_path.unlink(missing_ok=True)
-            release_daemon_startup_lock(settings, os.getpid())
+            release_daemon_startup_lock(settings)
