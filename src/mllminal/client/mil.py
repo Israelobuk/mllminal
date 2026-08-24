@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+import inspect
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ from mllminal.config import Settings
 
 ClientFactory = Callable[[Settings], DaemonClient]
 Output = Callable[[str], None]
-Input = Callable[[str], str]
+Input = Callable[[str], str | Awaitable[str]]
 StreamOutput = Callable[[str], None]
 PlanRenderer = Callable[[list[str]], str]
 TERMINAL_STATES = {"COMPLETED", "FAILED", "BLOCKED", "CANCELLED"}
@@ -165,7 +166,10 @@ async def _submit(
     if not approval_id or not task_id:
         output("No executable approval was returned; the daemon owns the final state.")
         return
-    answer = input_func(approval_prompt).strip().lower()
+    answer_value = input_func(approval_prompt)
+    if inspect.isawaitable(answer_value):
+        answer_value = await answer_value
+    answer = str(answer_value).strip().lower()
     if answer not in {"y", "yes", "a", "approve"}:
         output("Plan left pending; no action was executed.")
         return
