@@ -69,13 +69,13 @@ class MilRuntime:
         existing = self.store.find_task_by_idempotency(session_id, idempotency_key)
         if existing is not None:
             try:
-                plan = self.store.get_plan_for_task(existing.id)
-                approval = self.store.list_approvals(existing.id)[0]
+                existing_plan = self.store.get_plan_for_task(existing.id)
+                existing_approval = self.store.list_approvals(existing.id)[0]
             except (KeyError, IndexError):
                 if existing.state is not TaskState.PLANNING:
                     raise
             else:
-                return PendingTask(task=existing, plan=plan, approval=approval)
+                return PendingTask(task=existing, plan=existing_plan, approval=existing_approval)
         session = self.store.get_session(session_id)
         self.store.add_message(session_id, MessageRole.USER, request, idempotency_key)
         task, _ = self.store.create_task_idempotent(
