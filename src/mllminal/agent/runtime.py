@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from mllminal.agent.prompts import PROMPT_VERSION
+from mllminal.agent.response_cache import ResponseCache, response_cache_key
 from mllminal.agent.provider import (
     DeterministicMilProvider,
     MilProvider,
@@ -37,6 +38,12 @@ class PendingTask:
     approval: Approval
 
 
+@dataclass(frozen=True)
+class ChatResponse:
+    response: str
+    cached: bool
+
+
 class ProviderFailure(RuntimeError):
     """A provider failed without producing an executable plan."""
 
@@ -53,11 +60,156 @@ class MilRuntime:
         provider: MilProvider | None = None,
         tools: ToolRegistry | None = None,
         advisor: LearningRuntimeAdvisor | None = None,
+        response_cache: ResponseCache | None = None,
     ) -> None:
         self.store = store
         self.provider = provider or DeterministicMilProvider()
         self.tools = tools or ToolRegistry()
         self.advisor = advisor
+        self.response_cache = response_cache or ResponseCache(store.database_path)
+
+    @staticmethod
+    def is_fast_path_request(request: str) -> bool:
+        normalized = " ".join(request.casefold().split())
+        if not normalized or len(normalized) > 160:
+            return False
+        if normalized in {
+            "hi",
+            "hello",
+            "hey",
+            "yo",
+            "thanks",
+            "thank you",
+            "good morning",
+            "good afternoon",
+            "good evening",
+            "how are you",
+            "who are you",
+            "what can you do",
+            "what is mllminal",
+            "what is mil",
+            "what model are you",
+        }:
+            return True
+        action_terms = {
+            "application",
+            "automate",
+            "click",
+            "create",
+            "delete",
+            "discover",
+            "execute",
+            "file",
+            "folder",
+            "find",
+            "launch",
+            "move",
+            "open",
+            "project",
+            "read",
+            "report",
+            "save",
+            "send",
+            "summarize",
+            "workflow",
+            "write",
+        }
+        return not action_terms.intersection(normalized.split()) and normalized.endswith("?")
+
+    async def respond(
+        self,
+        session_id: str,
+        request: str,
+        idempotency_key: str,
+        event_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> ChatResponse:
+        """Answer context-free conversation without creating a task or approval."""
+        session = self.store.get_session(session_id)
+        self.store.add_message(session_id, MessageRole.USER, request, idempotency_key)
+        conversation, was_trimmed = build_bounded_context(
+            self.store.list_messages(session_id), 20
+        )
+        if was_trimmed:
+            self.store.append_event(
+                session_id, "context.trimmed", {"kept_messages": len(conversation)}
+            )
+        provider_name, model = self._provider_identity()
+        cache_key = response_cache_key(
+            provider=provider_name,
+            model=model,
+            workspace_root=session.workspace_root,
+            content=request,
+        )
+        cached = self.response_cache.get(cache_key)
+        if cached is not None:
+            await self._emit_chat_event(session_id, "response.started", event_sink=event_sink)
+            await self._emit_chat_event(
+                session_id,
+                "response.delta",
+                text=cached,
+                event_sink=event_sink,
+            )
+            await self._emit_chat_event(
+                session_id,
+                "response.completed",
+                text=cached,
+                detail={"cached": True},
+                event_sink=event_sink,
+            )
+            return ChatResponse(response=cached, cached=True)
+
+        provider_request = MilRequest(
+            session_id=session_id,
+            task_id=None,
+            user_message=request,
+            workspace_root=session.workspace_root,
+            conversation=conversation,
+        )
+        response_text = ""
+        async for event in self.provider.stream_conversation(provider_request):
+            await self._emit_chat_event(
+                session_id,
+                event.event_type,
+                text=event.text,
+                detail=event.detail,
+                event_sink=event_sink,
+            )
+            if event.event_type == "response.delta" and event.text is not None:
+                response_text += event.text
+            if event.event_type == "provider.failed":
+                raise RuntimeError(event.text or "Mil conversational provider failed")
+        if not response_text:
+            raise RuntimeError("Mil provider completed without a conversational response")
+        self.store.add_message(
+            session_id,
+            MessageRole.MIL,
+            response_text,
+            idempotency_key=f"mil:chat:{cache_key}",
+        )
+        self.response_cache.put(cache_key, response_text)
+        return ChatResponse(response=response_text, cached=False)
+
+    async def _emit_chat_event(
+        self,
+        session_id: str,
+        event_type: str,
+        *,
+        text: str | None = None,
+        detail: dict[str, Any] | None = None,
+        event_sink: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    ) -> None:
+        event = self.store.append_event(
+            session_id,
+            event_type,
+            {"event_type": event_type, "text": text, "detail": detail or {}},
+        )
+        if event_sink is not None:
+            await event_sink(event.model_dump(mode="json"))
+
+    def _provider_identity(self) -> tuple[str, str]:
+        if isinstance(self.provider, DeterministicMilProvider):
+            return "deterministic", "fixture"
+        return "qwen", str(getattr(getattr(self.provider, "_client", None), "model", "unknown"))
 
     async def submit(
         self,
