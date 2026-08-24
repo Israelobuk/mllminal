@@ -68,11 +68,14 @@ class MilRuntime:
     ) -> PendingTask:
         existing = self.store.find_task_by_idempotency(session_id, idempotency_key)
         if existing is not None:
-            return PendingTask(
-                task=existing,
-                plan=self.store.get_plan_for_task(existing.id),
-                approval=self.store.list_approvals(existing.id)[0],
-            )
+            try:
+                plan = self.store.get_plan_for_task(existing.id)
+                approval = self.store.list_approvals(existing.id)[0]
+            except (KeyError, IndexError):
+                if existing.state is not TaskState.PLANNING:
+                    raise
+            else:
+                return PendingTask(task=existing, plan=plan, approval=approval)
         session = self.store.get_session(session_id)
         self.store.add_message(session_id, MessageRole.USER, request, idempotency_key)
         task, _ = self.store.create_task_idempotent(
@@ -81,7 +84,8 @@ class MilRuntime:
             "Inspect the attached project safely",
             idempotency_key,
         )
-        task = self.store.transition_task(task.id, TaskState.PLANNING)
+        if task.state is not TaskState.PLANNING:
+            task = self.store.transition_task(task.id, TaskState.PLANNING)
         conversation, was_trimmed = build_bounded_context(self.store.list_messages(session_id), 20)
         if was_trimmed:
             self.store.append_event(
