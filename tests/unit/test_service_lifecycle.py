@@ -291,3 +291,35 @@ def test_start_daemon_blocks_pid_reuse_when_process_identity_changes(
 
     with pytest.raises(RuntimeError, match="owns the daemon lock"):
         start_daemon(settings)
+
+def test_start_daemon_works_while_runtime_daemon_lock_is_held(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    import portalocker
+
+    from mllminal.service_lifecycle import daemon_startup_lock_path, start_daemon
+
+    class FakeProcess:
+        pid = 4569
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    executable = tmp_path / "mllminald.exe"
+
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.daemon_executable", lambda _settings: str(executable)
+    )
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.subprocess.Popen", lambda *_args, **_kwargs: FakeProcess()
+    )
+
+    with portalocker.Lock(settings.lock_path, mode="a", timeout=0):
+        result = start_daemon(settings)
+
+    assert result == {"status": "starting", "pid": 4569}
+    startup_record = json.loads(
+        daemon_startup_lock_path(settings).read_text(encoding="utf-8")
+    )
+    assert startup_record["status"] == "running"
+    assert startup_record["pid"] == 4569
