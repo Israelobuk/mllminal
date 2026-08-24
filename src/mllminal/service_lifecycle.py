@@ -35,8 +35,13 @@ class DaemonStartupError(RuntimeError):
 
 
 def daemon_lock_path(settings: Settings) -> Path:
-    """Return the user-scoped ownership lock for the packaged daemon."""
-    return settings.data_dir / "daemon.lock"
+    """Return the legacy launcher ownership path for compatibility."""
+    return daemon_startup_lock_path(settings)
+
+
+def daemon_startup_lock_path(settings: Settings) -> Path:
+    """Return the launcher metadata lock separate from the daemon runtime lock."""
+    return settings.data_dir / "daemon-startup.lock"
 
 
 def _diagnostics_path(settings: Settings) -> Path:
