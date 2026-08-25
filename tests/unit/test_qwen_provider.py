@@ -104,6 +104,31 @@ async def test_qwen_provider_repairs_one_invalid_envelope_before_proposing(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_qwen_provider_passes_runtime_facts_to_conversation_model(tmp_path: Path) -> None:
+    client = FakeOllamaClient([(["The local model is ready."], {})])
+    request = MilRequest(
+        session_id="session-1",
+        task_id=None,
+        user_message="what model are you using?",
+        workspace_root=str(tmp_path),
+        runtime_context={
+            "provider": "qwen",
+            "model": "qwen3:4b",
+            "open_applications": {"available": False, "items": None},
+        },
+    )
+
+    events = [event async for event in QwenMilProvider(client).stream_conversation(request)]
+
+    assert events[1].text == "The local model is ready."
+    context = client.requests[0][1]["content"]
+    assert "runtime context" in context.lower()
+    assert '"model": "qwen3:4b"' in context
+    assert '"provider": "qwen"' in context
+    assert '"open_applications"' in context
+
+
+@pytest.mark.asyncio
 async def test_qwen_provider_streams_context_free_conversation_without_a_plan(
     tmp_path: Path,
 ) -> None:
