@@ -121,7 +121,7 @@ async def test_qwen_provider_passes_runtime_facts_to_conversation_model(tmp_path
     events = [event async for event in QwenMilProvider(client).stream_conversation(request)]
 
     assert events[1].text == "The local model is ready."
-    context = client.requests[0][0]["content"]
+    context = client.requests[0][1]["content"]
     assert "runtime context" in context.lower()
     assert '"model": "qwen3:4b"' in context
     assert '"provider": "qwen"' in context
@@ -152,7 +152,8 @@ async def test_qwen_provider_allows_verified_action_summary_in_conversation_prom
 
     assert events[1].text == "Done."
     context = client.requests[0][0]["content"]
-    assert "claim that an action happened unless a verified tool result" in context
+    assert "unless a verified tool result" in context
+    assert "explicitly confirms it" in context
     assert "Verified tool results" in client.requests[0][1]["content"]
 
 
