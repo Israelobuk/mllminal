@@ -29,9 +29,11 @@ class OllamaClient:
         model: str,
         *,
         timeout_seconds: float = 120,
+        keep_alive: str = "10m",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.model = model
+        self.keep_alive = keep_alive
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=httpx.Timeout(timeout_seconds),
@@ -75,7 +77,7 @@ class OllamaClient:
             async with self._client.stream(
                 "POST",
                 "/api/chat",
-                json={"model": self.model, "messages": messages, "stream": True},
+                json={"model": self.model, "messages": messages, "stream": True, "keep_alive": self.keep_alive},
             ) as response:
                 self._raise_for_status(response)
                 async for line in response.aiter_lines():

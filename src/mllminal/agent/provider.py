@@ -219,10 +219,33 @@ class QwenMilProvider:
             {"role": message.role.value, "content": message.content}
             for message in request.conversation
         )
+        if request.tool_results:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": "Verified read-only tool results:\n"
+                    + json.dumps(request.tool_results, sort_keys=True),
+                }
+            )
         messages.append({"role": "user", "content": request.user_message})
         yield MilProviderEvent(event_type="response.started")
+        response_parts: list[str] = []
+        usage: dict[str, int] = {}
         try:
-            chunks, usage = await self._client.complete(messages)
+            stream_chat = getattr(self._client, "stream_chat", None)
+            if stream_chat is None:
+                chunks, fallback_usage = await self._client.complete(messages)
+                usage.update(fallback_usage)
+                for chunk_text in chunks:
+                    if chunk_text:
+                        response_parts.append(chunk_text)
+                        yield MilProviderEvent(event_type="response.delta", text=chunk_text)
+            else:
+                async for chunk in stream_chat(messages):
+                    if chunk.text:
+                        response_parts.append(chunk.text)
+                        yield MilProviderEvent(event_type="response.delta", text=chunk.text)
+                    usage.update(chunk.usage)
         except OllamaProviderError as error:
             yield MilProviderEvent(
                 event_type="provider.failed",
@@ -230,7 +253,7 @@ class QwenMilProvider:
                 detail={"category": error.category},
             )
             return
-        response = "".join(chunks).strip()
+        response = "".join(response_parts).strip()
         if not response:
             yield MilProviderEvent(
                 event_type="provider.failed",
@@ -238,7 +261,6 @@ class QwenMilProvider:
                 detail={"category": "malformed_response"},
             )
             return
-        yield MilProviderEvent(event_type="response.delta", text=response)
         yield MilProviderEvent(event_type="response.completed", text=response, detail=usage)
 
     async def stream_response(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]:

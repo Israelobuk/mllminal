@@ -14,5 +14,6 @@ def create_provider(config: ProviderConfig) -> MilProvider:
             config.base_url,
             config.model,
             timeout_seconds=config.request_timeout_seconds,
+            keep_alive=config.keep_alive,
         )
     )
