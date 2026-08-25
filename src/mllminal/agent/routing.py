@@ -1,7 +1,7 @@
 """Deterministic routing for Mil's conversational and execution paths."""
 
-from enum import StrEnum
 import re
+from enum import StrEnum
 
 
 class MilRoute(StrEnum):
@@ -21,6 +21,10 @@ _LOCAL_INFORMATION = {
     "daemon",
     "endpoint",
     "model",
+    "app",
+    "apps",
+    "application",
+    "applications",
     "provider",
     "ready",
     "service",
@@ -73,6 +77,12 @@ def route_request(request: str) -> MilRoute:
     words = set(_WORD.findall(request.casefold()))
     if not words:
         return MilRoute.CHAT
+    if (
+        "open" in words
+        and words & {"app", "apps", "application", "applications"}
+        and words & {"are", "is", "what", "which"}
+    ):
+        return MilRoute.LOCAL_INFORMATION
     if words & _DESTRUCTIVE:
         return MilRoute.DESTRUCTIVE_ACTION
     if words & _WORKFLOW:

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mllminal.agent.prompts import PROMPT_VERSION
 from mllminal.agent.latency import LatencyTrace
+from mllminal.agent.prompts import PROMPT_VERSION
 from mllminal.agent.provider import (
     DeterministicMilProvider,
     MilProvider,
@@ -46,9 +46,8 @@ class ChatResponse:
     cached: bool
     route: MilRoute
 
-_SAFE_ROUTES = frozenset(
-    {MilRoute.CHAT, MilRoute.LOCAL_INFORMATION, MilRoute.READ_ONLY_TOOL}
-)
+
+_SAFE_ROUTES = frozenset({MilRoute.CHAT, MilRoute.LOCAL_INFORMATION, MilRoute.READ_ONLY_TOOL})
 
 
 class ProviderFailure(RuntimeError):
@@ -265,6 +264,8 @@ class MilRuntime:
     def _local_information_response(self, request: str, workspace_root: str | None) -> str:
         words = set(re.findall(r"[a-z0-9']+", request.casefold()))
         provider, model = self._provider_identity()
+        if "open" in words and words & {"app", "apps", "application", "applications"}:
+            return "I do not have a live open-application list available in this session."
         if "model" in words:
             return f"Mil is using the local {model} model through the {provider} provider."
         if "provider" in words:
@@ -303,7 +304,9 @@ class MilRuntime:
         )
         if task.state is not TaskState.PLANNING:
             task = self.store.transition_task(task.id, TaskState.PLANNING)
-        conversation, was_trimmed = build_bounded_context(self.store.list_messages(session_id, limit=21), 20)
+        conversation, was_trimmed = build_bounded_context(
+            self.store.list_messages(session_id, limit=21), 20
+        )
         if was_trimmed:
             self.store.append_event(
                 session_id, "context.trimmed", {"kept_messages": len(conversation)}
