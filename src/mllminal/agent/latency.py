@@ -22,9 +22,7 @@ class LatencyTrace:
         durations = {
             "routing": self._duration("input_received", "routing_complete"),
             "context": self._duration("routing_complete", "context_ready"),
-            "ollama_wait": self._duration(
-                "ollama_request_started", "first_token_received"
-            ),
+            "ollama_wait": self._duration("ollama_request_started", "first_token_received"),
             "ttft": self._duration("input_received", "first_token_received"),
             "generation": self._duration("first_token_received", "response_complete"),
             "total": self._duration("input_received", "response_complete"),

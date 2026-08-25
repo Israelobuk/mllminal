@@ -15,9 +15,11 @@ def make_client(tmp_path: Path) -> tuple[TestClient, dict[str, str], Path]:
     ProviderConfigStore(settings).save(ProviderConfig(provider="deterministic", model="fixture"))
     store = RuntimeStore(settings.database_path)
     store.initialize()
-    return TestClient(create_app(settings=settings, store=store, token="test-token")), {
-        "Authorization": "Bearer test-token"
-    }, workspace
+    return (
+        TestClient(create_app(settings=settings, store=store, token="test-token")),
+        {"Authorization": "Bearer test-token"},
+        workspace,
+    )
 
 
 def test_natural_read_only_message_returns_route_without_pending_task(tmp_path: Path) -> None:

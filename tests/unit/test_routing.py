@@ -20,5 +20,3 @@ from mllminal.agent.routing import MilRoute, route_request
 )
 def test_route_request_uses_meaningful_modes(prompt: str, expected: MilRoute) -> None:
     assert route_request(prompt) is expected
-
-
