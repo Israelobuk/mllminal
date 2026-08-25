@@ -83,7 +83,12 @@ class OllamaClient:
             async with self._client.stream(
                 "POST",
                 "/api/chat",
-                json={"model": self.model, "messages": messages, "stream": True, "keep_alive": self.keep_alive},
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "stream": True,
+                    "keep_alive": self.keep_alive,
+                },
             ) as response:
                 self._raise_for_status(response)
                 async for line in response.aiter_lines():

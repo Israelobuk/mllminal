@@ -5,8 +5,8 @@ import httpx
 import pytest
 
 from mllminal.agent.ollama import OllamaClient, OllamaStreamEvent
-from mllminal.agent.provider import MilRequest, QwenMilProvider
 from mllminal.agent.prompts import conversation_message
+from mllminal.agent.provider import MilRequest, QwenMilProvider
 
 
 class StreamingOllamaClient:
