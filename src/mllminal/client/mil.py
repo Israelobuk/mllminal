@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,16 @@ async def _prepare_session(client: DaemonClient, settings: Settings) -> str:
     client.session_id = _read_session(settings)
     if client.session_id is not None:
         try:
-            await client.request("GET", f"/v1/sessions/{client.session_id}")
+            session = await client.request("GET", f"/v1/sessions/{client.session_id}")
+            workspace_root = session.get("workspace_root") if isinstance(session, dict) else None
+            expected = os.path.normcase(str(settings.workspace_root.resolve()))
+            actual = (
+                os.path.normcase(str(Path(workspace_root).resolve()))
+                if isinstance(workspace_root, str)
+                else None
+            )
+            if actual != expected:
+                client.session_id = None
         except (OSError, PermissionError, RuntimeError, httpx.HTTPError):
             client.session_id = None
     session_id = await client.ensure_session()
