@@ -156,6 +156,12 @@ class MilRuntime:
                 detail={"cached": True},
                 event_sink=event_sink,
             )
+            self.store.add_message(
+                session_id,
+                MessageRole.MIL,
+                cached,
+                idempotency_key=f"mil:chat:{idempotency_key}",
+            )
             return ChatResponse(response=cached, cached=True)
 
         provider_request = MilRequest(
@@ -184,7 +190,7 @@ class MilRuntime:
             session_id,
             MessageRole.MIL,
             response_text,
-            idempotency_key=f"mil:chat:{cache_key}",
+            idempotency_key=f"mil:chat:{idempotency_key}",
         )
         self.response_cache.put(cache_key, response_text)
         return ChatResponse(response=response_text, cached=False)
