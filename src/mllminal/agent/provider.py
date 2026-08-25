@@ -10,7 +10,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mllminal.agent.ollama import OllamaProviderError
-from mllminal.agent.prompts import repair_message, system_message
+from mllminal.agent.prompts import conversation_message, repair_message, system_message
 from mllminal.agent.prompts.planner_v1 import planner_message
 from mllminal.agent.prompts.schemas import RESPONSE_ENVELOPE_SCHEMA
 from mllminal.contracts import Message, PermissionGrant, Plan, PlanStep, ToolProposal
@@ -44,6 +44,8 @@ class MilProviderEvent(BaseModel):
 
 class MilProvider(Protocol):
     def stream_response(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]: ...
+
+    def stream_conversation(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]: ...
 
 
 @dataclass(frozen=True)
@@ -194,12 +196,49 @@ class DeterministicMilProvider:
         yield MilProviderEvent(event_type="response.completed", text=validated.response)
         yield MilProviderEvent(event_type="plan.proposed", plan=validated.plan)
 
+    async def stream_conversation(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]:
+        yield MilProviderEvent(event_type="response.started")
+        yield MilProviderEvent(
+            event_type="response.delta", text="Hello. What would you like to work on?"
+        )
+        yield MilProviderEvent(
+            event_type="response.completed", text="Hello. What would you like to work on?"
+        )
+
 
 class QwenMilProvider:
     """Ollama-backed provider that emits only validated typed proposals."""
 
     def __init__(self, client: Any) -> None:
         self._client = client
+
+    async def stream_conversation(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]:
+        messages = [{"role": "system", "content": conversation_message()}]
+        messages.extend(
+            {"role": message.role.value, "content": message.content}
+            for message in request.conversation
+        )
+        messages.append({"role": "user", "content": request.user_message})
+        yield MilProviderEvent(event_type="response.started")
+        try:
+            chunks, usage = await self._client.complete(messages)
+        except OllamaProviderError as error:
+            yield MilProviderEvent(
+                event_type="provider.failed",
+                text=str(error),
+                detail={"category": error.category},
+            )
+            return
+        response = "".join(chunks).strip()
+        if not response:
+            yield MilProviderEvent(
+                event_type="provider.failed",
+                text="Model returned an empty conversational response.",
+                detail={"category": "malformed_response"},
+            )
+            return
+        yield MilProviderEvent(event_type="response.delta", text=response)
+        yield MilProviderEvent(event_type="response.completed", text=response, detail=usage)
 
     async def stream_response(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]:
         if request.task_id is None:

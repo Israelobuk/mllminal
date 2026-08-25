@@ -96,6 +96,52 @@ class UnavailableProvider:
         )
 
 
+class FastChatProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream_conversation(self, _request: MilRequest):
+        self.calls += 1
+        yield MilProviderEvent(event_type="response.started")
+        yield MilProviderEvent(event_type="response.delta", text="Hello from Mil.")
+        yield MilProviderEvent(event_type="response.completed", text="Hello from Mil.")
+
+    async def stream_response(self, _request: MilRequest):
+        raise AssertionError("fast conversational input must not enter planning")
+        yield
+
+
+@pytest.mark.asyncio
+async def test_context_free_chat_uses_sqlite_cache_without_creating_a_task(tmp_path: Path) -> None:
+    _default_runtime, store, session_id = make_runtime(tmp_path)
+    provider = FastChatProvider()
+    runtime = MilRuntime(store, provider=provider)
+
+    first = await runtime.respond(session_id, "hi", "chat-1")
+    second = await runtime.respond(session_id, "hi", "chat-2")
+
+    assert first.cached is False
+    assert second.cached is True
+    assert second.response == "Hello from Mil."
+    assert provider.calls == 1
+    assert store.list_tasks() == []
+    assert [message.role for message in store.list_messages(session_id)] == [
+        MessageRole.USER,
+        MessageRole.MIL,
+        MessageRole.USER,
+        MessageRole.MIL,
+    ]
+
+
+def test_runtime_only_classifies_context_free_messages_for_the_fast_path(tmp_path: Path) -> None:
+    runtime, _store, _session_id = make_runtime(tmp_path)
+
+    assert runtime.is_fast_path_request("hi") is True
+    assert runtime.is_fast_path_request("what can you do") is True
+    assert runtime.is_fast_path_request("summarize this project") is False
+    assert runtime.is_fast_path_request("open the report") is False
+
+
 @pytest.mark.asyncio
 async def test_provider_failure_creates_no_fabricated_plan_or_approval(tmp_path: Path) -> None:
     _default_runtime, store, session_id = make_runtime(tmp_path)

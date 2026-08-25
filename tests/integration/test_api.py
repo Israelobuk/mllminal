@@ -91,6 +91,33 @@ def test_message_stream_emits_provider_events_before_pending_projection(tmp_path
     assert pending[0]["task"]["state"] == "WAITING_FOR_APPROVAL"
 
 
+def test_fast_chat_stream_returns_a_cached_response_without_a_task(tmp_path: Path) -> None:
+    client, headers, workspace = make_client(tmp_path)
+    session = client.post(
+        "/v1/sessions", headers=headers, json={"workspace_root": str(workspace)}
+    ).json()
+
+    first = client.post(
+        f"/v1/sessions/{session['id']}/messages/stream",
+        headers={**headers, "Idempotency-Key": "chat-1"},
+        json={"content": "hi"},
+    )
+    second = client.post(
+        f"/v1/sessions/{session['id']}/messages/stream",
+        headers={**headers, "Idempotency-Key": "chat-2"},
+        json={"content": "hi"},
+    )
+
+    first_items = [json.loads(line) for line in first.text.splitlines()]
+    second_items = [json.loads(line) for line in second.text.splitlines()]
+    assert first.status_code == second.status_code == 200
+    assert first_items[-1]["type"] == "chat"
+    assert first_items[-1]["cached"] is False
+    assert second_items[-1]["type"] == "chat"
+    assert second_items[-1]["cached"] is True
+    assert client.get("/v1/tasks", headers=headers).json() == []
+
+
 def test_unknown_routes_return_typed_error(tmp_path: Path) -> None:
     client, headers, _ = make_client(tmp_path)
 

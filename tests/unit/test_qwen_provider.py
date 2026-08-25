@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from mllminal.agent.prompts import system_message
+from mllminal.agent.prompts import conversation_message, system_message
 from mllminal.agent.provider import MilRequest, QwenMilProvider
 from mllminal.contracts import PermissionGrant
 from mllminal.tools import ToolRegistry
@@ -101,3 +101,28 @@ async def test_qwen_provider_repairs_one_invalid_envelope_before_proposing(tmp_p
     assert events[-1].event_type == "plan.proposed"
     assert len(client.requests) == 2
     assert "repair" in client.requests[1][-1]["content"].lower()
+
+
+@pytest.mark.asyncio
+async def test_qwen_provider_streams_context_free_conversation_without_a_plan(
+    tmp_path: Path,
+) -> None:
+    client = FakeOllamaClient([(["Hello from Mil."], {"input_tokens": 3, "output_tokens": 4})])
+    request = MilRequest(
+        session_id="session-1",
+        task_id=None,
+        user_message="hi",
+        workspace_root=str(tmp_path),
+    )
+
+    events = [event async for event in QwenMilProvider(client).stream_conversation(request)]
+
+    assert [event.event_type for event in events] == [
+        "response.started",
+        "response.delta",
+        "response.completed",
+    ]
+    assert events[1].text == "Hello from Mil."
+    assert events[-1].detail == {"input_tokens": 3, "output_tokens": 4}
+    assert client.requests[0][0] == {"role": "system", "content": conversation_message()}
+    assert client.requests[0][-1] == {"role": "user", "content": "hi"}

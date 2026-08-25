@@ -97,6 +97,34 @@ def test_submit_reports_closed_local_stream(tmp_path: Path, monkeypatch) -> None
         asyncio.run(mil._submit(BrokenStreamClient(), settings, "inspect this project"))
 
 
+def test_submit_renders_fast_chat_without_waiting_for_a_pending_task(
+    tmp_path: Path, capsys
+) -> None:
+    class ChatClient:
+        async def stream_chat(self, _content: str):
+            yield {
+                "type": "event",
+                "event": {
+                    "event_type": "response.delta",
+                    "payload": {"text": "Hello from Mil."},
+                },
+            }
+            yield {"type": "chat", "response": "Hello from Mil.", "cached": True}
+
+    async def fake_prepare(_client: object, _settings: Settings) -> str:
+        return "session-1"
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mil, "_prepare_session", fake_prepare)
+    try:
+        settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+        asyncio.run(mil._submit(ChatClient(), settings, "hi"))
+    finally:
+        monkeypatch.undo()
+
+    assert capsys.readouterr().out == "Hello from Mil.\n"
+
+
 def test_submit_accepts_interactive_output_and_input_surfaces(tmp_path: Path, capsys) -> None:
     events: list[str] = []
 
