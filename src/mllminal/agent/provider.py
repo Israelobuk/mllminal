@@ -250,7 +250,7 @@ class QwenMilProvider:
                         response_parts.append(chunk_text)
                         yield MilProviderEvent(event_type="response.delta", text=chunk_text)
             else:
-                async for chunk in stream_chat(messages):
+                async for chunk in stream_chat(messages, think=False, max_output_tokens=512):
                     if chunk.text:
                         response_parts.append(chunk.text)
                         yield MilProviderEvent(event_type="response.delta", text=chunk.text)

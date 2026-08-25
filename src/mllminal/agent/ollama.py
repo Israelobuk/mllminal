@@ -77,19 +77,28 @@ class OllamaClient:
             isinstance(item, dict) and item.get("name") == self.model for item in payload["models"]
         )
 
-    async def stream_chat(self, messages: list[dict[str, str]]) -> AsyncIterator[OllamaStreamEvent]:
+    async def stream_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        think: bool | None = None,
+        max_output_tokens: int | None = None,
+    ) -> AsyncIterator[OllamaStreamEvent]:
         self._request_count += 1
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+            "keep_alive": self.keep_alive,
+        }
+        if think is not None:
+            payload["think"] = think
+        if max_output_tokens is not None:
+            if max_output_tokens < 1:
+                raise ValueError("max_output_tokens must be positive")
+            payload["options"] = {"num_predict": max_output_tokens}
         try:
-            async with self._client.stream(
-                "POST",
-                "/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": True,
-                    "keep_alive": self.keep_alive,
-                },
-            ) as response:
+            async with self._client.stream("POST", "/api/chat", json=payload) as response:
                 self._raise_for_status(response)
                 async for line in response.aiter_lines():
                     if not line:

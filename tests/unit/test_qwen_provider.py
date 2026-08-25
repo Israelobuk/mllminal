@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from mllminal.agent.ollama import OllamaStreamEvent
 from mllminal.agent.prompts import conversation_message, system_message
 from mllminal.agent.provider import MilRequest, QwenMilProvider
 from mllminal.contracts import PermissionGrant
@@ -180,3 +181,27 @@ async def test_qwen_provider_streams_context_free_conversation_without_a_plan(
     assert events[-1].detail == {"input_tokens": 3, "output_tokens": 4}
     assert client.requests[0][0] == {"role": "system", "content": conversation_message()}
     assert client.requests[0][-1] == {"role": "user", "content": "hi"}
+
+
+@pytest.mark.asyncio
+async def test_qwen_conversation_disables_thinking_and_bounds_output(tmp_path: Path) -> None:
+    class StreamingClient:
+        def __init__(self) -> None:
+            self.options: dict[str, object] = {}
+
+        async def stream_chat(self, messages, **options):
+            self.options = options
+            yield OllamaStreamEvent(text="Hello.", done=True, usage={})
+
+    client = StreamingClient()
+    request = MilRequest(
+        session_id="session-1",
+        task_id=None,
+        user_message="hello",
+        workspace_root=str(tmp_path),
+    )
+
+    events = [event async for event in QwenMilProvider(client).stream_conversation(request)]
+
+    assert events[-1].event_type == "response.completed"
+    assert client.options == {"think": False, "max_output_tokens": 512}
