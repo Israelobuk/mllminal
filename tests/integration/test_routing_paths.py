@@ -62,6 +62,20 @@ async def test_local_information_route_does_not_invoke_model(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_open_apps_question_stays_local_information(tmp_path: Path) -> None:
+    _default_runtime, store, session_id = make_runtime(tmp_path)
+    provider = RecordingChatProvider()
+    runtime = MilRuntime(store, provider=provider)
+
+    response = await runtime.respond(session_id, "what apps are open right now?", "apps-route")
+
+    assert response.route is MilRoute.LOCAL_INFORMATION
+    assert "live" in response.response.lower()
+    assert provider.requests == []
+    assert store.list_tasks() == []
+
+
+@pytest.mark.asyncio
 async def test_read_only_route_verifies_tool_result_without_approval(tmp_path: Path) -> None:
     _default_runtime, store, session_id = make_runtime(tmp_path)
     provider = RecordingChatProvider()
