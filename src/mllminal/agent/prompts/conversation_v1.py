@@ -1,6 +1,5 @@
 """Short prompt for context-free Mil conversation."""
 
-
 CONVERSATION_PROMPT_VERSION = "v1"
 
 
