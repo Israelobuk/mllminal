@@ -4,7 +4,7 @@ from mllminal.agent.routing import MilRoute, route_request
 
 
 @pytest.mark.parametrize(
-    ("request", "expected"),
+    ("prompt", "expected"),
     [
         ("hello", MilRoute.CHAT),
         ("what does MLLminal do?", MilRoute.CHAT),
@@ -17,7 +17,7 @@ from mllminal.agent.routing import MilRoute, route_request
         ("delete the draft", MilRoute.DESTRUCTIVE_ACTION),
     ],
 )
-def test_route_request_uses_meaningful_modes(request: str, expected: MilRoute) -> None:
-    assert route_request(request) is expected
+def test_route_request_uses_meaningful_modes(prompt: str, expected: MilRoute) -> None:
+    assert route_request(prompt) is expected
 
 
