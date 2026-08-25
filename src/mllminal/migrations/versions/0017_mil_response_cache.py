@@ -21,9 +21,7 @@ def upgrade() -> None:
             sa.Column("last_accessed_at", sa.Float(), nullable=False),
             sa.Column("hit_count", sa.Integer(), nullable=False, server_default="0"),
         )
-        op.create_index(
-            "ix_mil_response_cache_expires_at", "mil_response_cache", ["expires_at"]
-        )
+        op.create_index("ix_mil_response_cache_expires_at", "mil_response_cache", ["expires_at"])
         op.create_index(
             "ix_mil_response_cache_last_accessed_at",
             "mil_response_cache",
@@ -32,8 +30,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_mil_response_cache_last_accessed_at", table_name="mil_response_cache"
-    )
+    op.drop_index("ix_mil_response_cache_last_accessed_at", table_name="mil_response_cache")
     op.drop_index("ix_mil_response_cache_expires_at", table_name="mil_response_cache")
     op.drop_table("mil_response_cache")
