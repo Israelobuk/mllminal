@@ -30,6 +30,7 @@ class MilRequest(BaseModel):
     available_tools: list[ToolDefinition] = Field(default_factory=list)
     permissions: list[PermissionGrant] = Field(default_factory=list)
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
+    runtime_context: dict[str, Any] = Field(default_factory=dict)
 
 
 class MilProviderEvent(BaseModel):
@@ -217,6 +218,14 @@ class QwenMilProvider:
             {"role": message.role.value, "content": message.content}
             for message in request.conversation
         )
+        if request.runtime_context:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": "Verified local runtime context (facts only; formulate the answer yourself):\n"
+                    + json.dumps(request.runtime_context, sort_keys=True),
+                }
+            )
         if request.tool_results:
             messages.append(
                 {
