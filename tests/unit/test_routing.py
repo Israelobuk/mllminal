@@ -14,6 +14,8 @@ from mllminal.agent.routing import MilRoute, route_request
         ("list the files in this folder", MilRoute.READ_ONLY_TOOL),
         ("read README.md", MilRoute.READ_ONLY_TOOL),
         ("open the report", MilRoute.ACTION),
+        ("fix that", MilRoute.ACTION),
+        ("fix that but don't delete anything", MilRoute.ACTION),
         ("automate this workflow", MilRoute.WORKFLOW),
         ("delete the draft", MilRoute.DESTRUCTIVE_ACTION),
     ],
