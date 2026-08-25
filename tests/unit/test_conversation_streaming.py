@@ -66,3 +66,4 @@ async def test_ollama_client_sends_keep_alive_for_warm_conversation_requests() -
         events = [event async for event in client.stream_chat([{"role": "user", "content": "hi"}])]
 
     assert events[0].text == "ready"
+    assert client.warm is True

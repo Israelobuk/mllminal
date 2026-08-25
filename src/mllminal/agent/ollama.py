@@ -34,6 +34,7 @@ class OllamaClient:
     ) -> None:
         self.model = model
         self.keep_alive = keep_alive
+        self._request_count = 0
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=httpx.Timeout(timeout_seconds),
@@ -48,6 +49,10 @@ class OllamaClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    @property
+    def warm(self) -> bool:
+        return self._request_count > 0
 
     async def model_available(self) -> bool:
         """Return whether the configured model appears in the local model registry."""
@@ -73,6 +78,7 @@ class OllamaClient:
         )
 
     async def stream_chat(self, messages: list[dict[str, str]]) -> AsyncIterator[OllamaStreamEvent]:
+        self._request_count += 1
         try:
             async with self._client.stream(
                 "POST",

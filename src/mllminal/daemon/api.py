@@ -1042,6 +1042,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             "task_count": len(store.list_tasks()),
         }
 
+    @app.get("/v1/diagnostics/latency", dependencies=protected)
+    async def latency_diagnostics() -> dict[str, Any]:
+        return runtime.last_latency()
+
     @app.post("/v1/sessions", dependencies=protected)
     async def create_session(body: SessionCreate) -> Any:
         workspace = Path(body.workspace_root).resolve()

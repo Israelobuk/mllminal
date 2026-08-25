@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from mllminal.agent.prompts import PROMPT_VERSION
+from mllminal.agent.latency import LatencyTrace
 from mllminal.agent.provider import (
     DeterministicMilProvider,
     MilProvider,
@@ -71,6 +72,11 @@ class MilRuntime:
         self.provider = provider or DeterministicMilProvider()
         self.tools = tools or ToolRegistry()
         self.advisor = advisor
+        self._last_latency: dict[str, Any] = {}
+
+    def last_latency(self) -> dict[str, Any]:
+        """Return the most recent request trace for diagnostics and benchmarks."""
+        return dict(self._last_latency)
 
     @staticmethod
     def route_request(request: str) -> MilRoute:
@@ -88,16 +94,26 @@ class MilRuntime:
         event_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> ChatResponse:
         """Answer context-free conversation without creating a task or approval."""
+        _provider_name, model = self._provider_identity()
+        trace = LatencyTrace(route="unknown", model=model, history_size=0, tool_count=0)
+        trace.mark("input_received")
         session = self.store.get_session(session_id)
         self.store.add_message(session_id, MessageRole.USER, request, idempotency_key)
-        conversation, was_trimmed = build_bounded_context(self.store.list_messages(session_id), 20)
+        route = self.route_request(request)
+        trace.route = route.value
+        trace.mark("routing_complete")
+        if route not in _SAFE_ROUTES:
+            raise ValueError(f"route {route.value} requires the approval-aware task path")
+
+        conversation, was_trimmed = build_bounded_context(
+            self.store.list_messages(session_id, limit=21), 20
+        )
+        trace.history_size = len(conversation)
+        trace.mark("context_ready")
         if was_trimmed:
             self.store.append_event(
                 session_id, "context.trimmed", {"kept_messages": len(conversation)}
             )
-        route = self.route_request(request)
-        if route not in _SAFE_ROUTES:
-            raise ValueError(f"route {route.value} requires the approval-aware task path")
 
         tool_results: list[dict[str, Any]] = []
         if route is MilRoute.READ_ONLY_TOOL:
@@ -125,6 +141,7 @@ class MilRuntime:
                 detail={"tool_name": tool_name, "verified": checked.succeeded},
                 event_sink=event_sink,
             )
+        trace.tool_count = len(tool_results)
 
         if route is MilRoute.LOCAL_INFORMATION:
             response_text = self._local_information_response(request, session.workspace_root)
@@ -134,6 +151,7 @@ class MilRuntime:
                 detail={"route": route.value},
                 event_sink=event_sink,
             )
+            trace.mark("first_token_received")
             await self._emit_chat_event(
                 session_id,
                 "response.delta",
@@ -148,6 +166,8 @@ class MilRuntime:
                 detail={"route": route.value},
                 event_sink=event_sink,
             )
+            trace.mark("response_complete")
+            await self._record_latency(session_id, trace, event_sink)
             self.store.add_message(
                 session_id,
                 MessageRole.MIL,
@@ -165,6 +185,8 @@ class MilRuntime:
             tool_results=tool_results,
         )
         response_text = ""
+        trace.warm = self._provider_warm()
+        trace.mark("ollama_request_started")
         async for event in self.provider.stream_conversation(provider_request):
             await self._emit_chat_event(
                 session_id,
@@ -174,11 +196,15 @@ class MilRuntime:
                 event_sink=event_sink,
             )
             if event.event_type == "response.delta" and event.text is not None:
+                if "first_token_received" not in trace.marks:
+                    trace.mark("first_token_received")
                 response_text += event.text
             if event.event_type == "provider.failed":
                 raise RuntimeError(event.text or "Mil conversational provider failed")
         if not response_text:
             raise RuntimeError("Mil provider completed without a conversational response")
+        trace.mark("response_complete")
+        await self._record_latency(session_id, trace, event_sink)
         self.store.add_message(
             session_id,
             MessageRole.MIL,
@@ -203,6 +229,24 @@ class MilRuntime:
         )
         if event_sink is not None:
             await event_sink(event.model_dump(mode="json"))
+
+    async def _record_latency(
+        self,
+        session_id: str,
+        trace: LatencyTrace,
+        event_sink: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    ) -> None:
+        self._last_latency = trace.to_dict()
+        await self._emit_chat_event(
+            session_id,
+            "latency.completed",
+            detail=self._last_latency,
+            event_sink=event_sink,
+        )
+
+    def _provider_warm(self) -> bool | None:
+        warm = getattr(getattr(self.provider, "_client", None), "warm", None)
+        return warm if isinstance(warm, bool) else None
 
     def _provider_identity(self) -> tuple[str, str]:
         if isinstance(self.provider, DeterministicMilProvider):
@@ -259,7 +303,7 @@ class MilRuntime:
         )
         if task.state is not TaskState.PLANNING:
             task = self.store.transition_task(task.id, TaskState.PLANNING)
-        conversation, was_trimmed = build_bounded_context(self.store.list_messages(session_id), 20)
+        conversation, was_trimmed = build_bounded_context(self.store.list_messages(session_id, limit=21), 20)
         if was_trimmed:
             self.store.append_event(
                 session_id, "context.trimmed", {"kept_messages": len(conversation)}
