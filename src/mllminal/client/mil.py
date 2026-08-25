@@ -112,6 +112,7 @@ async def _submit(
     stream_output = stream_output or (lambda value: print(value, end="", flush=True))
     session_id = await _prepare_session(client, settings)
     result: dict[str, Any] | None = None
+    chat_response: str | None = None
     streamed_text = ""
     async for item in _stream_items(client, content):
         if item.get("type") == "event":
@@ -133,6 +134,20 @@ async def _submit(
             pending = item.get("pending")
             if isinstance(pending, dict):
                 result = pending
+        if item.get("type") == "chat":
+            response = item.get("response")
+            if isinstance(response, str):
+                chat_response = response
+            else:
+                raise RuntimeError("daemon returned an invalid chat response")
+            continue
+    if chat_response is not None:
+        if streamed_text:
+            output("")
+        else:
+            output("Mil:")
+            output(chat_response)
+        return
     if streamed_text:
         output("")
     if result is None:
