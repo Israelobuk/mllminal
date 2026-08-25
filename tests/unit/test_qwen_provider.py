@@ -107,9 +107,7 @@ async def test_qwen_provider_repairs_one_invalid_envelope_before_proposing(tmp_p
 async def test_qwen_provider_streams_context_free_conversation_without_a_plan(
     tmp_path: Path,
 ) -> None:
-    client = FakeOllamaClient(
-        [(["Hello from Mil."], {"input_tokens": 3, "output_tokens": 4})]
-    )
+    client = FakeOllamaClient([(["Hello from Mil."], {"input_tokens": 3, "output_tokens": 4})])
     request = MilRequest(
         session_id="session-1",
         task_id=None,
