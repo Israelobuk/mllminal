@@ -7,8 +7,20 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from typing import Any, cast
 
-from sqlalchemy import Float, Integer, String, Text, create_engine, delete, event, func, select
+from sqlalchemy import (
+    Float,
+    Integer,
+    String,
+    Table,
+    Text,
+    create_engine,
+    delete,
+    event,
+    func,
+    select,
+)
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.orm import Session as DbSession
@@ -65,12 +77,12 @@ class ResponseCache:
         self.engine = create_engine(f"sqlite:///{database_path}")
 
         @event.listens_for(self.engine, "connect")
-        def configure_sqlite(dbapi_connection: object, _connection_record: object) -> None:
-            cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
+        def configure_sqlite(dbapi_connection: Any, _connection_record: Any) -> None:
+            cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.close()
 
-        ResponseCacheRow.__table__.create(self.engine, checkfirst=True)
+        Base.metadata.create_all(self.engine, tables=[cast(Table, ResponseCacheRow.__table__)])
 
     def get(self, key: str) -> str | None:
         """Return a fresh response and update its LRU timestamp."""
