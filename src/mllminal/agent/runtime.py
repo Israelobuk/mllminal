@@ -1,6 +1,5 @@
 """Stateful Mil orchestration with durable approvals and verification."""
 
-import json
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -215,6 +214,102 @@ class MilRuntime:
             event_sink=event_sink,
         )
 
+    def completed_task_response(self, task_id: str) -> str | None:
+        task = self.store.get_task(task_id)
+        for event in reversed(self.store.list_events(task.session_id)):
+            if event.event_type != "conversation.completed":
+                continue
+            if event.payload.get("task_id") != task_id:
+                continue
+            response = event.payload.get("response")
+            return response if isinstance(response, str) else None
+        return None
+
+    async def complete_task_conversation(
+        self,
+        task_id: str,
+        event_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> str | None:
+        """Turn a verified task result into the next Mil response."""
+        task = self.store.get_task(task_id)
+        if task.state is not TaskState.COMPLETED:
+            return None
+        existing = self.completed_task_response(task_id)
+        if existing is not None:
+            return existing
+
+        session = self.store.get_session(task.session_id)
+        executions = self.store.list_executions(task_id)
+        verifications = self.store.list_verifications(task_id)
+        if not executions or not verifications:
+            return None
+        execution = executions[-1]
+        verification = next(
+            (item for item in reversed(verifications) if item.execution_id == execution.id),
+            verifications[-1],
+        )
+        plan = self.store.get_plan_for_task(task_id)
+        proposal = next(
+            (step.proposal for step in plan.steps if step.proposal.id == execution.proposal_id),
+            None,
+        )
+        if proposal is None:
+            return None
+        tool_results = [
+            {
+                "tool_name": execution.tool_name,
+                "arguments": proposal.arguments,
+                "output": execution.output,
+                "verified": verification.succeeded,
+                "verification_detail": verification.detail,
+            }
+        ]
+        conversation, was_trimmed = build_bounded_context(
+            self.store.list_messages(session.id, limit=21), 20
+        )
+        if was_trimmed:
+            self.store.append_event(
+                session.id, "context.trimmed", {"kept_messages": len(conversation)}
+            )
+        provider_request = MilRequest(
+            session_id=session.id,
+            task_id=task_id,
+            user_message=(
+                "The approved action has completed. Explain the verified result to the user "
+                "concisely using only the verified tool result below. Do not claim any "
+                "unverified work."
+            ),
+            workspace_root=session.workspace_root,
+            conversation=conversation,
+            tool_results=tool_results,
+        )
+        response_text = ""
+        async for event in self.provider.stream_conversation(provider_request):
+            envelope = self.store.append_event(
+                session.id, event.event_type, event.model_dump(mode="json")
+            )
+            if event_sink is not None:
+                await event_sink(envelope.model_dump(mode="json"))
+            if event.event_type == "response.delta" and event.text is not None:
+                response_text += event.text
+            if event.event_type == "provider.failed":
+                raise RuntimeError(event.text or "Mil conversational provider failed")
+        response_text = response_text.strip()
+        if not response_text:
+            raise RuntimeError("Mil provider completed without a conversational response")
+        self.store.add_message(
+            session.id,
+            MessageRole.MIL,
+            response_text,
+            idempotency_key=f"mil:task-completed:{task_id}",
+        )
+        self.store.append_event(
+            session.id,
+            "conversation.completed",
+            {"task_id": task_id, "response": response_text},
+        )
+        return response_text
+
     def _local_runtime_context(self, workspace_root: str | None) -> dict[str, Any]:
         provider, model = self._provider_identity()
         endpoint = str(getattr(getattr(self.provider, "_client", None), "base_url", "local"))
@@ -415,12 +510,7 @@ class MilRuntime:
                 detail=checked.detail,
             )
         )
-        self.store.add_message(
-            task.session_id,
-            MessageRole.MIL,
-            "Verified tool result: " + json.dumps(execution.output, sort_keys=True),
-            idempotency_key=f"verified:{execution.id}",
-        )
+
         if not verification.succeeded:
             failed = self.store.transition_task(
                 task.id, TaskState.FAILED, blocker="verification_failed"

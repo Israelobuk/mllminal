@@ -126,7 +126,7 @@ class TerminalRenderer:
 
     def result(self, state: str) -> str:
         if state == "COMPLETED":
-            rows = ["Verified completion", "The daemon confirmed the final state."]
+            rows = ["Task completed", "Mil did not return a conversational summary."]
         else:
             rows = [f"Execution ended: {state}", "Review the daemon task for details."]
         return self._box(rows, self.terminal_width)
