@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from mllminal.agent.prompts import PROMPT_VERSION
-from mllminal.agent.response_cache import ResponseCache, response_cache_key
 from mllminal.agent.provider import (
     DeterministicMilProvider,
     MilProvider,
     MilRequest,
     build_bounded_context,
 )
+from mllminal.agent.response_cache import ResponseCache, response_cache_key
 from mllminal.contracts import (
     Approval,
     ApprovalStatus,
@@ -126,9 +126,7 @@ class MilRuntime:
         """Answer context-free conversation without creating a task or approval."""
         session = self.store.get_session(session_id)
         self.store.add_message(session_id, MessageRole.USER, request, idempotency_key)
-        conversation, was_trimmed = build_bounded_context(
-            self.store.list_messages(session_id), 20
-        )
+        conversation, was_trimmed = build_bounded_context(self.store.list_messages(session_id), 20)
         if was_trimmed:
             self.store.append_event(
                 session_id, "context.trimmed", {"kept_messages": len(conversation)}
