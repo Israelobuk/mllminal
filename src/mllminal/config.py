@@ -19,6 +19,7 @@ class ProviderConfig(BaseModel):
     temperature: float = Field(default=0.2, ge=0, le=2)
     max_context_tokens: int = Field(default=8192, ge=256)
     request_timeout_seconds: float = Field(default=120, gt=0)
+    keep_alive: str = Field(default="10m", min_length=1)
 
 
 class Settings(BaseSettings):

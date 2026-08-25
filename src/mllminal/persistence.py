@@ -144,14 +144,19 @@ class Store:
             )
             return message, True
 
-    def list_messages(self, session_id: str) -> list[Message]:
+    def list_messages(self, session_id: str, limit: int | None = None) -> list[Message]:
+        if limit is not None and limit < 1:
+            raise ValueError("limit must be positive")
         with DbSession(self.engine) as database:
-            rows = database.scalars(
-                select(MessageRow)
-                .where(MessageRow.session_id == session_id)
-                .order_by(MessageRow.created_at)
-            )
-            return [self._message(row) for row in rows]
+            query = select(MessageRow).where(MessageRow.session_id == session_id)
+            if limit is None:
+                query = query.order_by(MessageRow.created_at, MessageRow.id)
+            else:
+                query = query.order_by(MessageRow.created_at.desc(), MessageRow.id.desc()).limit(
+                    limit
+                )
+            messages = [self._message(row) for row in database.scalars(query)]
+            return list(reversed(messages)) if limit is not None else messages
 
     def create_task(self, session_id: str, title: str, goal: str) -> Task:
         task = Task(session_id=session_id, title=title, goal=goal)

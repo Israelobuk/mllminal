@@ -112,7 +112,9 @@ class FastChatProvider:
 
 
 @pytest.mark.asyncio
-async def test_context_free_chat_uses_sqlite_cache_without_creating_a_task(tmp_path: Path) -> None:
+async def test_repeated_chat_uses_conversation_context_without_generated_response_cache(
+    tmp_path: Path,
+) -> None:
     _default_runtime, store, session_id = make_runtime(tmp_path)
     provider = FastChatProvider()
     runtime = MilRuntime(store, provider=provider)
@@ -121,9 +123,9 @@ async def test_context_free_chat_uses_sqlite_cache_without_creating_a_task(tmp_p
     second = await runtime.respond(session_id, "hi", "chat-2")
 
     assert first.cached is False
-    assert second.cached is True
+    assert second.cached is False
     assert second.response == "Hello from Mil."
-    assert provider.calls == 1
+    assert provider.calls == 2
     assert store.list_tasks() == []
     assert [message.role for message in store.list_messages(session_id)] == [
         MessageRole.USER,
@@ -133,12 +135,13 @@ async def test_context_free_chat_uses_sqlite_cache_without_creating_a_task(tmp_p
     ]
 
 
-def test_runtime_only_classifies_context_free_messages_for_the_fast_path(tmp_path: Path) -> None:
+def test_runtime_route_is_not_limited_to_exact_greetings(tmp_path: Path) -> None:
     runtime, _store, _session_id = make_runtime(tmp_path)
 
     assert runtime.is_fast_path_request("hi") is True
-    assert runtime.is_fast_path_request("what can you do") is True
-    assert runtime.is_fast_path_request("summarize this project") is False
+    assert runtime.is_fast_path_request("what does MLLminal do?") is True
+    assert runtime.is_fast_path_request("summarize this project") is True
+    assert runtime.is_fast_path_request("list the files in this folder") is True
     assert runtime.is_fast_path_request("open the report") is False
 
 

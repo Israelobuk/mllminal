@@ -35,6 +35,23 @@ async def test_deterministic_provider_streams_typed_response_and_plan(tmp_path: 
     assert events[-1].plan.steps[0].proposal.tool_name == "project.inspect_metadata"
 
 
+@pytest.mark.asyncio
+async def test_deterministic_conversation_does_not_repeat_demo_prompt(tmp_path: Path) -> None:
+    request = MilRequest(
+        session_id="session-1",
+        task_id=None,
+        user_message="hi",
+        workspace_root=str(tmp_path),
+    )
+
+    events = [event async for event in DeterministicMilProvider().stream_conversation(request)]
+
+    assert events[1].text == (
+        "Hi, I'm Mil, your local workflow assistant. What would you like to work on?"
+    )
+    assert "Hello. What would you like to work on?" not in (events[1].text or "")
+
+
 def test_validator_rejects_execution_claim_and_unknown_tool(tmp_path: Path) -> None:
     envelope = {
         "response": "I completed inspection and found files.",

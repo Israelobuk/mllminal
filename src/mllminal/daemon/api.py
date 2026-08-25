@@ -1042,6 +1042,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             "task_count": len(store.list_tasks()),
         }
 
+    @app.get("/v1/diagnostics/latency", dependencies=protected)
+    async def latency_diagnostics() -> dict[str, Any]:
+        return runtime.last_latency()
+
     @app.post("/v1/sessions", dependencies=protected)
     async def create_session(body: SessionCreate) -> Any:
         workspace = Path(body.workspace_root).resolve()
@@ -1070,7 +1074,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         if runtime.is_fast_path_request(body.content):
             chat = await runtime.respond(session_id, body.content, idempotency_key)
             await hub.publish(store.list_events(session_id, after))
-            return {"response": chat.response, "cached": chat.cached}
+            return {"response": chat.response, "cached": chat.cached, "route": chat.route.value}
         pending = await runtime.submit(session_id, body.content, idempotency_key)
         await hub.publish(store.list_events(session_id, after))
         return _pending_payload(pending)
@@ -1161,6 +1165,7 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
                                         "type": "chat",
                                         "response": pending.response,
                                         "cached": pending.cached,
+                                        "route": pending.route.value,
                                     },
                                     sort_keys=True,
                                 )

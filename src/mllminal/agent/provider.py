@@ -29,6 +29,7 @@ class MilRequest(BaseModel):
     conversation: list[Message] = Field(default_factory=list)
     available_tools: list[ToolDefinition] = Field(default_factory=list)
     permissions: list[PermissionGrant] = Field(default_factory=list)
+    tool_results: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MilProviderEvent(BaseModel):
@@ -196,14 +197,37 @@ class DeterministicMilProvider:
         yield MilProviderEvent(event_type="response.completed", text=validated.response)
         yield MilProviderEvent(event_type="plan.proposed", plan=validated.plan)
 
+    @staticmethod
+    def _conversation_response(request: MilRequest) -> str:
+        normalized = " ".join(request.user_message.casefold().split())
+        if normalized in {"hi", "hello", "hey", "yo"}:
+            return "Hi, I'm Mil, your local workflow assistant. What would you like to work on?"
+        if request.tool_results:
+            verified = next(
+                (item for item in request.tool_results if item.get("verified") is True),
+                None,
+            )
+            if verified is not None:
+                output = verified.get("output")
+                if isinstance(output, dict):
+                    project_type = output.get("project_type")
+                    file_count = output.get("file_count")
+                    if isinstance(project_type, str) and isinstance(file_count, int):
+                        return (
+                            "I inspected the project metadata and verified that it is a "
+                            f"{project_type} project with {file_count} files."
+                        )
+                return "I completed the read-only check and verified its result."
+        return (
+            "I'm ready to help with local questions and approved workflows. "
+            "What would you like to work on?"
+        )
+
     async def stream_conversation(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]:
+        response = self._conversation_response(request)
         yield MilProviderEvent(event_type="response.started")
-        yield MilProviderEvent(
-            event_type="response.delta", text="Hello. What would you like to work on?"
-        )
-        yield MilProviderEvent(
-            event_type="response.completed", text="Hello. What would you like to work on?"
-        )
+        yield MilProviderEvent(event_type="response.delta", text=response)
+        yield MilProviderEvent(event_type="response.completed", text=response)
 
 
 class QwenMilProvider:
@@ -218,10 +242,33 @@ class QwenMilProvider:
             {"role": message.role.value, "content": message.content}
             for message in request.conversation
         )
+        if request.tool_results:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": "Verified read-only tool results:\n"
+                    + json.dumps(request.tool_results, sort_keys=True),
+                }
+            )
         messages.append({"role": "user", "content": request.user_message})
         yield MilProviderEvent(event_type="response.started")
+        response_parts: list[str] = []
+        usage: dict[str, int] = {}
         try:
-            chunks, usage = await self._client.complete(messages)
+            stream_chat = getattr(self._client, "stream_chat", None)
+            if stream_chat is None:
+                chunks, fallback_usage = await self._client.complete(messages)
+                usage.update(fallback_usage)
+                for chunk_text in chunks:
+                    if chunk_text:
+                        response_parts.append(chunk_text)
+                        yield MilProviderEvent(event_type="response.delta", text=chunk_text)
+            else:
+                async for chunk in stream_chat(messages):
+                    if chunk.text:
+                        response_parts.append(chunk.text)
+                        yield MilProviderEvent(event_type="response.delta", text=chunk.text)
+                    usage.update(chunk.usage)
         except OllamaProviderError as error:
             yield MilProviderEvent(
                 event_type="provider.failed",
@@ -229,7 +276,7 @@ class QwenMilProvider:
                 detail={"category": error.category},
             )
             return
-        response = "".join(chunks).strip()
+        response = "".join(response_parts).strip()
         if not response:
             yield MilProviderEvent(
                 event_type="provider.failed",
@@ -237,7 +284,6 @@ class QwenMilProvider:
                 detail={"category": "malformed_response"},
             )
             return
-        yield MilProviderEvent(event_type="response.delta", text=response)
         yield MilProviderEvent(event_type="response.completed", text=response, detail=usage)
 
     async def stream_response(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]:

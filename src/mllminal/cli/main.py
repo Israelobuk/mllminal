@@ -3,6 +3,7 @@
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
+from time import perf_counter
 
 import typer
 
@@ -96,8 +97,53 @@ async def _probe_model(config: ProviderConfig) -> bool:
         config.base_url,
         config.model,
         timeout_seconds=config.request_timeout_seconds,
+        keep_alive=config.keep_alive,
     ) as client:
         return await client.model_available()
+
+
+async def _run_latency_benchmark(
+    client: DaemonClient, prompts: tuple[str, ...]
+) -> list[dict[str, object]]:
+    results: list[dict[str, object]] = []
+    for prompt in prompts:
+        started = perf_counter()
+        first_delta: float | None = None
+        chunks = 0
+        route: str | None = None
+        async for item in client.stream_chat(prompt):
+            if item.get("type") == "error":
+                error = item.get("error")
+                raise RuntimeError(str(error))
+            if item.get("type") == "event":
+                event = item.get("event")
+                if isinstance(event, dict) and event.get("event_type") == "response.delta":
+                    chunks += 1
+                    if first_delta is None:
+                        first_delta = perf_counter()
+            if item.get("type") == "chat" and isinstance(item.get("route"), str):
+                route = item["route"]
+        finished = perf_counter()
+        trace: dict[str, object] = {}
+        try:
+            value = await client.request("GET", "/v1/diagnostics/latency")
+            if isinstance(value, dict):
+                trace = value
+        except (OSError, PermissionError, RuntimeError):
+            pass
+        results.append(
+            {
+                "prompt": prompt,
+                "route": route,
+                "chunks": chunks,
+                "ttft_ms": None
+                if first_delta is None
+                else round((first_delta - started) * 1000, 3),
+                "total_ms": round((finished - started) * 1000, 3),
+                "trace": trace,
+            }
+        )
+    return results
 
 
 def create_app(
@@ -137,6 +183,7 @@ def create_app(
     incognito = typer.Typer(help="Control private observation sessions.")
     exclude = typer.Typer(help="Add privacy exclusions.")
     system = typer.Typer(help="Inspect local hardware and runtime recommendations.")
+    benchmark = typer.Typer(help="Measure local Mil response latency.")
     terminal_bootstrap = RuntimeBootstrap(
         resolved_settings,
         daemon_client_factory or DaemonClient,
@@ -164,6 +211,35 @@ def create_app(
                 resolved_settings,
                 daemon_client_factory or DaemonClient,
                 json_output,
+            )
+
+    @benchmark.command("latency")
+    def benchmark_latency(
+        json_output: bool = typer.Option(
+            False, "--json", help="Print machine-readable benchmark results."
+        ),
+    ) -> None:
+        """Measure streamed conversational latency with a warm local provider."""
+        ensure_terminal_service()
+        client = (daemon_client_factory or DaemonClient)(resolved_settings)
+        prompts = (
+            "hello",
+            "what model are you using?",
+            "what can you help me with?",
+        )
+        try:
+            results = asyncio.run(_run_latency_benchmark(client, prompts))
+        except (OSError, PermissionError, RuntimeError) as error:
+            typer.echo(f"Latency benchmark failed: {error}", err=True)
+            raise typer.Exit(code=1) from None
+        if json_output:
+            typer.echo(json.dumps(results, sort_keys=True))
+            return
+        typer.echo("Mil latency benchmark")
+        for result in results:
+            typer.echo(
+                f"{result['prompt']}: route={result['route'] or 'unknown'} "
+                f"TTFT={result['ttft_ms']} ms total={result['total_ms']} ms"
             )
 
     def acceptance_service() -> ProductAcceptanceService:
@@ -1402,6 +1478,7 @@ def create_app(
     adaptive.add_typer(adaptive_policy, name="policy")
     app.add_typer(adaptive, name="adaptive")
     app.add_typer(system, name="system")
+    app.add_typer(benchmark, name="benchmark")
     register_terminal_commands(
         app,
         resolved_settings,
