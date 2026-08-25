@@ -62,19 +62,37 @@ _DESTRUCTIVE = {
     "submit",
 }
 _ACTION = {
+    "change",
     "click",
     "create",
+    "edit",
+    "fix",
     "launch",
+    "modify",
     "move",
     "open",
+    "organize",
+    "rename",
     "save",
+    "update",
     "write",
 }
 
 
+def _request_words(request: str) -> set[str]:
+    normalized = request.casefold()
+    for destructive in _DESTRUCTIVE:
+        normalized = re.sub(
+            rf"\b(?:do\s+not|don't|dont|never)\s+{re.escape(destructive)}\b",
+            "",
+            normalized,
+        )
+    return set(_WORD.findall(normalized))
+
+
 def route_request(request: str) -> MilRoute:
     """Classify a request without invoking a model, tool, or task store."""
-    words = set(_WORD.findall(request.casefold()))
+    words = _request_words(request)
     if not words:
         return MilRoute.CHAT
     if (
