@@ -9,6 +9,7 @@ from mllminal.agent.routing import MilRoute, route_request
         ("hello", MilRoute.CHAT),
         ("what does MLLminal do?", MilRoute.CHAT),
         ("what model are you using?", MilRoute.LOCAL_INFORMATION),
+        ("what apps are open right now?", MilRoute.LOCAL_INFORMATION),
         ("is Mil ready?", MilRoute.LOCAL_INFORMATION),
         ("list the files in this folder", MilRoute.READ_ONLY_TOOL),
         ("read README.md", MilRoute.READ_ONLY_TOOL),
