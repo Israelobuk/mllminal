@@ -47,7 +47,7 @@ async def test_deterministic_conversation_does_not_repeat_demo_prompt(tmp_path: 
     events = [event async for event in DeterministicMilProvider().stream_conversation(request)]
 
     assert events[1].text == (
-        "Hi — I'm Mil, your local workflow assistant. What would you like to work on?"
+        "Hi, I'm Mil, your local workflow assistant. What would you like to work on?"
     )
     assert "Hello. What would you like to work on?" not in (events[1].text or "")
 
