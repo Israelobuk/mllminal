@@ -149,6 +149,11 @@ class MilRuntime:
             workspace_root=session.workspace_root,
             conversation=conversation,
             tool_results=tool_results,
+            runtime_context=(
+                self._local_runtime_context(session.workspace_root)
+                if route is MilRoute.LOCAL_INFORMATION
+                else {}
+            ),
         )
         response_text = ""
         trace.warm = self._provider_warm()
@@ -209,6 +214,18 @@ class MilRuntime:
             detail=self._last_latency,
             event_sink=event_sink,
         )
+
+    def _local_runtime_context(self, workspace_root: str | None) -> dict[str, Any]:
+        provider, model = self._provider_identity()
+        endpoint = str(getattr(getattr(self.provider, "_client", None), "base_url", "local"))
+        return {
+            "daemon": "online",
+            "provider": provider,
+            "model": model,
+            "endpoint": endpoint,
+            "workspace_root": workspace_root,
+            "open_applications": {"available": False, "items": None},
+        }
 
     def _provider_warm(self) -> bool | None:
         warm = getattr(getattr(self.provider, "_client", None), "warm", None)

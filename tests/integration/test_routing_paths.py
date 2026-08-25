@@ -59,6 +59,7 @@ async def test_conversational_prompts_are_generated_by_qwen(tmp_path: Path, prom
 
     assert response.response == f"Qwen answer for: {prompt}"
     assert provider.requests[-1].user_message == prompt
+    assert provider.requests[-1].runtime_context == {}
     assert store.list_tasks() == []
 
 
@@ -73,6 +74,10 @@ async def test_open_apps_question_stays_local_information(tmp_path: Path) -> Non
     assert response.route is MilRoute.LOCAL_INFORMATION
     assert response.response == "Qwen answer for: what apps are open right now?"
     assert len(provider.requests) == 1
+    assert provider.requests[0].runtime_context["open_applications"] == {
+        "available": False,
+        "items": None,
+    }
     assert store.list_tasks() == []
 
 
