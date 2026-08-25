@@ -314,6 +314,8 @@ class MLLminalDesktopApp(App[None]):
         terminal = self.query_one("#terminal", RichLog)
         try:
             pending: dict[str, Any] | None = None
+            chat_response: str | None = None
+            streamed_text = ""
             async for item in self.client.stream_chat(content):
                 item_type = item.get("type")
                 if item_type == "event":
@@ -323,14 +325,25 @@ class MLLminalDesktopApp(App[None]):
                         delta = payload.get("text") if isinstance(payload, dict) else None
                         if isinstance(delta, str):
                             terminal.write(delta)
+                            streamed_text += delta
                 elif item_type == "pending" and isinstance(item.get("pending"), dict):
                     pending = item["pending"]
+                elif item_type == "chat":
+                    response = item.get("response")
+                    if not isinstance(response, str):
+                        raise RuntimeError("daemon returned an invalid chat response")
+                    chat_response = response
                 elif item_type == "error":
                     error = item.get("error", {})
                     message = error.get("message") if isinstance(error, dict) else None
                     raise RuntimeError(str(message or "Mil provider failed"))
             if pending is None:
-                raise RuntimeError("daemon ended the Mil stream without a pending task")
+                if chat_response is None:
+                    raise RuntimeError("daemon ended the Mil stream without a response")
+                if not streamed_text:
+                    terminal.write(chat_response)
+                input_widget.value = ""
+                return
             terminal.write(f"Mil task proposed: {pending}")
             input_widget.value = ""
             await self._refresh()
