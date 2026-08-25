@@ -197,37 +197,12 @@ class DeterministicMilProvider:
         yield MilProviderEvent(event_type="response.completed", text=validated.response)
         yield MilProviderEvent(event_type="plan.proposed", plan=validated.plan)
 
-    @staticmethod
-    def _conversation_response(request: MilRequest) -> str:
-        normalized = " ".join(request.user_message.casefold().split())
-        if normalized in {"hi", "hello", "hey", "yo"}:
-            return "Hi, I'm Mil, your local workflow assistant. What would you like to work on?"
-        if request.tool_results:
-            verified = next(
-                (item for item in request.tool_results if item.get("verified") is True),
-                None,
-            )
-            if verified is not None:
-                output = verified.get("output")
-                if isinstance(output, dict):
-                    project_type = output.get("project_type")
-                    file_count = output.get("file_count")
-                    if isinstance(project_type, str) and isinstance(file_count, int):
-                        return (
-                            "I inspected the project metadata and verified that it is a "
-                            f"{project_type} project with {file_count} files."
-                        )
-                return "I completed the read-only check and verified its result."
-        return (
-            "I'm ready to help with local questions and approved workflows. "
-            "What would you like to work on?"
-        )
-
     async def stream_conversation(self, request: MilRequest) -> AsyncIterator[MilProviderEvent]:
-        response = self._conversation_response(request)
-        yield MilProviderEvent(event_type="response.started")
-        yield MilProviderEvent(event_type="response.delta", text=response)
-        yield MilProviderEvent(event_type="response.completed", text=response)
+        yield MilProviderEvent(
+            event_type="provider.failed",
+            text="Qwen is required for conversational responses.",
+            detail={"category": "provider_unavailable"},
+        )
 
 
 class QwenMilProvider:
