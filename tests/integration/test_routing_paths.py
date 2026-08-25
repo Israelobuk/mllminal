@@ -56,7 +56,7 @@ async def test_local_information_route_does_not_invoke_model(tmp_path: Path) -> 
     response = await runtime.respond(session_id, "what model are you using?", "local-route")
 
     assert response.route is MilRoute.LOCAL_INFORMATION
-    assert "deterministic" in response.response.lower()
+    assert "local" in response.response.lower()
     assert provider.requests == []
     assert store.list_tasks() == []
 
