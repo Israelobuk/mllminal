@@ -106,7 +106,8 @@ def test_message_stream_emits_provider_events_before_pending_projection(tmp_path
 
 
 def test_fast_chat_stream_repeats_conversation_without_generated_response_cache(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     monkeypatch.setattr(daemon_api, "create_provider", lambda _config: ApiQwenProvider())
     client, headers, workspace = make_client(tmp_path)

@@ -50,9 +50,7 @@ async def test_chat_route_answers_without_task_or_approval(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("prompt", ["hello", "work with my files", "what can you do"])
-async def test_conversational_prompts_are_generated_by_qwen(
-    tmp_path: Path, prompt: str
-) -> None:
+async def test_conversational_prompts_are_generated_by_qwen(tmp_path: Path, prompt: str) -> None:
     _default_runtime, store, session_id = make_runtime(tmp_path)
     provider = RecordingQwenProvider()
     runtime = MilRuntime(store, provider=provider)
