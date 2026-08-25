@@ -383,3 +383,24 @@ def test_release_daemon_startup_lock_only_removes_owned_marker(
     marker.write_text(json.dumps({"status": "running", "pid": 1234}), encoding="utf-8")
     release_daemon_startup_lock(settings)
     assert not marker.exists()
+
+
+def test_daemon_executable_prefers_running_bundle_over_path_shadow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mllminal.service_lifecycle import daemon_executable
+
+    runtime_scripts = tmp_path / "fixture" / "runtime" / "Scripts"
+    runtime_scripts.mkdir(parents=True)
+    bundled_cli = runtime_scripts / "mllminal.exe"
+    bundled_daemon = runtime_scripts / "mllminald.exe"
+    path_daemon = tmp_path / "other-install" / "mllminald.exe"
+    bundled_cli.write_text("", encoding="utf-8")
+    bundled_daemon.write_text("", encoding="utf-8")
+    path_daemon.parent.mkdir(parents=True)
+    path_daemon.write_text("", encoding="utf-8")
+    settings = Settings(data_dir=tmp_path / "fixture" / "data", workspace_root=tmp_path)
+    monkeypatch.setattr("mllminal.service_lifecycle.sys.executable", str(bundled_cli))
+    monkeypatch.setattr("mllminal.service_lifecycle.shutil.which", lambda _name: str(path_daemon))
+
+    assert daemon_executable(settings) == str(bundled_daemon)
