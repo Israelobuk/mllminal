@@ -1067,6 +1067,10 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
     ) -> dict[str, Any]:
         previous = store.list_events(session_id)
         after = previous[-1].sequence if previous else 0
+        if runtime.is_fast_path_request(body.content):
+            chat = await runtime.respond(session_id, body.content, idempotency_key)
+            await hub.publish(store.list_events(session_id, after))
+            return {"response": chat.response, "cached": chat.cached}
         pending = await runtime.submit(session_id, body.content, idempotency_key)
         await hub.publish(store.list_events(session_id, after))
         return _pending_payload(pending)
@@ -1087,14 +1091,26 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
             async def sink(event: dict[str, Any]) -> None:
                 await queue.put({"type": "event", "event": event})
 
-            submission = asyncio.create_task(
-                runtime.submit(
-                    session_id,
-                    body.content,
-                    idempotency_key,
-                    event_sink=sink,
+            chat_mode = runtime.is_fast_path_request(body.content)
+            submission: asyncio.Task[Any]
+            if chat_mode:
+                submission = asyncio.create_task(
+                    runtime.respond(
+                        session_id,
+                        body.content,
+                        idempotency_key,
+                        event_sink=sink,
+                    )
                 )
-            )
+            else:
+                submission = asyncio.create_task(
+                    runtime.submit(
+                        session_id,
+                        body.content,
+                        idempotency_key,
+                        event_sink=sink,
+                    )
+                )
             try:
                 while True:
                     item_task = asyncio.create_task(queue.get())
@@ -1138,13 +1154,26 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
                             + "\n"
                         )
                     else:
-                        yield (
-                            json.dumps(
-                                {"type": "pending", "pending": _pending_payload(pending)},
-                                sort_keys=True,
+                        if chat_mode:
+                            yield (
+                                json.dumps(
+                                    {
+                                        "type": "chat",
+                                        "response": pending.response,
+                                        "cached": pending.cached,
+                                    },
+                                    sort_keys=True,
+                                )
+                                + "\n"
                             )
-                            + "\n"
-                        )
+                        else:
+                            yield (
+                                json.dumps(
+                                    {"type": "pending", "pending": _pending_payload(pending)},
+                                    sort_keys=True,
+                                )
+                                + "\n"
+                            )
                     break
             finally:
                 if not submission.done():
