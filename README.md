@@ -45,6 +45,19 @@ Inside an interactive Mil session, `/help` groups the discoverable commands. Ses
 
 The startup panel adapts to terminal width and shows the active workspace, local model/provider, runtime health, privacy posture, real recent durable activity, and available quick starts. It never fabricates activity or capability availability. With a TTY, prompt-toolkit supplies history and completion; redirected/non-TTY input remains plain and deterministic. `NO_COLOR` disables styling while status symbols remain understandable without color. During an approved request, Mil keeps the same scrollback and presents the plan, approval choices, daemon-owned progress states, verification result, and actionable errors as bounded terminal cards.
 
+## Conversational responsiveness
+
+Mil takes a fast path for greetings, local status questions, and bounded read-only lookups. These requests do not create workflow tasks or approval prompts. Conversation history is loaded from SQLite with a bounded newest-message window; generated answers are never replayed from a response cache. Ollama requests stream tokens and use keep-alive so the model can remain warm between turns.
+
+Measure the local setup with:
+
+~~~powershell
+mllminal benchmark latency
+mllminal benchmark latency --json
+~~~
+
+The benchmark reports client-observed time to first token and total response time, together with the daemon's most recent trace when diagnostics are available. Model generation time still depends on Ollama, the selected Qwen model, context size, and local CPU/GPU capacity.
+
 Useful aliases are apps for applications, flows for workflows, runs for executions, approve and deny for approval decisions, chat for Mil, and stop for emergency stop. Advanced command trees remain available for scripts and operators.
 
 ## What MLLminal can do
