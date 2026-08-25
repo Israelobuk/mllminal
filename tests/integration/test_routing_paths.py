@@ -18,15 +18,16 @@ def make_runtime(tmp_path: Path) -> tuple[MilRuntime, RuntimeStore, str]:
     return MilRuntime(store), store, session.id
 
 
-class RecordingChatProvider:
+class RecordingQwenProvider:
     def __init__(self) -> None:
         self.requests: list[MilRequest] = []
 
     async def stream_conversation(self, request: MilRequest):
         self.requests.append(request)
+        response = f"Qwen answer for: {request.user_message}"
         yield MilProviderEvent(event_type="response.started")
-        yield MilProviderEvent(event_type="response.delta", text="I can help with that.")
-        yield MilProviderEvent(event_type="response.completed", text="I can help with that.")
+        yield MilProviderEvent(event_type="response.delta", text=response)
+        yield MilProviderEvent(event_type="response.completed", text=response)
 
     async def stream_response(self, _request: MilRequest):
         raise AssertionError("safe conversational routes must not enter planning")
@@ -36,49 +37,51 @@ class RecordingChatProvider:
 @pytest.mark.asyncio
 async def test_chat_route_answers_without_task_or_approval(tmp_path: Path) -> None:
     _default_runtime, store, session_id = make_runtime(tmp_path)
-    provider = RecordingChatProvider()
+    provider = RecordingQwenProvider()
     runtime = MilRuntime(store, provider=provider)
 
     response = await runtime.respond(session_id, "hello", "chat-route")
 
     assert response.route is MilRoute.CHAT
-    assert response.response == "I can help with that."
+    assert response.response == "Qwen answer for: hello"
     assert len(provider.requests) == 1
     assert store.list_tasks() == []
 
 
 @pytest.mark.asyncio
-async def test_local_information_route_does_not_invoke_model(tmp_path: Path) -> None:
+@pytest.mark.parametrize("prompt", ["hello", "work with my files", "what can you do"])
+async def test_conversational_prompts_are_generated_by_qwen(
+    tmp_path: Path, prompt: str
+) -> None:
     _default_runtime, store, session_id = make_runtime(tmp_path)
-    provider = RecordingChatProvider()
+    provider = RecordingQwenProvider()
     runtime = MilRuntime(store, provider=provider)
 
-    response = await runtime.respond(session_id, "what model are you using?", "local-route")
+    response = await runtime.respond(session_id, prompt, f"qwen-{prompt.replace(' ', '-')}")
 
-    assert response.route is MilRoute.LOCAL_INFORMATION
-    assert "local" in response.response.lower()
-    assert provider.requests == []
+    assert response.response == f"Qwen answer for: {prompt}"
+    assert provider.requests[-1].user_message == prompt
     assert store.list_tasks() == []
 
 
 @pytest.mark.asyncio
 async def test_open_apps_question_stays_local_information(tmp_path: Path) -> None:
     _default_runtime, store, session_id = make_runtime(tmp_path)
-    provider = RecordingChatProvider()
+    provider = RecordingQwenProvider()
     runtime = MilRuntime(store, provider=provider)
 
     response = await runtime.respond(session_id, "what apps are open right now?", "apps-route")
 
     assert response.route is MilRoute.LOCAL_INFORMATION
-    assert "live" in response.response.lower()
-    assert provider.requests == []
+    assert response.response == "Qwen answer for: what apps are open right now?"
+    assert len(provider.requests) == 1
     assert store.list_tasks() == []
 
 
 @pytest.mark.asyncio
 async def test_read_only_route_verifies_tool_result_without_approval(tmp_path: Path) -> None:
     _default_runtime, store, session_id = make_runtime(tmp_path)
-    provider = RecordingChatProvider()
+    provider = RecordingQwenProvider()
     runtime = MilRuntime(store, provider=provider)
 
     response = await runtime.respond(session_id, "summarize this project", "read-only-route")
