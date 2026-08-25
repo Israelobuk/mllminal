@@ -17,6 +17,7 @@ def test_alembic_upgrade_creates_versioned_runtime_schema(tmp_path: Path) -> Non
         "alembic_version",
         "approvals",
         "events",
+        "mil_response_cache",
         "sessions",
         "suggestion_feedback",
         "user_workflow_preferences",
