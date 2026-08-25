@@ -125,7 +125,12 @@ async def test_context_free_chat_uses_sqlite_cache_without_creating_a_task(tmp_p
     assert second.response == "Hello from Mil."
     assert provider.calls == 1
     assert store.list_tasks() == []
-    assert [message.role for message in store.list_messages(session_id)] == [MessageRole.USER, MessageRole.MIL, MessageRole.USER, MessageRole.MIL]
+    assert [message.role for message in store.list_messages(session_id)] == [
+        MessageRole.USER,
+        MessageRole.MIL,
+        MessageRole.USER,
+        MessageRole.MIL,
+    ]
 
 
 def test_runtime_only_classifies_context_free_messages_for_the_fast_path(tmp_path: Path) -> None:
