@@ -37,7 +37,7 @@ def test_rest_flow_creates_approves_and_inspects_task(tmp_path: Path) -> None:
     pending = client.post(
         f"/v1/sessions/{session['id']}/messages",
         headers={**headers, "Idempotency-Key": "request-1"},
-        json={"content": "inspect this project"},
+        json={"content": "open the project for inspection"},
     ).json()
 
     completed = client.post(
@@ -79,7 +79,7 @@ def test_message_stream_emits_provider_events_before_pending_projection(tmp_path
     response = client.post(
         f"/v1/sessions/{session['id']}/messages/stream",
         headers={**headers, "Idempotency-Key": "stream-request"},
-        json={"content": "inspect this project"},
+        json={"content": "open the project for inspection"},
     )
 
     assert response.status_code == 200
@@ -171,7 +171,7 @@ def test_unavailable_qwen_returns_typed_error_without_breaking_daemon(tmp_path: 
         response = client.post(
             f"/v1/sessions/{session['id']}/messages",
             headers={**headers, "Idempotency-Key": "unavailable-request"},
-            json={"content": "inspect this project"},
+            json={"content": "open the project for inspection"},
         )
 
     assert response.status_code == 503
@@ -187,7 +187,7 @@ def test_two_clients_replay_identical_provider_events(tmp_path: Path) -> None:
     client.post(
         f"/v1/sessions/{session['id']}/messages",
         headers={**headers, "Idempotency-Key": "replay-request"},
-        json={"content": "inspect this project"},
+        json={"content": "open the project for inspection"},
     )
     store = client.app.state.runtime.store
     expected_count = len(store.list_events(session["id"]))
@@ -220,7 +220,7 @@ def test_approval_decision_offloads_blocking_runtime_work(tmp_path: Path, monkey
     pending = client.post(
         f"/v1/sessions/{session['id']}/messages",
         headers={**headers, "Idempotency-Key": "offload-request"},
-        json={"content": "inspect this project"},
+        json={"content": "open the project for inspection"},
     ).json()
 
     calls: list[str] = []
