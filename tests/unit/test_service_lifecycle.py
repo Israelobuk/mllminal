@@ -488,3 +488,122 @@ async def test_ensure_daemon_reclaims_unhealthy_owned_process_once(
     assert result["started"] == {"status": "starting", "pid": 8765}
     assert starts == ["start", "start"]
     assert stops == [settings.data_dir]
+
+
+@pytest.mark.parametrize(
+    ("record", "actual_start", "actual_executable"),
+    [
+        (
+            {
+                "status": "starting",
+                "owner_pid": 4321,
+                "executable": "{executable}",
+                "process_start_time": "owned-start",
+            },
+            "owned-start",
+            "{executable}",
+        ),
+        (
+            {"status": "running", "pid": 4321, "executable": "{executable}"},
+            "owned-start",
+            "{executable}",
+        ),
+        (
+            {
+                "status": "running",
+                "pid": 4321,
+                "executable": "{executable}",
+                "process_start_time": "owned-start",
+            },
+            None,
+            "{executable}",
+        ),
+        (
+            {
+                "status": "running",
+                "pid": 4321,
+                "executable": "{executable}",
+                "process_start_time": "owned-start",
+            },
+            "different-start",
+            "{executable}",
+        ),
+        (
+            {
+                "status": "running",
+                "pid": 4321,
+                "executable": "{executable}",
+                "process_start_time": "owned-start",
+            },
+            "owned-start",
+            None,
+        ),
+        (
+            {
+                "status": "running",
+                "pid": 4321,
+                "executable": "{executable}",
+                "process_start_time": "owned-start",
+            },
+            "owned-start",
+            "{other_executable}",
+        ),
+    ],
+)
+def test_stop_owned_daemon_never_terminates_unverified_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    record: dict[str, object],
+    actual_start: str | None,
+    actual_executable: str | None,
+) -> None:
+    import json
+
+    from mllminal.service_lifecycle import daemon_lock_path, stop_owned_daemon
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    executable = tmp_path / "mllminald.exe"
+    other_executable = tmp_path / "other.exe"
+    rendered = {
+        key: (
+            str(value).format(
+                executable=executable,
+                other_executable=other_executable,
+            )
+            if isinstance(value, str)
+            else value
+        )
+        for key, value in record.items()
+    }
+    marker = daemon_lock_path(settings)
+    marker.parent.mkdir(parents=True)
+    marker.write_text(json.dumps(rendered), encoding="utf-8")
+    terminated: list[int] = []
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.daemon_executable", lambda _settings: str(executable)
+    )
+    monkeypatch.setattr("mllminal.service_lifecycle._process_is_alive", lambda _pid: True)
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle._process_start_identity", lambda _pid: actual_start
+    )
+    rendered_actual_executable = (
+        actual_executable.format(
+            executable=executable,
+            other_executable=other_executable,
+        )
+        if actual_executable is not None
+        else None
+    )
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle._process_executable",
+        lambda _pid: rendered_actual_executable,
+    )
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle._terminate_process_tree", lambda pid: terminated.append(pid)
+    )
+
+    with pytest.raises(RuntimeError, match=r"ownership|startup"):
+        stop_owned_daemon(settings, wait_seconds=0.1)
+
+    assert terminated == []
+    assert marker.is_file()

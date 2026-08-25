@@ -214,6 +214,47 @@ def _read_owned_lock(lock_path: Path, executable: str) -> dict[str, Any] | None:
     return None
 
 
+def _validated_running_daemon_pid(lock_path: Path, executable: str) -> int | None:
+    """Return a PID only when destructive ownership checks all succeed."""
+    try:
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError, TypeError) as error:
+        raise RuntimeError("daemon ownership could not be verified") from error
+    if not isinstance(payload, dict):
+        raise RuntimeError("daemon ownership could not be verified")
+    if payload.get("status") == "starting":
+        raise RuntimeError("daemon startup is still in progress")
+    if payload.get("status") != "running":
+        raise RuntimeError("daemon ownership could not be verified")
+    pid = _lock_pid(payload)
+    expected_start = payload.get("process_start_time")
+    recorded_executable = payload.get("executable")
+    if (
+        pid <= 0
+        or not isinstance(expected_start, str)
+        or not expected_start
+        or not isinstance(recorded_executable, str)
+        or not _same_executable(recorded_executable, executable)
+    ):
+        raise RuntimeError("daemon ownership could not be verified")
+    if not _process_is_alive(pid):
+        with suppress(FileNotFoundError, OSError):
+            lock_path.unlink()
+        return None
+    actual_start = _process_start_identity(pid)
+    actual_executable = _process_executable(pid)
+    if (
+        actual_start is None
+        or actual_start != expected_start
+        or actual_executable is None
+        or not _same_executable(actual_executable, executable)
+    ):
+        raise RuntimeError("daemon ownership could not be verified")
+    return pid
+
+
 def _terminate_process_tree(pid: int) -> None:
     """Terminate one validated daemon process tree without opening a console window."""
     if sys.platform == "win32":
@@ -234,12 +275,9 @@ def stop_owned_daemon(settings: Settings, *, wait_seconds: float = 4.0) -> dict[
     executable = daemon_executable(settings)
     if executable is None:
         return {"status": "already_stopped"}
-    info = _read_owned_lock(daemon_lock_path(settings), executable)
-    if info is None:
+    pid = _validated_running_daemon_pid(daemon_lock_path(settings), executable)
+    if pid is None:
         return {"status": "already_stopped"}
-    if info.get("status") == "blocked":
-        raise RuntimeError(str(info.get("reason", "another process owns the daemon lock")))
-    pid = int(info["pid"])
     _terminate_process_tree(pid)
     deadline = time.monotonic() + wait_seconds
     alive = _process_is_alive(pid)
