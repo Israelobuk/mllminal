@@ -222,8 +222,10 @@ class QwenMilProvider:
             messages.append(
                 {
                     "role": "system",
-                    "content": "Verified local runtime context (facts only; formulate the answer yourself):\n"
-                    + json.dumps(request.runtime_context, sort_keys=True),
+                    "content": (
+                        "Verified local runtime context (facts only; formulate the answer "
+                        "yourself):\n" + json.dumps(request.runtime_context, sort_keys=True)
+                    ),
                 }
             )
         if request.tool_results:
