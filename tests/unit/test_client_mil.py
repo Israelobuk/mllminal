@@ -78,7 +78,7 @@ def test_submit_recovers_when_approval_response_times_out_after_daemon_commit(
 
     output = capsys.readouterr().out
     assert "approval response timed out; checking durable task state" in output
-    assert "Verified completion recorded by the daemon." in output
+    assert "Task completed, but Mil did not return a conversational summary." in output
 
 
 def test_submit_reports_closed_local_stream(tmp_path: Path, monkeypatch) -> None:
@@ -148,9 +148,16 @@ def test_submit_accepts_interactive_output_and_input_surfaces(tmp_path: Path, ca
 
         async def request(self, method: str, path: str, _payload=None, **_kwargs):
             if method == "POST" and path == "/v1/approvals/approval-1/decisions":
-                return {"state": "APPROVED"}
+                return {
+                    "state": "COMPLETED",
+                    "response": "Done. I inspected the project and verified the result.",
+                }
             if method == "GET" and path == "/v1/tasks/task-1":
-                return {"id": "task-1", "state": "COMPLETED"}
+                return {
+                    "id": "task-1",
+                    "state": "COMPLETED",
+                    "response": "Done. I inspected the project and verified the result.",
+                }
             raise AssertionError(f"unexpected request: {method} {path}")
 
     async def fake_prepare(_client: object, _settings: Settings) -> str:
@@ -195,9 +202,10 @@ def test_submit_accepts_interactive_output_and_input_surfaces(tmp_path: Path, ca
         "",
         "PLAN CARD Open project",
         "approval surface",
-        "approval: APPROVED",
+        "approval: COMPLETED",
         "STATE CARD COMPLETED",
-        "RESULT CARD COMPLETED",
+        "Mil:",
+        "Done. I inspected the project and verified the result.",
     ]
 
 

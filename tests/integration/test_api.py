@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from mllminal.agent.provider import MilProviderEvent, MilRequest
+from mllminal.agent.provider import DeterministicMilProvider, MilProviderEvent, MilRequest
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
 from mllminal.daemon import api as daemon_api
 from mllminal.daemon.api import create_app
@@ -21,6 +21,22 @@ class ApiQwenProvider:
     async def stream_response(self, _request: MilRequest):
         raise AssertionError("these API checks must use the conversational model path")
         yield
+
+
+class ApiHandoffProvider:
+    def __init__(self) -> None:
+        self.conversation_requests: list[MilRequest] = []
+
+    async def stream_response(self, request: MilRequest):
+        async for event in DeterministicMilProvider().stream_response(request):
+            yield event
+
+    async def stream_conversation(self, request: MilRequest):
+        self.conversation_requests.append(request)
+        response = "Done. I inspected the project and verified the result."
+        yield MilProviderEvent(event_type="response.started")
+        yield MilProviderEvent(event_type="response.delta", text=response)
+        yield MilProviderEvent(event_type="response.completed", text=response)
 
 
 def make_client(tmp_path: Path) -> tuple[TestClient, dict[str, str], Path]:
@@ -64,6 +80,37 @@ def test_rest_flow_creates_approves_and_inspects_task(tmp_path: Path) -> None:
     assert completed["state"] == "COMPLETED"
     assert client.get(f"/v1/tasks/{completed['id']}", headers=headers).status_code == 200
     assert len(client.get("/v1/tasks", headers=headers).json()) == 1
+
+
+def test_approval_returns_qwen_summary_from_verified_execution(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    provider = ApiHandoffProvider()
+    monkeypatch.setattr(daemon_api, "create_provider", lambda _config: provider)
+    client, headers, workspace = make_client(tmp_path)
+    session = client.post(
+        "/v1/sessions", headers=headers, json={"workspace_root": str(workspace)}
+    ).json()
+    pending = client.post(
+        f"/v1/sessions/{session['id']}/messages",
+        headers={**headers, "Idempotency-Key": "handoff-request"},
+        json={"content": "open the project for inspection"},
+    ).json()
+
+    completed = client.post(
+        f"/v1/approvals/{pending['approval']['id']}/decisions",
+        headers={**headers, "Idempotency-Key": "handoff-approval"},
+        json={"status": "APPROVED"},
+    ).json()
+
+    assert completed["state"] == "COMPLETED"
+    assert completed["response"] == "Done. I inspected the project and verified the result."
+    request = provider.conversation_requests[-1]
+    assert request.tool_results[0]["verified"] is True
+    assert request.tool_results[0]["output"]["project_type"] == "python"
+    history = client.get(f"/v1/sessions/{session['id']}", headers=headers).json()
+    assert history["messages"][-1]["content"] == completed["response"]
 
 
 def test_websocket_authenticates_then_replays_ordered_events(tmp_path: Path) -> None:
