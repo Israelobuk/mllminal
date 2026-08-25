@@ -142,39 +142,6 @@ class MilRuntime:
             )
         trace.tool_count = len(tool_results)
 
-        if route is MilRoute.LOCAL_INFORMATION:
-            response_text = self._local_information_response(request, session.workspace_root)
-            await self._emit_chat_event(
-                session_id,
-                "response.started",
-                detail={"route": route.value},
-                event_sink=event_sink,
-            )
-            trace.mark("first_token_received")
-            await self._emit_chat_event(
-                session_id,
-                "response.delta",
-                text=response_text,
-                detail={"route": route.value},
-                event_sink=event_sink,
-            )
-            await self._emit_chat_event(
-                session_id,
-                "response.completed",
-                text=response_text,
-                detail={"route": route.value},
-                event_sink=event_sink,
-            )
-            trace.mark("response_complete")
-            await self._record_latency(session_id, trace, event_sink)
-            self.store.add_message(
-                session_id,
-                MessageRole.MIL,
-                response_text,
-                idempotency_key=f"mil:chat:{idempotency_key}",
-            )
-            return ChatResponse(response=response_text, cached=False, route=route)
-
         provider_request = MilRequest(
             session_id=session_id,
             task_id=None,
@@ -260,22 +227,6 @@ class MilRuntime:
         if any(term in request.casefold().split() for term in ("list", "files", "folder")):
             return "project.list_files", {"path": "."}
         return "project.inspect_metadata", {}
-
-    def _local_information_response(self, request: str, workspace_root: str | None) -> str:
-        words = set(re.findall(r"[a-z0-9']+", request.casefold()))
-        provider, model = self._provider_identity()
-        if "open" in words and words & {"app", "apps", "application", "applications"}:
-            return "I do not have a live open-application list available in this session."
-        if "model" in words:
-            return f"Mil is using the local {model} model through the {provider} provider."
-        if "provider" in words:
-            return f"Mil is using the local {provider} provider."
-        if "workspace" in words:
-            return f"The active workspace is {workspace_root or 'not attached'}."
-        if "endpoint" in words:
-            endpoint = str(getattr(getattr(self.provider, "_client", None), "base_url", "local"))
-            return f"The local model endpoint is {endpoint}."
-        return "Mil is ready; the local MLLminal daemon is available."
 
     async def submit(
         self,

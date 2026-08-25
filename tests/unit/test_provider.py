@@ -36,7 +36,7 @@ async def test_deterministic_provider_streams_typed_response_and_plan(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_deterministic_conversation_does_not_repeat_demo_prompt(tmp_path: Path) -> None:
+async def test_deterministic_provider_does_not_fabricate_conversation(tmp_path: Path) -> None:
     request = MilRequest(
         session_id="session-1",
         task_id=None,
@@ -46,10 +46,8 @@ async def test_deterministic_conversation_does_not_repeat_demo_prompt(tmp_path: 
 
     events = [event async for event in DeterministicMilProvider().stream_conversation(request)]
 
-    assert events[1].text == (
-        "Hi, I'm Mil, your local workflow assistant. What would you like to work on?"
-    )
-    assert "Hello. What would you like to work on?" not in (events[1].text or "")
+    assert events[0].event_type == "provider.failed"
+    assert "qwen" in (events[0].text or "").lower()
 
 
 def test_validator_rejects_execution_claim_and_unknown_tool(tmp_path: Path) -> None:
