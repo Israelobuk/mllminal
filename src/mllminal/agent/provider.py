@@ -29,6 +29,7 @@ class MilRequest(BaseModel):
     conversation: list[Message] = Field(default_factory=list)
     available_tools: list[ToolDefinition] = Field(default_factory=list)
     permissions: list[PermissionGrant] = Field(default_factory=list)
+    tool_results: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MilProviderEvent(BaseModel):

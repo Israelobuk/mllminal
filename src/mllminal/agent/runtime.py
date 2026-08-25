@@ -1,6 +1,7 @@
 """Stateful Mil orchestration with durable approvals and verification."""
 
 import json
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,7 +14,7 @@ from mllminal.agent.provider import (
     MilRequest,
     build_bounded_context,
 )
-from mllminal.agent.response_cache import ResponseCache, response_cache_key
+from mllminal.agent.routing import MilRoute, route_request
 from mllminal.contracts import (
     Approval,
     ApprovalStatus,
@@ -42,6 +43,11 @@ class PendingTask:
 class ChatResponse:
     response: str
     cached: bool
+    route: MilRoute
+
+_SAFE_ROUTES = frozenset(
+    {MilRoute.CHAT, MilRoute.LOCAL_INFORMATION, MilRoute.READ_ONLY_TOOL}
+)
 
 
 class ProviderFailure(RuntimeError):
@@ -60,61 +66,19 @@ class MilRuntime:
         provider: MilProvider | None = None,
         tools: ToolRegistry | None = None,
         advisor: LearningRuntimeAdvisor | None = None,
-        response_cache: ResponseCache | None = None,
     ) -> None:
         self.store = store
         self.provider = provider or DeterministicMilProvider()
         self.tools = tools or ToolRegistry()
         self.advisor = advisor
-        self.response_cache = response_cache or ResponseCache(store.database_path)
 
     @staticmethod
-    def is_fast_path_request(request: str) -> bool:
-        normalized = " ".join(request.casefold().split())
-        if not normalized or len(normalized) > 160:
-            return False
-        if normalized in {
-            "hi",
-            "hello",
-            "hey",
-            "yo",
-            "thanks",
-            "thank you",
-            "good morning",
-            "good afternoon",
-            "good evening",
-            "how are you",
-            "who are you",
-            "what can you do",
-            "what is mllminal",
-            "what is mil",
-            "what model are you",
-        }:
-            return True
-        action_terms = {
-            "application",
-            "automate",
-            "click",
-            "create",
-            "delete",
-            "discover",
-            "execute",
-            "file",
-            "folder",
-            "find",
-            "launch",
-            "move",
-            "open",
-            "project",
-            "read",
-            "report",
-            "save",
-            "send",
-            "summarize",
-            "workflow",
-            "write",
-        }
-        return not action_terms.intersection(normalized.split()) and normalized.endswith("?")
+    def route_request(request: str) -> MilRoute:
+        return route_request(request)
+
+    @classmethod
+    def is_fast_path_request(cls, request: str) -> bool:
+        return cls.route_request(request) in _SAFE_ROUTES
 
     async def respond(
         self,
@@ -131,36 +95,66 @@ class MilRuntime:
             self.store.append_event(
                 session_id, "context.trimmed", {"kept_messages": len(conversation)}
             )
-        provider_name, model = self._provider_identity()
-        cache_key = response_cache_key(
-            provider=provider_name,
-            model=model,
-            workspace_root=session.workspace_root,
-            content=request,
-        )
-        cached = self.response_cache.get(cache_key)
-        if cached is not None:
-            await self._emit_chat_event(session_id, "response.started", event_sink=event_sink)
+        route = self.route_request(request)
+        if route not in _SAFE_ROUTES:
+            raise ValueError(f"route {route.value} requires the approval-aware task path")
+
+        tool_results: list[dict[str, Any]] = []
+        if route is MilRoute.READ_ONLY_TOOL:
+            tool_name, arguments = self._read_only_tool(request)
+            await self._emit_chat_event(
+                session_id,
+                "progress",
+                text="Checking the requested local information...",
+                detail={"route": route.value},
+                event_sink=event_sink,
+            )
+            output = self.tools.execute(tool_name, arguments, Path(session.workspace_root))
+            checked = self.tools.verify(tool_name, output)
+            tool_results.append(
+                {
+                    "tool_name": tool_name,
+                    "arguments": arguments,
+                    "output": output,
+                    "verified": checked.succeeded,
+                }
+            )
+            await self._emit_chat_event(
+                session_id,
+                "read_only.completed",
+                detail={"tool_name": tool_name, "verified": checked.succeeded},
+                event_sink=event_sink,
+            )
+
+        if route is MilRoute.LOCAL_INFORMATION:
+            response_text = self._local_information_response(request, session.workspace_root)
+            await self._emit_chat_event(
+                session_id,
+                "response.started",
+                detail={"route": route.value},
+                event_sink=event_sink,
+            )
             await self._emit_chat_event(
                 session_id,
                 "response.delta",
-                text=cached,
+                text=response_text,
+                detail={"route": route.value},
                 event_sink=event_sink,
             )
             await self._emit_chat_event(
                 session_id,
                 "response.completed",
-                text=cached,
-                detail={"cached": True},
+                text=response_text,
+                detail={"route": route.value},
                 event_sink=event_sink,
             )
             self.store.add_message(
                 session_id,
                 MessageRole.MIL,
-                cached,
+                response_text,
                 idempotency_key=f"mil:chat:{idempotency_key}",
             )
-            return ChatResponse(response=cached, cached=True)
+            return ChatResponse(response=response_text, cached=False, route=route)
 
         provider_request = MilRequest(
             session_id=session_id,
@@ -168,6 +162,7 @@ class MilRuntime:
             user_message=request,
             workspace_root=session.workspace_root,
             conversation=conversation,
+            tool_results=tool_results,
         )
         response_text = ""
         async for event in self.provider.stream_conversation(provider_request):
@@ -190,8 +185,7 @@ class MilRuntime:
             response_text,
             idempotency_key=f"mil:chat:{idempotency_key}",
         )
-        self.response_cache.put(cache_key, response_text)
-        return ChatResponse(response=response_text, cached=False)
+        return ChatResponse(response=response_text, cached=False, route=route)
 
     async def _emit_chat_event(
         self,
@@ -214,6 +208,29 @@ class MilRuntime:
         if isinstance(self.provider, DeterministicMilProvider):
             return "deterministic", "fixture"
         return "qwen", str(getattr(getattr(self.provider, "_client", None), "model", "unknown"))
+
+    @staticmethod
+    def _read_only_tool(request: str) -> tuple[str, dict[str, Any]]:
+        match = re.search(r"\b(?:read|show)\s+([A-Za-z0-9_./\\-]+)", request)
+        if match is not None and "." in match.group(1):
+            return "project.read_text", {"path": match.group(1).replace("\\", "/")}
+        if any(term in request.casefold().split() for term in ("list", "files", "folder")):
+            return "project.list_files", {"path": "."}
+        return "project.inspect_metadata", {}
+
+    def _local_information_response(self, request: str, workspace_root: str | None) -> str:
+        words = set(re.findall(r"[a-z0-9']+", request.casefold()))
+        provider, model = self._provider_identity()
+        if "model" in words:
+            return f"Mil is using the local {model} model through the {provider} provider."
+        if "provider" in words:
+            return f"Mil is using the local {provider} provider."
+        if "workspace" in words:
+            return f"The active workspace is {workspace_root or 'not attached'}."
+        if "endpoint" in words:
+            endpoint = str(getattr(getattr(self.provider, "_client", None), "base_url", "local"))
+            return f"The local model endpoint is {endpoint}."
+        return "Mil is ready; the local MLLminal daemon is available."
 
     async def submit(
         self,
