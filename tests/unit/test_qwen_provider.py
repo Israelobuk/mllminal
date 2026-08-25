@@ -129,6 +129,35 @@ async def test_qwen_provider_passes_runtime_facts_to_conversation_model(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_qwen_provider_allows_verified_action_summary_in_conversation_prompt(
+    tmp_path: Path,
+) -> None:
+    client = FakeOllamaClient([(["Done."], {})])
+    request = MilRequest(
+        session_id="session-1",
+        task_id="task-1",
+        user_message="summarize the completed action",
+        workspace_root=str(tmp_path),
+        tool_results=[
+            {
+                "tool_name": "project.inspect_metadata",
+                "output": {"project_type": "python"},
+                "verified": True,
+                "verification_detail": "Typed tool result validated",
+            }
+        ],
+    )
+
+    events = [event async for event in QwenMilProvider(client).stream_conversation(request)]
+
+    assert events[1].text == "Done."
+    context = client.requests[0][0]["content"]
+    assert "unless a verified tool result" in context
+    assert "explicitly confirms it" in context
+    assert "Verified tool results" in client.requests[0][1]["content"]
+
+
+@pytest.mark.asyncio
 async def test_qwen_provider_streams_context_free_conversation_without_a_plan(
     tmp_path: Path,
 ) -> None:

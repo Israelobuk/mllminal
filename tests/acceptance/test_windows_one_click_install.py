@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import subprocess
 import time
 import winreg
@@ -138,12 +139,17 @@ def _provision_fixture(root: Path) -> InstalledFixture:
     data = root / "data"
     backups = root / "backups"
     env = os.environ.copy()
+    # Keep acceptance isolated from a daemon the developer may already have running.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        isolated_port = probe.getsockname()[1]
     env.update(
         {
             "MLLMINAL_WINDOWS_ACCEPTANCE": "1",
             "MLLMINAL_ACCEPTANCE_DATA_DIR": str(data),
             "MLLMINAL_ACCEPTANCE_BACKUP_DIR": str(backups),
             "MLLMINAL_DATA_DIR": str(data),
+            "MLLMINAL_PORT": str(isolated_port),
         }
     )
     started_at = time.perf_counter()

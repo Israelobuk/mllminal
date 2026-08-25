@@ -225,7 +225,10 @@ def daemon_status(settings: Settings) -> dict[str, Any]:
 
 def daemon_executable(settings: Settings) -> str | None:
     candidates = [
-        shutil.which("mllminald"),
+        # Prefer the daemon shipped beside the running CLI so an isolated or
+        # upgraded install cannot accidentally attach to another install on PATH.
+        str(Path(sys.executable).with_name("mllminald.exe")),
+        str(settings.data_dir.parent / "app" / "runtime" / "Scripts" / "mllminald.exe"),
         str(
             settings.data_dir.parent.parent
             / "Programs"
@@ -234,8 +237,7 @@ def daemon_executable(settings: Settings) -> str | None:
             / "Scripts"
             / "mllminald.exe"
         ),
-        str(settings.data_dir.parent / "app" / "runtime" / "Scripts" / "mllminald.exe"),
-        str(Path(sys.executable).with_name("mllminald.exe")),
+        shutil.which("mllminald"),
     ]
     return next((item for item in candidates if item and Path(item).is_file()), None)
 

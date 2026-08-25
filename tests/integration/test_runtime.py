@@ -5,7 +5,12 @@ import httpx
 import pytest
 
 from mllminal.agent.ollama import OllamaClient
-from mllminal.agent.provider import MilProviderEvent, MilRequest, QwenMilProvider
+from mllminal.agent.provider import (
+    DeterministicMilProvider,
+    MilProviderEvent,
+    MilRequest,
+    QwenMilProvider,
+)
 from mllminal.agent.runtime import MilRuntime, ProviderFailure
 from mllminal.contracts import ApprovalStatus, MessageRole, TaskState
 from mllminal.runtime_store import RuntimeStore
@@ -111,6 +116,22 @@ class FastChatProvider:
         yield
 
 
+class HandoffProvider:
+    def __init__(self) -> None:
+        self.conversation_requests: list[MilRequest] = []
+
+    async def stream_response(self, request: MilRequest):
+        async for event in DeterministicMilProvider().stream_response(request):
+            yield event
+
+    async def stream_conversation(self, request: MilRequest):
+        self.conversation_requests.append(request)
+        response = "Done. I inspected the project and verified its Python configuration."
+        yield MilProviderEvent(event_type="response.started")
+        yield MilProviderEvent(event_type="response.delta", text=response)
+        yield MilProviderEvent(event_type="response.completed", text=response)
+
+
 @pytest.mark.asyncio
 async def test_repeated_chat_uses_conversation_context_without_generated_response_cache(
     tmp_path: Path,
@@ -175,16 +196,38 @@ async def test_runtime_persists_provider_metadata_for_completed_response(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_post_execution_summary_uses_verified_tool_output_only(tmp_path: Path) -> None:
-    runtime, store, session_id = make_runtime(tmp_path)
+async def test_approved_execution_hands_verified_result_to_qwen_for_final_response(
+    tmp_path: Path,
+) -> None:
+    _default_runtime, store, session_id = make_runtime(tmp_path)
+    provider = HandoffProvider()
+    runtime = MilRuntime(store, provider=provider)
     pending = await runtime.submit(session_id, "inspect this project", "summary-request")
 
-    runtime.decide(pending.approval.id, ApprovalStatus.APPROVED, "summary-approval")
+    completed = runtime.decide(pending.approval.id, ApprovalStatus.APPROVED, "summary-approval")
+    response = await runtime.complete_task_conversation(completed.id)
 
+    assert response == "Done. I inspected the project and verified its Python configuration."
+    request = provider.conversation_requests[-1]
+    assert request.task_id == completed.id
+    assert request.tool_results == [
+        {
+            "tool_name": "project.inspect_metadata",
+            "arguments": {},
+            "output": {
+                "configuration_files": ["pyproject.toml"],
+                "file_count": 1,
+                "project_type": "python",
+                "root": str(tmp_path / "workspace"),
+            },
+            "verified": True,
+            "verification_detail": "Typed tool result validated",
+        }
+    ]
     messages = store.list_messages(session_id)
     assert messages[-1].role is MessageRole.MIL
-    assert "Verified tool result" in messages[-1].content
-    assert "project_type" in messages[-1].content
+    assert messages[-1].content == response
+    assert all("Verified tool result" not in message.content for message in messages)
 
 
 @pytest.mark.asyncio

@@ -188,6 +188,7 @@ async def _submit(
     if answer not in {"y", "yes", "a", "approve"}:
         output("Plan left pending; no action was executed.")
         return
+    decided_response: str | None = None
     try:
         decided = await client.request(
             "POST",
@@ -200,6 +201,9 @@ async def _submit(
     else:
         if isinstance(decided, dict):
             output(f"approval: {decided.get('state', 'recorded')}")
+            value = decided.get("response")
+            if isinstance(value, str) and value.strip():
+                decided_response = value.strip()
     final = await _wait_for_final(
         client,
         str(task_id),
@@ -207,10 +211,15 @@ async def _submit(
         state_renderer=state_renderer,
     )
     final_state = str(final.get("state"))
-    if result_renderer:
+    value = final.get("response")
+    final_response = decided_response or (value if isinstance(value, str) else None)
+    if final_response and final_response.strip():
+        output("Mil:")
+        output(final_response.strip())
+    elif result_renderer:
         output(result_renderer(final_state))
     elif final_state == "COMPLETED":
-        output("Verified completion recorded by the daemon.")
+        output("Task completed, but Mil did not return a conversational summary.")
     else:
         output(f"Execution ended without verified completion: {final_state}")
 

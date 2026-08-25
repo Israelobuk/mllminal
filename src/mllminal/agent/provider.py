@@ -232,7 +232,7 @@ class QwenMilProvider:
             messages.append(
                 {
                     "role": "system",
-                    "content": "Verified read-only tool results:\n"
+                    "content": "Verified tool results:\n"
                     + json.dumps(request.tool_results, sort_keys=True),
                 }
             )

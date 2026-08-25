@@ -37,7 +37,13 @@ from mllminal.automl.service import LocalAutoMLService
 from mllminal.compiler.contracts import CompilerRequest
 from mllminal.compiler.service import WorkflowCompilerService
 from mllminal.config import ProviderConfigStore, Settings
-from mllminal.contracts import ApprovalStatus, ErrorEnvelope, EventEnvelope, PermissionGrant
+from mllminal.contracts import (
+    ApprovalStatus,
+    ErrorEnvelope,
+    EventEnvelope,
+    PermissionGrant,
+    TaskState,
+)
 from mllminal.demonstration.bridge import DeviceDemonstrationBridge
 from mllminal.demonstration.contracts import (
     DemonstrationCaptureRequest,
@@ -1195,7 +1201,12 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
 
     @app.get("/v1/tasks/{task_id}", dependencies=protected)
     async def get_task(task_id: str) -> dict[str, Any]:
-        return store.get_task(task_id).model_dump(mode="json")
+        task = store.get_task(task_id)
+        payload = task.model_dump(mode="json")
+        response = runtime.completed_task_response(task_id)
+        if response is not None:
+            payload["response"] = response
+        return payload
 
     @app.get("/v1/approvals", dependencies=protected)
     async def list_approvals() -> list[dict[str, Any]]:
@@ -1215,9 +1226,18 @@ def create_app(settings: Settings, store: RuntimeStore, token: str) -> FastAPI:
         previous = store.list_events(store.get_task(approval.task_id).session_id)
         after = previous[-1].sequence if previous else 0
         task = await asyncio.to_thread(runtime.decide, approval_id, body.status, idempotency_key)
+        response: str | None = None
+        if task.state is TaskState.COMPLETED:
+            try:
+                response = await runtime.complete_task_conversation(task.id)
+            except RuntimeError:
+                response = None
         events = await asyncio.to_thread(store.list_events, task.session_id, after)
         await hub.publish(events)
-        return task.model_dump(mode="json")
+        payload = task.model_dump(mode="json")
+        if response is not None:
+            payload["response"] = response
+        return payload
 
     @app.get("/v1/permissions", dependencies=protected)
     async def permissions() -> list[dict[str, Any]]:
