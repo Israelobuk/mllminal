@@ -2,9 +2,23 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from mllminal.agent.provider import MilProviderEvent, MilRequest
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
+from mllminal.daemon import api as daemon_api
 from mllminal.daemon.api import create_app
 from mllminal.runtime_store import RuntimeStore
+
+
+class ApiQwenProvider:
+    async def stream_conversation(self, request: MilRequest):
+        response = f"Model answer for: {request.user_message}"
+        yield MilProviderEvent(event_type="response.started")
+        yield MilProviderEvent(event_type="response.delta", text=response)
+        yield MilProviderEvent(event_type="response.completed", text=response)
+
+    async def stream_response(self, _request: MilRequest):
+        raise AssertionError("these API checks must use the conversational model path")
+        yield
 
 
 def make_client(tmp_path: Path) -> tuple[TestClient, dict[str, str], Path]:
@@ -22,7 +36,10 @@ def make_client(tmp_path: Path) -> tuple[TestClient, dict[str, str], Path]:
     )
 
 
-def test_natural_read_only_message_returns_route_without_pending_task(tmp_path: Path) -> None:
+def test_natural_read_only_message_returns_route_without_pending_task(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(daemon_api, "create_provider", lambda _config: ApiQwenProvider())
     client, headers, workspace = make_client(tmp_path)
     session = client.post(
         "/v1/sessions", headers=headers, json={"workspace_root": str(workspace)}

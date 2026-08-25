@@ -2,12 +2,27 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from mllminal.agent.provider import MilProviderEvent, MilRequest
 from mllminal.config import ProviderConfig, ProviderConfigStore, Settings
+from mllminal.daemon import api as daemon_api
 from mllminal.daemon.api import create_app
 from mllminal.runtime_store import RuntimeStore
 
 
-def test_latency_diagnostics_returns_last_safe_request_trace(tmp_path: Path) -> None:
+class ApiQwenProvider:
+    async def stream_conversation(self, request: MilRequest):
+        response = f"Model answer for: {request.user_message}"
+        yield MilProviderEvent(event_type="response.started")
+        yield MilProviderEvent(event_type="response.delta", text=response)
+        yield MilProviderEvent(event_type="response.completed", text=response)
+
+    async def stream_response(self, _request: MilRequest):
+        raise AssertionError("these API checks must use the conversational model path")
+        yield
+
+
+def test_latency_diagnostics_returns_last_safe_request_trace(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(daemon_api, "create_provider", lambda _config: ApiQwenProvider())
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     settings = Settings(data_dir=tmp_path / "data", workspace_root=workspace)
