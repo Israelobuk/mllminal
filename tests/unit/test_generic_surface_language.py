@@ -16,10 +16,23 @@ runner = CliRunner()
 
 
 def test_cli_exposes_bounded_generic_capability_discovery(tmp_path: Path) -> None:
-    settings = Settings(data_dir=tmp_path, workspace_root=tmp_path)
+    class FakeClient:
+        async def health(self) -> dict[str, str]:
+            return {"status": "ok", "daemon": "mllminald"}
 
+        async def request(self, method: str, path: str, *args, **kwargs) -> dict:
+            assert method == "GET"
+            assert path == "/v1/apps/filesystem/capability-discovery"
+            return {
+                "application": "filesystem",
+                "bounded": True,
+                "capabilities": [{"name": "filesystem.list", "source": "registered_adapter"}],
+            }
+
+    settings = Settings(data_dir=tmp_path, workspace_root=tmp_path)
     result = runner.invoke(
-        create_app(settings), ["applications", "capability-discovery", "filesystem"]
+        create_app(settings, daemon_client_factory=lambda _settings: FakeClient()),
+        ["applications", "capability-discovery", "filesystem"],
     )
 
     assert result.exit_code == 0, result.stdout

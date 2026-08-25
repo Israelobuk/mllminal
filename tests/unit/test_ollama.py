@@ -65,3 +65,25 @@ async def test_ollama_client_reports_installed_model_from_tags_endpoint() -> Non
         available = await client.model_available()
 
     assert available is True
+
+
+@pytest.mark.asyncio
+async def test_ollama_client_sends_bounded_non_thinking_options() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = __import__("json").loads(request.content)
+        assert payload["think"] is False
+        assert payload["options"] == {"num_predict": 512}
+        return httpx.Response(200, content=b'{"message":{"content":"hello"},"done":true}\n')
+
+    client = OllamaClient("http://ollama.test", "qwen:test", transport=httpx.MockTransport(handler))
+    async with client:
+        events = [
+            event
+            async for event in client.stream_chat(
+                [{"role": "user", "content": "hi"}],
+                think=False,
+                max_output_tokens=512,
+            )
+        ]
+
+    assert [event.text for event in events] == ["hello"]

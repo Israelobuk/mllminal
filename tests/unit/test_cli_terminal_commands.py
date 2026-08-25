@@ -429,3 +429,37 @@ def test_status_and_apps_use_friendly_human_output(tmp_path) -> None:
     assert apps.exit_code == 0, apps.stdout
     assert "Windows filesystem" in apps.stdout
     assert "2 capabilities" in apps.stdout
+
+
+def test_service_restart_reclaims_unhealthy_owned_daemon(tmp_path, monkeypatch) -> None:
+    calls: list[str] = []
+
+    class UnhealthyClient:
+        async def request(self, *args, **kwargs):
+            raise OSError("daemon unavailable")
+
+        async def health(self):
+            raise OSError("daemon unavailable")
+
+    def fake_stop(settings, *, wait_seconds=4.0):
+        assert settings.data_dir == tmp_path
+        assert wait_seconds > 0
+        calls.append("stop")
+        return {"status": "stopped", "pid": 4321}
+
+    async def fake_ensure(settings, client_factory):
+        calls.append("start")
+        return {"status": "running", "started": {"pid": 8765}}
+
+    monkeypatch.setattr("mllminal.cli.terminal_commands.stop_owned_daemon", fake_stop)
+    monkeypatch.setattr("mllminal.cli.terminal_commands.ensure_daemon", fake_ensure)
+    app = create_app(
+        Settings(data_dir=tmp_path, workspace_root=tmp_path),
+        daemon_client_factory=lambda _settings: UnhealthyClient(),
+    )
+
+    result = runner.invoke(app, ["service", "restart", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == ["stop", "start"]
+    assert json.loads(result.stdout)["status"] == "running"

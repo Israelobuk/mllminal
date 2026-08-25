@@ -13,7 +13,7 @@ class StreamingOllamaClient:
     def __init__(self) -> None:
         self.requests: list[list[dict[str, str]]] = []
 
-    async def stream_chat(self, messages: list[dict[str, str]]):
+    async def stream_chat(self, messages: list[dict[str, str]], **_options: object):
         self.requests.append(messages)
         yield OllamaStreamEvent(text="Hello", done=False, usage={})
         yield OllamaStreamEvent(

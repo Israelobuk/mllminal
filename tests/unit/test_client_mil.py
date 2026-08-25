@@ -260,3 +260,29 @@ def test_prepare_session_discards_missing_persisted_session(tmp_path: Path) -> N
 
     assert session_id == "new-session"
     assert (settings.data_dir / "mil-session").read_text(encoding="utf-8").strip() == "new-session"
+
+
+def test_prepare_session_discards_session_from_another_workspace(tmp_path: Path) -> None:
+    class OtherWorkspaceClient:
+        def __init__(self) -> None:
+            self.session_id: str | None = None
+
+        async def request(self, method: str, path: str) -> object:
+            assert method == "GET"
+            assert path == "/v1/sessions/old-session"
+            return {"id": "old-session", "workspace_root": str(tmp_path / "old-workspace")}
+
+        async def ensure_session(self) -> str:
+            assert self.session_id is None
+            self.session_id = "new-session"
+            return self.session_id
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path / "new-workspace")
+    settings.ensure_data_dir()
+    (settings.data_dir / "mil-session").write_text("old-session\n", encoding="utf-8")
+    client = OtherWorkspaceClient()
+
+    session_id = asyncio.run(mil._prepare_session(client, settings))
+
+    assert session_id == "new-session"
+    assert (settings.data_dir / "mil-session").read_text(encoding="utf-8").strip() == "new-session"
