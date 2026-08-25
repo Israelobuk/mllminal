@@ -7,8 +7,10 @@ import ctypes
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -212,6 +214,44 @@ def _read_owned_lock(lock_path: Path, executable: str) -> dict[str, Any] | None:
     return None
 
 
+def _terminate_process_tree(pid: int) -> None:
+    """Terminate one validated daemon process tree without opening a console window."""
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return
+    os.kill(pid, signal.SIGTERM)
+
+
+def stop_owned_daemon(settings: Settings, *, wait_seconds: float = 4.0) -> dict[str, Any]:
+    """Stop only the daemon whose executable and process identity match our lock."""
+    executable = daemon_executable(settings)
+    if executable is None:
+        return {"status": "already_stopped"}
+    info = _read_owned_lock(daemon_lock_path(settings), executable)
+    if info is None:
+        return {"status": "already_stopped"}
+    if info.get("status") == "blocked":
+        raise RuntimeError(str(info.get("reason", "another process owns the daemon lock")))
+    pid = int(info["pid"])
+    _terminate_process_tree(pid)
+    deadline = time.monotonic() + wait_seconds
+    alive = _process_is_alive(pid)
+    while alive and time.monotonic() < deadline:
+        time.sleep(0.05)
+        alive = _process_is_alive(pid)
+    if alive:
+        raise RuntimeError("owned mllminald process did not stop")
+    release_daemon_startup_lock(settings, pid)
+    return {"status": "stopped", "pid": pid}
+
+
 def daemon_status(settings: Settings) -> dict[str, Any]:
     """Return the local ownership projection without spawning a process."""
     executable = daemon_executable(settings)
@@ -358,6 +398,21 @@ async def ensure_daemon(
         except (OSError, RuntimeError, TimeoutError, httpx.HTTPError):
             continue
         return {"status": "running", "health": health, "started": started}
+    if started.get("status") == "already_running":
+        try:
+            stop_owned_daemon(settings, wait_seconds=max(0.1, min(4.0, wait_seconds)))
+            started = start_daemon(settings)
+        except (OSError, RuntimeError, TimeoutError) as error:
+            diagnostic = _write_startup_diagnostic(settings, str(error))
+            raise DaemonStartupError(diagnostic, str(error)) from error
+        deadline = asyncio.get_running_loop().time() + wait_seconds
+        while asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.1)
+            try:
+                health = await client.health()
+            except (OSError, RuntimeError, TimeoutError, httpx.HTTPError):
+                continue
+            return {"status": "running", "health": health, "started": started}
     detail = f"mllminald did not become healthy within {wait_seconds:.1f} seconds"
     diagnostic = _write_startup_diagnostic(settings, detail)
     raise DaemonStartupError(diagnostic, detail)

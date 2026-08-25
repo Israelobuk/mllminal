@@ -404,3 +404,87 @@ def test_daemon_executable_prefers_running_bundle_over_path_shadow(
     monkeypatch.setattr("mllminal.service_lifecycle.shutil.which", lambda _name: str(path_daemon))
 
     assert daemon_executable(settings) == str(bundled_daemon)
+
+
+def test_stop_owned_daemon_terminates_validated_process_and_releases_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from mllminal.service_lifecycle import daemon_lock_path, stop_owned_daemon
+
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+    executable = tmp_path / "mllminald.exe"
+    marker = daemon_lock_path(settings)
+    marker.parent.mkdir(parents=True)
+    marker.write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "pid": 4321,
+                "executable": str(executable),
+                "process_start_time": "owned-start",
+            }
+        ),
+        encoding="utf-8",
+    )
+    alive = iter([True, False])
+    terminated: list[int] = []
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle.daemon_executable", lambda _settings: str(executable)
+    )
+    monkeypatch.setattr("mllminal.service_lifecycle._process_is_alive", lambda _pid: next(alive))
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle._process_start_identity", lambda _pid: "owned-start"
+    )
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle._process_executable", lambda _pid: str(executable)
+    )
+    monkeypatch.setattr(
+        "mllminal.service_lifecycle._terminate_process_tree", lambda pid: terminated.append(pid)
+    )
+
+    result = stop_owned_daemon(settings, wait_seconds=0.1)
+
+    assert result == {"status": "stopped", "pid": 4321}
+    assert terminated == [4321]
+    assert not marker.exists()
+
+
+@pytest.mark.asyncio
+async def test_ensure_daemon_reclaims_unhealthy_owned_process_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    starts: list[str] = []
+    stops: list[Path] = []
+
+    class RecoveringClient:
+        def __init__(self, _settings: Settings) -> None:
+            pass
+
+        async def health(self) -> dict[str, str]:
+            if len(starts) < 2:
+                raise RuntimeError("offline")
+            return {"status": "ok", "daemon": "mllminald"}
+
+    def fake_start(_settings: Settings) -> dict[str, object]:
+        starts.append("start")
+        if len(starts) == 1:
+            return {"status": "already_running", "pid": 4321}
+        return {"status": "starting", "pid": 8765}
+
+    def fake_stop(settings: Settings, *, wait_seconds: float) -> dict[str, object]:
+        assert wait_seconds > 0
+        stops.append(settings.data_dir)
+        return {"status": "stopped", "pid": 4321}
+
+    monkeypatch.setattr("mllminal.service_lifecycle.start_daemon", fake_start)
+    monkeypatch.setattr("mllminal.service_lifecycle.stop_owned_daemon", fake_stop)
+    settings = Settings(data_dir=tmp_path / "data", workspace_root=tmp_path)
+
+    result = await ensure_daemon(settings, RecoveringClient, wait_seconds=0.01)
+
+    assert result["status"] == "running"
+    assert result["started"] == {"status": "starting", "pid": 8765}
+    assert starts == ["start", "start"]
+    assert stops == [settings.data_dir]

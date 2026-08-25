@@ -26,7 +26,12 @@ from mllminal.client.api import DaemonClient
 from mllminal.config import Settings
 from mllminal.install_lifecycle import InstallLifecycle, InstallLifecycleError
 from mllminal.runtime_bootstrap import RuntimeBootstrap, RuntimeBootstrapError
-from mllminal.service_lifecycle import daemon_executable, daemon_status, ensure_daemon
+from mllminal.service_lifecycle import (
+    daemon_executable,
+    daemon_status,
+    ensure_daemon,
+    stop_owned_daemon,
+)
 
 ClientFactory = Callable[[Settings], DaemonClient]
 
@@ -974,7 +979,7 @@ def register_terminal_commands(
                 observed = daemon_status(settings)
                 if observed.get("status") in {"stopped", "uninstalled"}:
                     return {"status": "already_stopped"}
-                raise
+                return stop_owned_daemon(settings)
 
         try:
             _emit(asyncio.run(shutdown()), json_output)
@@ -1007,6 +1012,7 @@ def register_terminal_commands(
                 try:
                     await daemon_client_factory(settings).health()
                 except (OSError, RuntimeError, TimeoutError, httpx.HTTPError):
+                    stop_owned_daemon(settings)
                     return await ensure_daemon(settings, daemon_client_factory)
                 await asyncio.sleep(0.1)
             raise RuntimeError("mllminald did not stop before restart")
